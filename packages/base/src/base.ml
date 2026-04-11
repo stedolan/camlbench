@@ -27,7 +27,7 @@
 
 (* The intent is to shadow all of INRIA's standard library.  Modules below would cause
    compilation errors without being removed from [Shadow_stdlib] before inclusion. *)
-
+(*
 include (
   Shadow_stdlib :
     module type of struct
@@ -75,6 +75,7 @@ include (
     with type ('a, 'b, 'c, 'd, 'e, 'f) format6 := ('a, 'b, 'c, 'd, 'e, 'f) format6
     with type 'a ref := 'a ref)
 [@ocaml.warning "-3"]
+*)
 
 (**/**)
 

@@ -14,14 +14,14 @@ let transfer = Stdlib.Queue.transfer
 
 let iter t ~(f : _ -> _) =
   let caml_iter : ('a -> unit) -> 'a t -> unit =
-    Stdlib.Obj.magic (Stdlib.Queue.iter : ('a -> unit) -> 'a t -> unit)
+    fun f q -> Stdlib.Queue.iter f q
   in
   caml_iter f t
 ;;
 
 let fold t ~init ~(f : _ -> _ -> _) =
   let caml_fold : ('b -> 'a -> 'b) -> 'b -> 'a t -> 'b =
-    Stdlib.Obj.magic (Stdlib.Queue.fold : ('b -> 'a -> 'b) -> 'b -> 'a t -> 'b)
+    fun f acc q -> Stdlib.Queue.fold f acc q
   in
   caml_fold f init t
 ;;

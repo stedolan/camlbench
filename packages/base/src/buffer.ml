@@ -5,14 +5,13 @@ include Stdlib.Buffer
 let contents_bytes = to_bytes
 let add_substring t s ~pos ~len = add_substring t s pos len
 let add_subbytes t s ~pos ~len = add_subbytes t s pos len
+let add_string t s = add_string t s
+let add_bytes t s = add_bytes t s
 let sexp_of_t t = sexp_of_string (contents t)
 let caml_buffer_length = (Stdlib.Obj.magic (Stdlib.Buffer.length : t -> int) : t -> int)
 
-let caml_buffer_blit =
-  (Stdlib.Obj.magic
-     (Stdlib.Buffer.blit : Stdlib.Buffer.t -> int -> Bytes.t -> int -> int -> unit)
-    : Stdlib.Buffer.t -> int -> Bytes.t -> int -> int -> unit)
-;;
+let caml_buffer_blit buf i byt j len =
+  Stdlib.Buffer.blit buf i byt j len
 
 module To_bytes =
   Blit.Make_distinct

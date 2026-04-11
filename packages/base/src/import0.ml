@@ -1,7 +1,7 @@
 (* This module is included in [Import].  It is aimed at modules that define the standard
    combinators for [sexp_of], [of_sexp], [compare] and [hash] and are included in
    [Import]. *)
-
+(*
 include (
   Shadow_stdlib :
     module type of struct
@@ -40,7 +40,7 @@ include (
     with module Uchar := Shadow_stdlib.Uchar
     with module Unit := Shadow_stdlib.Unit)
 [@ocaml.warning "-3"]
-
+*)
 type 'a ref = 'a Stdlib.ref = { mutable contents : 'a }
 
 (* Reshuffle [Stdlib] so that we choose the modules using labels when available. *)
