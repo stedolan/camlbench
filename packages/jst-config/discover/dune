@@ -1,6 +1,5 @@
 (executables
  (modes byte exe)
  (names discover)
- (libraries base dune-configurator)
- (preprocess
-  (pps ppx_assert)))
+ (flags (:standard -w -37-34))
+ (libraries base dune-configurator))

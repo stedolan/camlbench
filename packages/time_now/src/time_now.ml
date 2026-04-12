@@ -1,9 +1,5 @@
-[%%import "config.h"]
-
 open! Base
 
-[%%ifdef JSC_ARCH_SIXTYFOUR]
-
 external nanoseconds_since_unix_epoch_or_zero
   :  unit
   -> Int63.t
@@ -16,28 +12,7 @@ external nanosecond_counter_for_timing
   = "time_now_nanosecond_counter_for_timing"
   [@@noalloc]
 
-[%%else]
-
-external nanoseconds_since_unix_epoch_or_zero
-  :  unit
-  -> Int63.t
-  = "time_now_nanoseconds_since_unix_epoch_or_zero"
-
-external nanosecond_counter_for_timing
-  :  unit
-  -> Int63.t
-  = "time_now_nanosecond_counter_for_timing"
-
-[%%endif]
-[%%ifdef JSC_POSIX_TIMERS]
-
-let[@cold] gettime_failed () = failwith "clock_gettime(CLOCK_REALTIME) failed"
-
-[%%else]
-
-let[@cold] gettime_failed () = failwith "gettimeofday failed"
-
-[%%endif]
+let[@inline never] gettime_failed () = failwith "clock_gettime(CLOCK_REALTIME) failed"
 
 let nanoseconds_since_unix_epoch () =
   let t = nanoseconds_since_unix_epoch_or_zero () in
