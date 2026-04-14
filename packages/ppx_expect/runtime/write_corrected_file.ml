@@ -27,7 +27,7 @@ let rewrite_corrections ~original_file_contents ~corrections =
   result ^ rest
 ;;
 
-let f ~use_color ~in_place ~diff_command ~diff_path_prefix ~filename ~with_ corrections
+let f ~use_color:_ ~in_place ~diff_command ~diff_path_prefix:_ ~filename ~with_ corrections
   : Ppx_inline_test_lib.Test_result.t
   =
   let dot_corrected = filename ^ ".corrected" in
@@ -54,6 +54,8 @@ let f ~use_color ~in_place ~diff_command ~diff_path_prefix ~filename ~with_ corr
        Stdio.Out_channel.write_all dot_corrected ~data:next_contents;
        Success
      | _ ->
+       failwith "Make_corrected_file unsupported by this build"
+(*
        (* By invoking [Make_corrected_file.f] with a fresh temporary file, we avoid the
           following possible race between inline_test_runners A and B:
           1. A runs test T1 and generates next contents C1.
@@ -94,5 +96,5 @@ let f ~use_color ~in_place ~diff_command ~diff_path_prefix ~filename ~with_ corr
           Success
         | Error _ ->
           Stdlib.Sys.rename tmp_corrected dot_corrected;
-          Failure))
+          Failure)*))
 ;;
