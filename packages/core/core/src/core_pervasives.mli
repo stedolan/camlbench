@@ -154,18 +154,10 @@ external __POS__ : string * int * int * int = "%loc_POS"
   \    filename, [lnum] the line number, [cnum] the character position in\n\
   \    the line and [enum] the last character position in the line. "]
 
-[%%if ocaml_version >= (4, 12, 0)]
-
 external __FUNCTION__ : string = "%loc_FUNCTION"
 [@@ocaml.doc
   " [__FUNCTION__] returns the name of the current function or method, including\n\
   \    any enclosing modules or classes. "]
-
-[%%else]
-
-val __FUNCTION__ : string
-
-[%%endif]
 
 external __LOC_OF__ : ('a[@local_opt]) -> (string * 'a[@local_opt]) = "%loc_LOC"
 [@@ocaml.doc
@@ -692,23 +684,11 @@ external float_of_string : string -> float = "caml_float_of_string"
 
 [@@@ocaml.text " {6 Pair operations} "]
 
-[%%if flambda_backend]
-
-external fst : ('a * 'b[@local_opt]) -> ('a[@local_opt]) = "%field0_immut"
+val fst : ('a * 'b) -> ('a)
 [@@ocaml.doc " Return the first component of a pair. "]
 
-external snd : ('a * 'b[@local_opt]) -> ('b[@local_opt]) = "%field1_immut"
+val snd : ('a * 'b) -> ('b)
 [@@ocaml.doc " Return the second component of a pair. "]
-
-[%%else]
-
-external fst : ('a * 'b[@local_opt]) -> ('a[@local_opt]) = "%field0"
-[@@ocaml.doc " Return the first component of a pair. "]
-
-external snd : ('a * 'b[@local_opt]) -> ('b[@local_opt]) = "%field1"
-[@@ocaml.doc " Return the second component of a pair. "]
-
-[%%endif]
 
 [@@@ocaml.text
   " {6 List operations}\n\n    More list operations are provided in module {!List}.\n"]

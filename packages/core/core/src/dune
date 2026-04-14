@@ -39,3 +39,13 @@
  (deps)
  (action
   (bash "echo '()' > ocamlopt-flags")))
+
+(rule
+ (targets gc.mli)
+ (deps gc.mli.cppo)
+ (action (run %{bin:cppo} %{deps} -V OCAML:%{ocaml_version} -o %{targets})))
+
+(rule
+ (targets gc.ml)
+ (deps gc.ml.cppo)
+ (action (run %{bin:cppo} %{deps} -V OCAML:%{ocaml_version} -o %{targets})))

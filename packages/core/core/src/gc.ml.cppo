@@ -183,7 +183,7 @@ module Stable = struct
   end
 
   module Stat = struct
-    [%%if ocaml_version < (4, 12, 0)]
+#if OCAML_VERSION < (4, 12, 0)
 
     module V1 = struct
       type t = Stdlib.Gc.stat =
@@ -1750,7 +1750,7 @@ module Stable = struct
       end [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%elif ocaml_version < (5, 5, 0)]
+#elif OCAML_VERSION < (5, 5, 0)
 
     module V1 = struct
       type t =
@@ -3317,7 +3317,7 @@ module Stable = struct
       end [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%else]
+#else
 
     module V1 = struct
       type t =
@@ -4933,11 +4933,11 @@ module Stable = struct
       end [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%endif]
+#endif
   end
 
   module Control = struct
-    [%%if ocaml_version < (5, 0, 0)]
+#if OCAML_VERSION < (5, 0, 0)
 
     module V1 = struct
       [@@@ocaml.warning "-3"]
@@ -5432,7 +5432,7 @@ module Stable = struct
       end [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%else]
+#else
 
     module V1 = struct
       [@@@ocaml.warning "-3"]
@@ -5927,7 +5927,7 @@ module Stable = struct
       end [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%endif]
+#endif
   end
 end
 
@@ -5935,7 +5935,7 @@ include Stdlib.Gc
 
 module Stat = struct
   module T = struct
-    [%%if ocaml_version < (4, 12, 0)]
+#if OCAML_VERSION < (4, 12, 0)
 
     type t = Stdlib.Gc.stat =
       { minor_words : float
@@ -6612,7 +6612,7 @@ module Stat = struct
       let _ = sexp_of_t
     end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-    [%%elif ocaml_version < (5, 5, 0)]
+#elif OCAML_VERSION < (5, 5, 0)
 
     type t = Stdlib.Gc.stat =
       { minor_words : float
@@ -7497,7 +7497,7 @@ module Stat = struct
       end
     end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-    [%%else]
+#else
 
     type t = Stdlib.Gc.stat =
       { minor_words : float
@@ -8432,13 +8432,13 @@ module Stat = struct
       end
     end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-    [%%endif]
+#endif
   end
 
   include T
   include Comparable.Make_plain (T)
 
-  [%%if ocaml_version < (4, 12, 0)]
+#if OCAML_VERSION < (4, 12, 0)
 
   let combine first second ~float_f ~int_f =
     { minor_words = float_f first.minor_words second.minor_words
@@ -8460,7 +8460,7 @@ module Stat = struct
     }
   ;;
 
-  [%%elif ocaml_version < (5, 5, 0)]
+#elif OCAML_VERSION < (5, 5, 0)
 
   let combine first second ~float_f ~int_f =
     { minor_words = float_f first.minor_words second.minor_words
@@ -8484,7 +8484,7 @@ module Stat = struct
     }
   ;;
 
-  [%%else]
+#else
 
   let combine first second ~float_f ~int_f =
     { minor_words = float_f first.minor_words second.minor_words
@@ -8509,14 +8509,14 @@ module Stat = struct
     }
   ;;
 
-  [%%endif]
+#endif
 
   let add = combine ~float_f:Float.( + ) ~int_f:Int.( + )
   let diff = combine ~float_f:Float.( - ) ~int_f:Int.( - )
 end
 
 module Control = struct
-  [%%if ocaml_version < (5, 0, 0)]
+#if OCAML_VERSION < (5, 0, 0)
 
   module T = struct
     [@@@ocaml.warning "-3"]
@@ -8938,7 +8938,7 @@ module Control = struct
     end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
-  [%%else]
+#else
 
   module T = struct
     [@@@ocaml.warning "-3"]
@@ -9346,7 +9346,7 @@ module Control = struct
     end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
-  [%%endif]
+#endif
 
   include T
   include Comparable.Make_plain (T)
@@ -9484,14 +9484,13 @@ external major_plus_minor_words : unit -> int = "core_gc_major_plus_minor_words"
 external allocated_words : unit -> int = "core_gc_allocated_words"
 external run_memprof_callbacks : unit -> unit = "core_gc_run_memprof_callbacks"
 
+#if OCAML_VERSION < (5, 0, 0)
+
 module Runtime4 = struct
   external heap_words : unit -> int = "core_gc_heap_words" [@@noalloc]
   external heap_chunks : unit -> int = "core_gc_heap_chunks" [@@noalloc]
   external top_heap_words : unit -> int = "core_gc_top_heap_words" [@@noalloc]
 end
-
-[%%import "gc_stubs.h"]
-[%%if ocaml_version < (5, 0, 0)]
 
 external compactions : unit -> int = "core_gc_compactions" [@@noalloc]
 
@@ -9499,7 +9498,7 @@ let heap_words = Runtime4.heap_words
 let heap_chunks = Runtime4.heap_chunks
 let top_heap_words = Runtime4.top_heap_words
 
-[%%else]
+#else
 
 module Runtime5 = struct
   let heap_words () = (quick_stat ()).heap_words
@@ -9507,25 +9506,12 @@ module Runtime5 = struct
   let top_heap_words () = (quick_stat ()).top_heap_words
 end
 
-[%%if OCAML_5_MINUS]
-
-external runtime5 : unit -> bool = "%runtime5"
-external compactions : unit -> int = "core_gc_compactions" [@@noalloc]
-
-let runtime5 = runtime5 ()
-let heap_words = if runtime5 then Runtime5.heap_words else Runtime4.heap_words
-let heap_chunks = if runtime5 then Runtime5.heap_chunks else Runtime4.heap_chunks
-let top_heap_words = if runtime5 then Runtime5.top_heap_words else Runtime4.top_heap_words
-
-[%%else]
-
 let compactions () = (quick_stat ()).compactions
 let heap_words = Runtime5.heap_words
 let heap_chunks = Runtime5.heap_chunks
 let top_heap_words = Runtime5.top_heap_words
 
-[%%endif]
-[%%endif]
+#endif
 
 let stat_size_lazy =
   lazy (Obj.reachable_words (Obj.repr (Stdlib.Gc.quick_stat () : Stat.t)))
@@ -9704,7 +9690,7 @@ module For_testing = struct
     end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
-  [%%if ocaml_version >= (4, 11, 0)]
+#if OCAML_VERSION >= (4, 11, 0)
 
   let measure_and_log_allocation_local (f : unit -> 'a) =
     let log : Allocation_log.t list ref = ref []
@@ -9772,7 +9758,7 @@ module For_testing = struct
     , (fun x__506_ -> globalize_list Allocation_log.globalize x__506_) log )
   ;;
 
-  [%%else]
+#else
 
   let measure_and_log_allocation f =
     let x, report = measure_allocation f in
@@ -9781,7 +9767,7 @@ module For_testing = struct
 
   let measure_and_log_allocation_local = measure_and_log_allocation
 
-  [%%endif]
+#endif
 
   let require_no_allocation_local_failed here allocation_report allocation_log =
     let allocation_report = Allocation_report.globalize allocation_report in

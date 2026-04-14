@@ -33,17 +33,8 @@ module T2 : sig
     -> ('a, 'b) t
     -> bool
 
-  [%%if flambda_backend]
-
-  external get1 : (('a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0_immut"
-  external get2 : ((_, 'a) t[@local_opt]) -> ('a[@local_opt]) = "%field1_immut"
-
-  [%%else]
-
-  external get1 : (('a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0"
-  external get2 : ((_, 'a) t[@local_opt]) -> ('a[@local_opt]) = "%field1"
-
-  [%%endif]
+  val get1 : ('a, _) t -> 'a
+  val get2 : (_, 'a) t -> 'a
 
   val map : ('a, 'a) t -> f:('a -> 'b) -> ('b, 'b) t
   val map_fst : ('a, 'b) t -> f:('a -> 'c) -> ('c, 'b) t
@@ -85,18 +76,8 @@ module T3 : sig
     -> ('a, 'b, 'c) t
     -> int
 
-  [%%if flambda_backend]
-
-  external get1 : (('a, _, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0_immut"
-  external get2 : ((_, 'a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field1_immut"
-
-  [%%else]
-
-  external get1 : (('a, _, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0"
-  external get2 : ((_, 'a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field1"
-
-  [%%endif]
-
+  val get1 : ('a, _, _) t -> 'a
+  val get2 : (_, 'a, _) t -> 'a
   val get3 : (_, _, 'a) t -> 'a
   val map : ('a, 'a, 'a) t -> f:('a -> 'b) -> ('b, 'b, 'b) t
   val map_fst : ('a, 'b, 'c) t -> f:('a -> 'd) -> ('d, 'b, 'c) t

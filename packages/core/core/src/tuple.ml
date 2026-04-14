@@ -102,17 +102,8 @@ module T2 = struct
     fun (a, b) -> f a b
   ;;
 
-  [%%if flambda_backend]
-
-  external get1 : (('a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0_immut"
-  external get2 : ((_, 'a) t[@local_opt]) -> ('a[@local_opt]) = "%field1_immut"
-
-  [%%else]
-
-  external get1 : (('a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0"
-  external get2 : ((_, 'a) t[@local_opt]) -> ('a[@local_opt]) = "%field1"
-
-  [%%endif]
+  let get1 = Stdlib.fst
+  let get2 = Stdlib.snd
 
   let map (x, y) ~f = f x, f y
   let map_fst (x, y) ~f = f x, y
@@ -251,18 +242,8 @@ module T3 = struct
   let map_all (x, y, z) ~f1 ~f2 ~f3 = f1 x, f2 y, f3 z
   let map2 (x1, y1, z1) (x2, y2, z2) ~f = f x1 x2, f y1 y2, f z1 z2
 
-  [%%if flambda_backend]
-
-  external get1 : (('a, _, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0_immut"
-  external get2 : ((_, 'a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field1_immut"
-
-  [%%else]
-
-  external get1 : (('a, _, _) t[@local_opt]) -> ('a[@local_opt]) = "%field0"
-  external get2 : ((_, 'a, _) t[@local_opt]) -> ('a[@local_opt]) = "%field1"
-
-  [%%endif]
-
+  let get1 (a, _, _) = a
+  let get2 (_, a, _) = a
   let get3 (_, _, a) = a
 
   let compare ~cmp1 ~cmp2 ~cmp3 (x, y, z) (x', y', z') =

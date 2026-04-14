@@ -5,7 +5,7 @@
 open! Import
 
 module Stat : sig
-  [%%if ocaml_version < (4, 12, 0)]
+#if OCAML_VERSION < (4, 12, 0)
 
   type t =
     { minor_words : float
@@ -89,7 +89,7 @@ module Stat : sig
   end
   [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-  [%%elif ocaml_version < (5, 5, 0)]
+#elif OCAML_VERSION < (5, 5, 0)
 
   type t =
     { minor_words : float
@@ -317,7 +317,7 @@ module Stat : sig
   end
   [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-  [%%else]
+#else
 
   type t =
     { minor_words : float
@@ -554,7 +554,7 @@ module Stat : sig
   end
   [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-  [%%endif]
+#endif
 
   include Comparable.S_plain with type t := t
 
@@ -579,7 +579,7 @@ type stat = Stat.t
   \    the number of bytes.\n"]
 
 module Control : sig
-  [%%if ocaml_version < (5, 0, 0)]
+#if OCAML_VERSION < (5, 0, 0)
 
   type t =
     { mutable minor_heap_size : int
@@ -711,7 +711,7 @@ module Control : sig
   end
   [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-  [%%else]
+#else
 
   type t =
     { minor_heap_size : int
@@ -850,7 +850,7 @@ module Control : sig
   end
   [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-  [%%endif]
+#endif
 
   include Comparable.S_plain with type t := t
 end
@@ -1240,7 +1240,7 @@ end
 
 module Stable : sig
   module Stat : sig
-    [%%if ocaml_version < (4, 12, 0)]
+#if OCAML_VERSION < (4, 12, 0)
 
     module V1 : sig
       type nonrec t = Stat.t
@@ -1277,7 +1277,7 @@ module Stable : sig
       [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%else]
+#else
 
     module V1 : sig
       type nonrec t [@@deriving bin_io, compare, equal, hash, sexp, stable_witness]
@@ -1314,7 +1314,7 @@ module Stable : sig
       [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
-    [%%endif]
+#endif
   end
 
   module Allocation_policy : sig
