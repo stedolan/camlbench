@@ -1,1 +1,4 @@
 _build
+*.before-ppx
+scripts/ppx_main.*
+scripts/ppx.exe

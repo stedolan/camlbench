@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# ocamlfind ocamlopt -predicates ppx_driver -package ppxlib,ppx_jane,ppx_optcomp,ppx_diff.ppx_diff  -linkpkg -pp cat  ppx_main.ml -o ppx.exe
+
+tgt=$(cd "$2"; pwd)
+src=$(cd "$(dirname $0)"; pwd)
+set -e
+#PP='ppx-jane -inline-test-lib ppx_inline_test_lib_1'
+cd "$src"
+ocamlfind ocamlopt -predicates ppx_driver -package ppxlib,$1 -linkpkg -pp cat ppx_main.ml -o ppx.exe
+if echo "$1" | grep -q 'ppx_inline_test\|ppx_jane'; then
+    PP="$src/ppx.exe -inline-test-lib ppx_inline_test_lib_1"
+else
+    PP="$src/ppx.exe"
+fi
+# ppx -reconcile would be useful here, but as of writing (2026-04-14, ppxlib 0.37.0) it's broken,
+# producing wrong output at least for ppx_diff (duplicating some chunks of parsetree)
+
+cd "$tgt"
+for i in *.mli *.ml; do
+    [ -e $i.before-ppx ] && continue;
+    case $i in
+        *.mli) kind=intf;;
+        *.ml) kind=impl;;
+    esac
+    mv $i $i.before-ppx
+    $PP -$kind $i.before-ppx | \
+      ocamlformat --disable-conf-files --enable-outside-detected-project -p janestreet --$kind - \
+      > $i \
+    || mv $i.before-ppx $i
+done

@@ -1,0 +1,4 @@
+#!/bin/bash
+pkg=$1
+ver=$2
+exec git subtree add --prefix packages/$(basename $pkg) git@github.com:$pkg $ver --squash
