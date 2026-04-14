@@ -1875,7 +1875,7 @@ module Stable = struct
       let stable_witness _ = Stable_witness.assert_stable
       let __t_of_sexp__ = t_of_sexp
 
-      let globalize _ =
+      let globalize _ _ =
         failwithf "Unexpectedly called [%s.globalize]" Types.Upper_bound.name ()
       ;;
     end
