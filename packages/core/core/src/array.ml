@@ -677,7 +677,7 @@ module type Permissioned = sig
 end
 
 module Permissioned : sig
-  type ('a, -'perms) t [@@deriving bin_io ~localize, compare, sexp]
+  type ('a, -'perms) t = 'a array [@@deriving bin_io ~localize, compare, sexp]
 
   include sig
     [@@@ocaml.warning "-32"]
