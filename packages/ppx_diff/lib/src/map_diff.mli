@@ -8,10 +8,38 @@ module Stable : sig
         | Add of 'k * 'v
         | Diff of 'k * 'v_diff
       [@@deriving sexp, bin_io, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Sexplib0.Sexpable.S3 with type ('k, 'v, 'v_diff) t := ('k, 'v, 'v_diff) t
+        include Bin_prot.Binable.S3 with type ('k, 'v, 'v_diff) t := ('k, 'v, 'v_diff) t
+
+        val stable_witness
+          :  'k Ppx_stable_witness_runtime.Stable_witness.t
+          -> 'v Ppx_stable_witness_runtime.Stable_witness.t
+          -> 'v_diff Ppx_stable_witness_runtime.Stable_witness.t
+          -> ('k, 'v, 'v_diff) t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
     type ('k, 'v, 'v_diff) t = ('k, 'v, 'v_diff) Change.t list
     [@@deriving sexp, bin_io, stable_witness]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Sexplib0.Sexpable.S3 with type ('k, 'v, 'v_diff) t := ('k, 'v, 'v_diff) t
+      include Bin_prot.Binable.S3 with type ('k, 'v, 'v_diff) t := ('k, 'v, 'v_diff) t
+
+      val stable_witness
+        :  'k Ppx_stable_witness_runtime.Stable_witness.t
+        -> 'v Ppx_stable_witness_runtime.Stable_witness.t
+        -> 'v_diff Ppx_stable_witness_runtime.Stable_witness.t
+        -> ('k, 'v, 'v_diff) t Ppx_stable_witness_runtime.Stable_witness.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     val get
       :  (from:'v -> to_:'v -> 'v_diff Optional_diff.t)
@@ -31,20 +59,22 @@ module Stable : sig
       -> ('k, 'v, 'v_diff) t list
       -> ('k, 'v, 'v_diff) t Optional_diff.t
 
-    module Make (M : sig
-      module Key : sig
-        type t
-        type comparator_witness
-      end
+    module Make : functor
+        (M : sig
+           module Key : sig
+             type t
+             type comparator_witness
+           end
 
-      type 'v t = (Key.t, 'v, Key.comparator_witness) Map.t
-    end) :
+           type 'v t = (Key.t, 'v, Key.comparator_witness) Map.t
+         end)
+        ->
       Diff_intf.S1_plain
-        with type 'v derived_on := 'v M.t
-         and type ('v, 'v_diff) t := (M.Key.t, 'v, 'v_diff) t
+      with type 'v derived_on := 'v M.t
+       and type ('v, 'v_diff) t := (M.Key.t, 'v, 'v_diff) t
   end
 end
 
 include
   module type of Stable.V1
-    with type ('k, 'v, 'v_diff) Change.t = ('k, 'v, 'v_diff) Stable.V1.Change.t
+  with type ('k, 'v, 'v_diff) Change.t = ('k, 'v, 'v_diff) Stable.V1.Change.t

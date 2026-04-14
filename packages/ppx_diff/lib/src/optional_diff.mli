@@ -1,7 +1,3 @@
-(* Basically a ['a option], but designed to reduce allocations.
-
-   If we have a [local_ 'a t] that means that ['a] was allocated, but ['a option] was not
-*)
 open! Base
 
 type 'a t

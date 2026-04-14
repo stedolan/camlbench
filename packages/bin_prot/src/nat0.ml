@@ -1,5 +1,3 @@
-(* Nat0: natural numbers (including zero) *)
-
 type t = int
 
 let of_int n =

@@ -2,6 +2,4 @@
  (name int_repr)
  (public_name int_repr)
  (flags :standard -w -55)
- (libraries base)
- (preprocess
-  (pps ppx_jane)))
+ (libraries base ppx_compare.runtime-lib ppx_hash.runtime-lib base_quickcheck.ppx_quickcheck.runtime typerep))

@@ -1,6 +1,6 @@
 open Base
 
-(** Types used in the generated code *)
+[@@@ocaml.text " Types used in the generated code "]
 
 type 'a test_pred =
   ?here:Lexing.position list -> ?message:string -> ('a -> bool) -> 'a -> unit
@@ -21,7 +21,7 @@ type 'a test_result =
   -> 'a
   -> unit
 
-(** Functions called by the generated code *)
+[@@@ocaml.text " Functions called by the generated code "]
 
 val test_pred
   :  pos:string
@@ -54,5 +54,5 @@ val test_result
   -> got:'a
   -> unit
 
-(** Called to set/unset the [diff] function, used by [test_result] *)
 val set_diff_function : (from_:string -> to_:string -> unit) option -> unit
+[@@ocaml.doc " Called to set/unset the [diff] function, used by [test_result] "]

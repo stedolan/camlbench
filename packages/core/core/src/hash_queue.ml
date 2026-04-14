@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"hash_queue.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "hash_queue.ml.before-ppx"
+;;
+
 open! Import
 open Hash_queue_intf
 
@@ -7,8 +20,8 @@ module type S_backend = S_backend
 module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
   module type Backend =
     S1
-      with type 'key create_arg := 'key Hashtbl.Hashable.t
-      with type 'key create_key := 'key
+    with type 'key create_arg := 'key Hashtbl.Hashable.t
+    with type 'key create_key := 'key
 
   module Backend : Backend = struct
     module Key_value = struct
@@ -25,7 +38,11 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
       let value t = t.value
 
       let sexp_of_t sexp_of_key sexp_of_data { key; value } =
-        [%sexp_of: key * data] (key, value)
+        ((fun (arg0__001_, arg1__002_) ->
+           let res0__003_ = sexp_of_key arg0__001_
+           and res1__004_ = sexp_of_data arg1__002_ in
+           Sexplib0.Sexp.List [ res0__003_; res1__004_ ]) [@merlin.hide])
+          (key, value)
       ;;
     end
 
@@ -39,15 +56,14 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
       }
 
     let sexp_of_t sexp_of_key sexp_of_data t =
-      [%sexp_of: (key, data) Key_value.t Doubly_linked.t] t.queue
+      ((fun x__005_ ->
+         Doubly_linked.sexp_of_t (Key_value.sexp_of_t sexp_of_key sexp_of_data) x__005_)
+         [@merlin.hide])
+        t.queue
     ;;
 
     let invariant t =
       assert (Doubly_linked.length t.queue = Table.length t.table);
-      (* Look at each element in the queue, checking:
-       *   - every element in the queue is in the hash table
-       *   - there are no duplicate keys
-       *)
       let keys = Table.create ~size:(Table.length t.table) (Table.hashable_s t.table) in
       Doubly_linked.iter t.queue ~f:(fun kv ->
         let key = kv.key in
@@ -92,31 +108,33 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let lookup_exn t k = (Elt.value (Table.find_exn t.table k)).value
     let mem t k = Table.mem t.table k
-
-    (* Note that this is the tail-recursive Core_list.map *)
     let to_list t = List.map (Doubly_linked.to_list t.queue) ~f:Key_value.value
     let to_array t = Array.map (Doubly_linked.to_array t.queue) ~f:Key_value.value
 
     let for_all t ~f =
       read t (fun () ->
-        Doubly_linked.for_all t.queue ~f:(fun kv -> f kv.value) [@nontail]) [@nontail]
+        (Doubly_linked.for_all t.queue ~f:(fun kv -> f kv.value) [@nontail]))
+      [@nontail]
     ;;
 
     let exists t ~f =
-      read t (fun () -> Doubly_linked.exists t.queue ~f:(fun kv -> f kv.value) [@nontail]) 
+      read t (fun () ->
+        (Doubly_linked.exists t.queue ~f:(fun kv -> f kv.value) [@nontail]))
       [@nontail]
     ;;
 
     let find_map t ~f =
       read t (fun () ->
-        Doubly_linked.find_map t.queue ~f:(fun kv -> f kv.value) [@nontail]) [@nontail]
+        (Doubly_linked.find_map t.queue ~f:(fun kv -> f kv.value) [@nontail]))
+      [@nontail]
     ;;
 
     let find t ~f =
       read t (fun () ->
         Option.map
           (Doubly_linked.find t.queue ~f:(fun kv -> f kv.value))
-          ~f:Key_value.value) [@nontail]
+          ~f:Key_value.value)
+      [@nontail]
     ;;
 
     let enqueue_unchecked t back_or_front key value =
@@ -143,9 +161,15 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let raise_enqueue_duplicate_key t key =
       raise_s
-        [%message
-          "Hash_queue.enqueue_exn: duplicate key"
-            ~_:(Table.sexp_of_key t.table key : Sexp.t)]
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                 "Hash_queue.enqueue_exn: duplicate key"
+             ; (Sexp.sexp_of_t [@merlin.hide]) (Table.sexp_of_key t.table key)
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     ;;
 
     let enqueue_exn t back_or_front key value =
@@ -157,8 +181,6 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
     let enqueue_back_exn t = enqueue_exn t `back
     let enqueue_front_exn t = enqueue_exn t `front
 
-    (* Performance hack: we implement this version separately to avoid allocation from the
-       option. *)
     let lookup_and_move_to_back_exn t key =
       ensure_can_modify t;
       let elt = Table.find_exn t.table key in
@@ -169,9 +191,9 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
     let lookup_and_move_to_back t key =
       let open Option.Let_syntax in
       ensure_can_modify t;
-      let%map elt = Table.find t.table key in
-      Doubly_linked.move_to_back t.queue elt;
-      Key_value.value (Elt.value elt)
+      Let_syntax.map (Table.find t.table key) ~f:(fun elt ->
+        Doubly_linked.move_to_back t.queue elt;
+        Key_value.value (Elt.value elt))
     ;;
 
     let lookup_and_move_to_front_exn t key =
@@ -184,9 +206,9 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
     let lookup_and_move_to_front t key =
       let open Option.Let_syntax in
       ensure_can_modify t;
-      let%map elt = Table.find t.table key in
-      Doubly_linked.move_to_front t.queue elt;
-      Key_value.value (Elt.value elt)
+      Let_syntax.map (Table.find t.table key) ~f:(fun elt ->
+        Doubly_linked.move_to_front t.queue elt;
+        Key_value.value (Elt.value elt))
     ;;
 
     let dequeue_with_key t back_or_front =
@@ -204,7 +226,13 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
     ;;
 
     let raise_dequeue_with_key_empty () =
-      raise_s [%message "Hash_queue.dequeue_with_key: empty queue"]
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Conv.sexp_of_string
+             "Hash_queue.dequeue_with_key: empty queue"
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     ;;
 
     let dequeue_with_key_exn t back_or_front =
@@ -251,7 +279,14 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
       | Some kv -> Some kv.value
     ;;
 
-    let raise_dequeue_empty () = raise_s [%message "Hash_queue.dequeue_exn: empty queue"]
+    let raise_dequeue_empty () =
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Conv.sexp_of_string "Hash_queue.dequeue_exn: empty queue"
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
+    ;;
 
     let dequeue_exn t back_or_front =
       match dequeue t back_or_front with
@@ -261,11 +296,7 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let dequeue_back_exn t = dequeue_exn t `back
     let dequeue_front_exn t = dequeue_exn t `front
-
-    let keys t =
-      (* Return the keys in the order of the queue. *)
-      List.map (Doubly_linked.to_list t.queue) ~f:Key_value.key
-    ;;
+    let keys t = List.map (Doubly_linked.to_list t.queue) ~f:Key_value.key
 
     let to_alist t =
       List.map (Doubly_linked.to_list t.queue) ~f:(fun kv -> kv.key, kv.value)
@@ -273,7 +304,8 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let iteri t ~f =
       read t (fun () ->
-        Doubly_linked.iter t.queue ~f:(fun kv -> f ~key:kv.key ~data:kv.value) [@nontail]) 
+        (Doubly_linked.iter t.queue ~f:(fun kv -> f ~key:kv.key ~data:kv.value)
+        [@nontail]))
       [@nontail]
     ;;
 
@@ -281,8 +313,10 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let foldi t ~init ~f =
       read t (fun () ->
-        Doubly_linked.fold t.queue ~init ~f:(fun ac kv -> f ac ~key:kv.key ~data:kv.value) 
-        [@nontail]) [@nontail]
+        (Doubly_linked.fold t.queue ~init ~f:(fun ac kv ->
+           f ac ~key:kv.key ~data:kv.value)
+        [@nontail]))
+      [@nontail]
     ;;
 
     let fold t ~init ~f = foldi t ~init ~f:(fun ac ~key:_ ~data -> f ac data) [@nontail]
@@ -301,7 +335,7 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
           f v;
           loop ()
       in
-      loop () [@nontail]
+      (loop () [@nontail])
     ;;
 
     let remove t k =
@@ -315,8 +349,14 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let raise_remove_unknown_key t key =
       raise_s
-        [%message
-          "Hash_queue.remove_exn: unknown key" ~_:(Table.sexp_of_key t.table key : Sexp.t)]
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Hash_queue.remove_exn: unknown key"
+             ; (Sexp.sexp_of_t [@merlin.hide]) (Table.sexp_of_key t.table key)
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     ;;
 
     let remove_exn t k =
@@ -356,9 +396,14 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
 
     let raise_replace_unknown_key t key =
       raise_s
-        [%message
-          "Hash_queue.replace_exn: unknown key"
-            ~_:(Table.sexp_of_key t.table key : Sexp.t)]
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Hash_queue.replace_exn: unknown key"
+             ; (Sexp.sexp_of_t [@merlin.hide]) (Table.sexp_of_key t.table key)
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     ;;
 
     let replace_exn t k v =
@@ -390,26 +435,41 @@ module Make_backend (Table : Hashtbl_intf.Hashtbl) : S_backend = struct
   module type S = S0 with type ('key, 'data) hash_queue := ('key, 'data) Backend.t
 
   module Make_with_hashable (T : sig
-    module Key : Key
+      module Key : Key
 
-    val hashable : Key.t Hashtbl.Hashable.t
-  end) : S with type key = T.Key.t = struct
+      val hashable : Key.t Hashtbl.Hashable.t
+    end) : S with type key = T.Key.t = struct
     include (Backend : Backend with type ('k, 'd) t := ('k, 'd) Backend.t)
 
     type key = T.Key.t
     type 'data t = (T.Key.t, 'data) Backend.t [@@deriving sexp_of]
+
+    include struct
+      let _ = fun (_ : 'data t) -> ()
+
+      let sexp_of_t : 'data. ('data -> Sexplib0.Sexp.t) -> 'data t -> Sexplib0.Sexp.t =
+        fun _of_data__008_ x__009_ ->
+        Backend.sexp_of_t T.Key.sexp_of_t _of_data__008_ x__009_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let hashable = T.hashable
     let create ?growth_allowed ?size () = create ?growth_allowed ?size hashable
   end
 
   module Make (Key : Key) : S with type key = Key.t = Make_with_hashable (struct
-    module Key = Key
+      module Key = Key
 
-    let hashable = Table.Hashable.of_key (module Key)
-  end)
+      let hashable = Table.Hashable.of_key (module Key)
+    end)
 
   include Backend
 end
 
 include Make_backend (Hashtbl)
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

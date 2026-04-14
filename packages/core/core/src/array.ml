@@ -1,3 +1,13 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"array.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "array.ml.before-ppx"
+;;
+
 open! Import
 open Base_quickcheck.Export
 open Perms.Export
@@ -6,11 +16,143 @@ module Core_sequence = Sequence
 
 include (
   Base.Array :
-    sig
-      type 'a t = 'a array [@@deriving sexp, compare ~localize, globalize, sexp_grammar]
-    end)
+  sig
+    type 'a t = 'a array [@@deriving sexp, compare ~localize, globalize, sexp_grammar]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Sexplib0.Sexpable.S1 with type 'a t := 'a t
+      include Ppx_compare_lib.Comparable.S1 with type 'a t := 'a t
+      include Ppx_compare_lib.Comparable.S_local1 with type 'a t := 'a t
+
+      val globalize : ('a -> 'a) -> 'a t -> 'a t
+      val t_sexp_grammar : 'a Sexplib0.Sexp_grammar.t -> 'a t Sexplib0.Sexp_grammar.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+  end)
 
 type 'a t = 'a array [@@deriving bin_io ~localize, quickcheck, typerep]
+
+include struct
+  [@@@ocaml.warning "-60"]
+
+  let _ = fun (_ : 'a t) -> ()
+
+  let bin_shape_t =
+    let _group =
+      Bin_prot.Shape.group
+        (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:13:0")
+        [ ( Bin_prot.Shape.Tid.of_string "t"
+          , [ Bin_prot.Shape.Vid.of_string "a" ]
+          , bin_shape_array
+              (Bin_prot.Shape.var
+                 (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:13:12")
+                 (Bin_prot.Shape.Vid.of_string "a")) )
+        ]
+    in
+    fun a -> (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) [ a ]
+  ;;
+
+  let _ = bin_shape_t
+
+  let bin_size_t__local
+    : 'a. 'a Bin_prot.Size.sizer_local -> 'a t Bin_prot.Size.sizer_local
+    =
+    fun _size_of_a__local v -> bin_size_array__local _size_of_a__local v
+  ;;
+
+  let _ = bin_size_t__local
+
+  let bin_size_t : 'a. 'a Bin_prot.Size.sizer -> 'a t Bin_prot.Size.sizer =
+    fun _size_of_a v -> bin_size_array _size_of_a v
+  ;;
+
+  let _ = bin_size_t
+
+  let bin_write_t__local
+    : 'a. 'a Bin_prot.Write.writer_local -> 'a t Bin_prot.Write.writer_local
+    =
+    fun _write_a__local buf ~pos v -> bin_write_array__local _write_a__local buf ~pos v
+  ;;
+
+  let _ = bin_write_t__local
+
+  let bin_write_t : 'a. 'a Bin_prot.Write.writer -> 'a t Bin_prot.Write.writer =
+    fun _write_a buf ~pos v -> bin_write_array _write_a buf ~pos v
+  ;;
+
+  let _ = bin_write_t
+
+  let bin_writer_t =
+    (fun bin_writer_a ->
+       { size = (fun v -> bin_size_t bin_writer_a.size v)
+       ; write = (fun v -> bin_write_t bin_writer_a.write v)
+       }
+     : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+  ;;
+
+  let _ = bin_writer_t
+
+  let __bin_read_t__ : 'a. 'a Bin_prot.Read.reader -> (int -> 'a t) Bin_prot.Read.reader =
+    fun _of__a buf ~pos_ref vint -> (__bin_read_array__ _of__a) buf ~pos_ref vint
+  ;;
+
+  let _ = __bin_read_t__
+
+  let bin_read_t : 'a. 'a Bin_prot.Read.reader -> 'a t Bin_prot.Read.reader =
+    fun _of__a buf ~pos_ref -> (bin_read_array _of__a) buf ~pos_ref
+  ;;
+
+  let _ = bin_read_t
+
+  let bin_reader_t =
+    (fun bin_reader_a ->
+       { read = (fun buf ~pos_ref -> (bin_read_t bin_reader_a.read) buf ~pos_ref)
+       ; vtag_read =
+           (fun buf ~pos_ref vtag -> (__bin_read_t__ bin_reader_a.read) buf ~pos_ref vtag)
+       }
+     : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+  ;;
+
+  let _ = bin_reader_t
+
+  let bin_t =
+    (fun bin_a ->
+       { writer = bin_writer_t bin_a.writer
+       ; reader = bin_reader_t bin_a.reader
+       ; shape = bin_shape_t bin_a.shape
+       }
+     : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+  ;;
+
+  let _ = bin_t
+  let quickcheck_generator _generator__003_ = quickcheck_generator_array _generator__003_
+  let _ = quickcheck_generator
+  let quickcheck_observer _observer__002_ = quickcheck_observer_array _observer__002_
+  let _ = quickcheck_observer
+  let quickcheck_shrinker _shrinker__001_ = quickcheck_shrinker_array _shrinker__001_
+  let _ = quickcheck_shrinker
+
+  module Typename_of_t = Typerep_lib.Std.Make_typename.Make1 (struct
+      type nonrec 'a t = 'a t
+
+      let name = "array.ml.before-ppx.t"
+      let _ = name
+    end)
+
+  let typename_of_t = Typename_of_t.typename_of_t
+  let _ = typename_of_t
+
+  let typerep_of_t : 'a. 'a Typerep_lib.Std.Typerep.t -> 'a t Typerep_lib.Std.Typerep.t =
+    fun (type a) ->
+    fun (_of_a : a Typerep_lib.Std.Typerep.t) ->
+    let name_of_t = Typename_of_t.named _of_a in
+    Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy (typerep_of_array _of_a)))
+  ;;
+
+  let _ = typerep_of_t
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 module Private = Base.Array.Private
 
@@ -34,11 +176,95 @@ module T = struct
     let set = set
   end
 
-  (* See OCaml perf notes for why these array blits are special cased -- in particular,
-     the section entitled "Fast, Slow and Incorrect Array blits" of
-     https://web.archive.org/web/20130220000229/http://janestreet.github.com/ocaml-perf-notes.html *)
   module Int = struct
     type t_ = int array [@@deriving bin_io ~localize, compare, sexp]
+
+    include struct
+      let _ = fun (_ : t_) -> ()
+
+      let bin_shape_t_ =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:41:4")
+            [ Bin_prot.Shape.Tid.of_string "t_", [], bin_shape_array bin_shape_int ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t_")) []
+      ;;
+
+      let _ = bin_shape_t_
+
+      let bin_size_t___local : t_ Bin_prot.Size.sizer_local =
+        fun v -> bin_size_array__local bin_size_int__local v
+      ;;
+
+      let _ = bin_size_t___local
+      let bin_size_t_ = (bin_size_t___local :> _ Bin_prot.Size.sizer)
+      let _ = bin_size_t_
+
+      let bin_write_t___local : t_ Bin_prot.Write.writer_local =
+        fun buf ~pos v -> bin_write_array__local bin_write_int__local buf ~pos v
+      ;;
+
+      let _ = bin_write_t___local
+      let bin_write_t_ = (bin_write_t___local :> _ Bin_prot.Write.writer)
+      let _ = bin_write_t_
+
+      let bin_writer_t_ =
+        ({ size = bin_size_t_; write = bin_write_t_ } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t_
+
+      let __bin_read_t___ : (int -> t_) Bin_prot.Read.reader =
+        fun buf ~pos_ref vint -> (__bin_read_array__ bin_read_int) buf ~pos_ref vint
+      ;;
+
+      let _ = __bin_read_t___
+
+      let bin_read_t_ : t_ Bin_prot.Read.reader =
+        fun buf ~pos_ref -> (bin_read_array bin_read_int) buf ~pos_ref
+      ;;
+
+      let _ = bin_read_t_
+
+      let bin_reader_t_ =
+        ({ read = bin_read_t_; vtag_read = __bin_read_t___ }
+         : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t_
+
+      let bin_t_ =
+        ({ writer = bin_writer_t_; reader = bin_reader_t_; shape = bin_shape_t_ }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t_
+
+      let compare_t_ =
+        (fun a__004_ b__005_ ->
+           compare_array
+             (fun a__006_ (b__007_ [@merlin.hide]) ->
+                (compare_int a__006_ b__007_ [@merlin.hide]))
+             a__004_
+             b__005_
+         : t_ -> (t_[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare_t_
+
+      let t__of_sexp =
+        (fun x__009_ -> array_of_sexp int_of_sexp x__009_ : Sexplib0.Sexp.t -> t_)
+      ;;
+
+      let _ = t__of_sexp
+
+      let sexp_of_t_ =
+        (fun x__010_ -> sexp_of_array sexp_of_int x__010_ : t_ -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_t_
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     module Unsafe_blit = struct
       external unsafe_blit
@@ -49,7 +275,7 @@ module T = struct
         -> len:int
         -> unit
         = "core_array_unsafe_int_blit"
-        [@@noalloc]
+      [@@noalloc]
     end
 
     include
@@ -62,6 +288,12 @@ module T = struct
         end)
         (struct
           type t = t_ [@@deriving sexp_of]
+
+          include struct
+            let _ = fun (_ : t) -> ()
+            let sexp_of_t = (sexp_of_t_ : t -> Sexplib0.Sexp.t)
+            let _ = sexp_of_t
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
           include Sequence
 
@@ -76,6 +308,93 @@ module T = struct
   module Float = struct
     type t_ = float array [@@deriving bin_io ~localize, compare, sexp]
 
+    include struct
+      let _ = fun (_ : t_) -> ()
+
+      let bin_shape_t_ =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:77:4")
+            [ Bin_prot.Shape.Tid.of_string "t_", [], bin_shape_array bin_shape_float ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t_")) []
+      ;;
+
+      let _ = bin_shape_t_
+
+      let bin_size_t___local : t_ Bin_prot.Size.sizer_local =
+        fun v -> bin_size_array__local bin_size_float__local v
+      ;;
+
+      let _ = bin_size_t___local
+      let bin_size_t_ = (bin_size_t___local :> _ Bin_prot.Size.sizer)
+      let _ = bin_size_t_
+
+      let bin_write_t___local : t_ Bin_prot.Write.writer_local =
+        fun buf ~pos v -> bin_write_array__local bin_write_float__local buf ~pos v
+      ;;
+
+      let _ = bin_write_t___local
+      let bin_write_t_ = (bin_write_t___local :> _ Bin_prot.Write.writer)
+      let _ = bin_write_t_
+
+      let bin_writer_t_ =
+        ({ size = bin_size_t_; write = bin_write_t_ } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t_
+
+      let __bin_read_t___ : (int -> t_) Bin_prot.Read.reader =
+        fun buf ~pos_ref vint -> (__bin_read_array__ bin_read_float) buf ~pos_ref vint
+      ;;
+
+      let _ = __bin_read_t___
+
+      let bin_read_t_ : t_ Bin_prot.Read.reader =
+        fun buf ~pos_ref -> (bin_read_array bin_read_float) buf ~pos_ref
+      ;;
+
+      let _ = bin_read_t_
+
+      let bin_reader_t_ =
+        ({ read = bin_read_t_; vtag_read = __bin_read_t___ }
+         : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t_
+
+      let bin_t_ =
+        ({ writer = bin_writer_t_; reader = bin_reader_t_; shape = bin_shape_t_ }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t_
+
+      let compare_t_ =
+        (fun a__011_ b__012_ ->
+           compare_array
+             (fun a__013_ (b__014_ [@merlin.hide]) ->
+                (compare_float a__013_ b__014_ [@merlin.hide]))
+             a__011_
+             b__012_
+         : t_ -> (t_[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare_t_
+
+      let t__of_sexp =
+        (fun x__016_ -> array_of_sexp float_of_sexp x__016_ : Sexplib0.Sexp.t -> t_)
+      ;;
+
+      let _ = t__of_sexp
+
+      let sexp_of_t_ =
+        (fun x__017_ -> sexp_of_array sexp_of_float x__017_ : t_ -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_t_
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     module Unsafe_blit = struct
       external unsafe_blit
         :  src:(t_[@local_opt])
@@ -85,7 +404,7 @@ module T = struct
         -> len:int
         -> unit
         = "core_array_unsafe_float_blit"
-        [@@noalloc]
+      [@@noalloc]
     end
 
     external get : (t_[@local_opt]) -> (int[@local_opt]) -> float = "%floatarray_safe_get"
@@ -121,6 +440,12 @@ module T = struct
         (struct
           type t = t_ [@@deriving sexp_of]
 
+          include struct
+            let _ = fun (_ : t) -> ()
+            let sexp_of_t = (sexp_of_t_ : t -> Sexplib0.Sexp.t)
+            let _ = sexp_of_t
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
           include Sequence
 
           let create ~len = create ~len 0.
@@ -137,7 +462,7 @@ module type Permissioned = sig
 
   include
     Indexed_container.S1_with_creators_permissions
-      with type ('a, 'perms) t := ('a, 'perms) t
+    with type ('a, 'perms) t := ('a, 'perms) t
 
   include Blit.S1_permissions with type ('a, 'perms) t := ('a, 'perms) t
   include Binary_searchable.S1_permissions with type ('a, 'perms) t := ('a, 'perms) t
@@ -354,8 +679,26 @@ end
 module Permissioned : sig
   type ('a, -'perms) t [@@deriving bin_io ~localize, compare, sexp]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S_local2 with type ('a, -'perms) t := ('a, 'perms) t
+    include Ppx_compare_lib.Comparable.S2 with type ('a, -'perms) t := ('a, 'perms) t
+    include Sexplib0.Sexpable.S2 with type ('a, -'perms) t := ('a, 'perms) t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   module Int : sig
     type nonrec -'perms t = (int, 'perms) t [@@deriving bin_io ~localize, compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Bin_prot.Binable.S_local1 with type -'perms t := 'perms t
+      include Ppx_compare_lib.Comparable.S1 with type -'perms t := 'perms t
+      include Sexplib0.Sexpable.S1 with type -'perms t := 'perms t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     include Blit.S_permissions with type 'perms t := 'perms t
 
@@ -367,11 +710,20 @@ module Permissioned : sig
       -> len:int
       -> unit
       = "core_array_unsafe_int_blit"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Float : sig
     type nonrec -'perms t = (float, 'perms) t [@@deriving bin_io ~localize, compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Bin_prot.Binable.S_local1 with type -'perms t := 'perms t
+      include Ppx_compare_lib.Comparable.S1 with type -'perms t := 'perms t
+      include Sexplib0.Sexpable.S1 with type -'perms t := 'perms t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     include Blit.S_permissions with type 'perms t := 'perms t
 
@@ -409,7 +761,7 @@ module Permissioned : sig
       -> len:int
       -> unit
       = "core_array_unsafe_float_blit"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   val of_array_id : 'a array -> ('a, [< read_write ]) t
@@ -420,16 +772,463 @@ module Permissioned : sig
 end = struct
   type ('a, -'perms) t = 'a array [@@deriving bin_io ~localize, compare, sexp, typerep]
 
+  include struct
+    [@@@ocaml.warning "-60"]
+
+    let _ = fun (_ : ('a, 'perms) t) -> ()
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:421:2")
+          [ ( Bin_prot.Shape.Tid.of_string "t"
+            , [ Bin_prot.Shape.Vid.of_string "a"; Bin_prot.Shape.Vid.of_string "perms" ]
+            , bin_shape_array
+                (Bin_prot.Shape.var
+                   (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:421:25")
+                   (Bin_prot.Shape.Vid.of_string "a")) )
+          ]
+      in
+      fun a perms ->
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) [ a; perms ]
+    ;;
+
+    let _ = bin_shape_t
+
+    let bin_size_t__local
+      :  'a 'perms.
+         'a Bin_prot.Size.sizer_local
+      -> 'perms Bin_prot.Size.sizer_local
+      -> ('a, 'perms) t Bin_prot.Size.sizer_local
+      =
+      fun _size_of_a__local _size_of_perms__local v ->
+      bin_size_array__local _size_of_a__local v
+    ;;
+
+    let _ = bin_size_t__local
+
+    let bin_size_t
+      :  'a 'perms.
+         'a Bin_prot.Size.sizer
+      -> 'perms Bin_prot.Size.sizer
+      -> ('a, 'perms) t Bin_prot.Size.sizer
+      =
+      fun _size_of_a _size_of_perms v -> bin_size_array _size_of_a v
+    ;;
+
+    let _ = bin_size_t
+
+    let bin_write_t__local
+      :  'a 'perms.
+         'a Bin_prot.Write.writer_local
+      -> 'perms Bin_prot.Write.writer_local
+      -> ('a, 'perms) t Bin_prot.Write.writer_local
+      =
+      fun _write_a__local _write_perms__local buf ~pos v ->
+      bin_write_array__local _write_a__local buf ~pos v
+    ;;
+
+    let _ = bin_write_t__local
+
+    let bin_write_t
+      :  'a 'perms.
+         'a Bin_prot.Write.writer
+      -> 'perms Bin_prot.Write.writer
+      -> ('a, 'perms) t Bin_prot.Write.writer
+      =
+      fun _write_a _write_perms buf ~pos v -> bin_write_array _write_a buf ~pos v
+    ;;
+
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      (fun bin_writer_a bin_writer_perms ->
+         { size = (fun v -> bin_size_t bin_writer_a.size bin_writer_perms.size v)
+         ; write = (fun v -> bin_write_t bin_writer_a.write bin_writer_perms.write v)
+         }
+       : _ Bin_prot.Type_class.writer
+         -> _ Bin_prot.Type_class.writer
+         -> _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+
+    let __bin_read_t__
+      :  'a 'perms.
+         'a Bin_prot.Read.reader
+      -> 'perms Bin_prot.Read.reader
+      -> (int -> ('a, 'perms) t) Bin_prot.Read.reader
+      =
+      fun _of__a _of__perms buf ~pos_ref vint ->
+      (__bin_read_array__ _of__a) buf ~pos_ref vint
+    ;;
+
+    let _ = __bin_read_t__
+
+    let bin_read_t
+      :  'a 'perms.
+         'a Bin_prot.Read.reader
+      -> 'perms Bin_prot.Read.reader
+      -> ('a, 'perms) t Bin_prot.Read.reader
+      =
+      fun _of__a _of__perms buf ~pos_ref -> (bin_read_array _of__a) buf ~pos_ref
+    ;;
+
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      (fun bin_reader_a bin_reader_perms ->
+         { read =
+             (fun buf ~pos_ref ->
+               (bin_read_t bin_reader_a.read bin_reader_perms.read) buf ~pos_ref)
+         ; vtag_read =
+             (fun buf ~pos_ref vtag ->
+               (__bin_read_t__ bin_reader_a.read bin_reader_perms.read) buf ~pos_ref vtag)
+         }
+       : _ Bin_prot.Type_class.reader
+         -> _ Bin_prot.Type_class.reader
+         -> _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      (fun bin_a bin_perms ->
+         { writer = bin_writer_t bin_a.writer bin_perms.writer
+         ; reader = bin_reader_t bin_a.reader bin_perms.reader
+         ; shape = bin_shape_t bin_a.shape bin_perms.shape
+         }
+       : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+
+    let compare
+      :  'a 'perms.
+         ('a -> ('a[@merlin.hide]) -> int)
+      -> ('perms -> ('perms[@merlin.hide]) -> int)
+      -> ('a, 'perms) t
+      -> (('a, 'perms) t[@merlin.hide])
+      -> int
+      =
+      fun _cmp__a _cmp__perms a__018_ b__019_ ->
+      compare_array
+        (fun a__020_ (b__021_ [@merlin.hide]) -> (_cmp__a a__020_ b__021_ [@merlin.hide]))
+        a__018_
+        b__019_
+    ;;
+
+    let _ = compare
+
+    let t_of_sexp
+      :  'a 'perms.
+         (Sexplib0.Sexp.t -> 'a)
+      -> (Sexplib0.Sexp.t -> 'perms)
+      -> Sexplib0.Sexp.t
+      -> ('a, 'perms) t
+      =
+      fun _of_a__022_ _of_perms__023_ x__025_ -> array_of_sexp _of_a__022_ x__025_
+    ;;
+
+    let _ = t_of_sexp
+
+    let sexp_of_t
+      :  'a 'perms.
+         ('a -> Sexplib0.Sexp.t)
+      -> ('perms -> Sexplib0.Sexp.t)
+      -> ('a, 'perms) t
+      -> Sexplib0.Sexp.t
+      =
+      fun _of_a__026_ _of_perms__027_ x__028_ -> sexp_of_array _of_a__026_ x__028_
+    ;;
+
+    let _ = sexp_of_t
+
+    module Typename_of_t = Typerep_lib.Std.Make_typename.Make2 (struct
+        type nonrec ('a, 'perms) t = ('a, 'perms) t
+
+        let name = "array.ml.before-ppx.Permissioned.t"
+        let _ = name
+      end)
+
+    let typename_of_t = Typename_of_t.typename_of_t
+    let _ = typename_of_t
+
+    let typerep_of_t
+      :  'a 'perms.
+         'a Typerep_lib.Std.Typerep.t
+      -> 'perms Typerep_lib.Std.Typerep.t
+      -> ('a, 'perms) t Typerep_lib.Std.Typerep.t
+      =
+      fun (type a) ->
+      fun (type perms) ->
+      fun (_of_a : a Typerep_lib.Std.Typerep.t)
+        (_of_perms : perms Typerep_lib.Std.Typerep.t) ->
+      let name_of_t = Typename_of_t.named _of_a _of_perms in
+      Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy (typerep_of_array _of_a)))
+    ;;
+
+    let _ = typerep_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   module Int = struct
     include T.Int
 
     type -'perms t = t_ [@@deriving bin_io ~localize, compare, sexp]
+
+    include struct
+      let _ = fun (_ : 'perms t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:426:4")
+            [ ( Bin_prot.Shape.Tid.of_string "t"
+              , [ Bin_prot.Shape.Vid.of_string "perms" ]
+              , bin_shape_t_ )
+            ]
+        in
+        fun perms ->
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) [ perms ]
+      ;;
+
+      let _ = bin_shape_t
+
+      let bin_size_t__local
+        : 'perms. 'perms Bin_prot.Size.sizer_local -> 'perms t Bin_prot.Size.sizer_local
+        =
+        fun _size_of_perms__local -> bin_size_t___local
+      ;;
+
+      let _ = bin_size_t__local
+
+      let bin_size_t : 'perms. 'perms Bin_prot.Size.sizer -> 'perms t Bin_prot.Size.sizer =
+        fun _size_of_perms -> bin_size_t_
+      ;;
+
+      let _ = bin_size_t
+
+      let bin_write_t__local
+        :  'perms.
+           'perms Bin_prot.Write.writer_local
+        -> 'perms t Bin_prot.Write.writer_local
+        =
+        fun _write_perms__local -> bin_write_t___local
+      ;;
+
+      let _ = bin_write_t__local
+
+      let bin_write_t
+        : 'perms. 'perms Bin_prot.Write.writer -> 'perms t Bin_prot.Write.writer
+        =
+        fun _write_perms -> bin_write_t_
+      ;;
+
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        (fun bin_writer_perms ->
+           { size = (fun v -> bin_size_t bin_writer_perms.size v)
+           ; write = (fun v -> bin_write_t bin_writer_perms.write v)
+           }
+         : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+
+      let __bin_read_t__
+        : 'perms. 'perms Bin_prot.Read.reader -> (int -> 'perms t) Bin_prot.Read.reader
+        =
+        fun _of__perms -> __bin_read_t___
+      ;;
+
+      let _ = __bin_read_t__
+
+      let bin_read_t
+        : 'perms. 'perms Bin_prot.Read.reader -> 'perms t Bin_prot.Read.reader
+        =
+        fun _of__perms -> bin_read_t_
+      ;;
+
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        (fun bin_reader_perms ->
+           { read = (fun buf ~pos_ref -> (bin_read_t bin_reader_perms.read) buf ~pos_ref)
+           ; vtag_read =
+               (fun buf ~pos_ref vtag ->
+                 (__bin_read_t__ bin_reader_perms.read) buf ~pos_ref vtag)
+           }
+         : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        (fun bin_perms ->
+           { writer = bin_writer_t bin_perms.writer
+           ; reader = bin_reader_t bin_perms.reader
+           ; shape = bin_shape_t bin_perms.shape
+           }
+         : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+
+      let compare
+        :  'perms.
+           ('perms -> ('perms[@merlin.hide]) -> int)
+        -> 'perms t
+        -> ('perms t[@merlin.hide])
+        -> int
+        =
+        fun _cmp__perms a__029_ b__030_ -> compare_t_ a__029_ b__030_
+      ;;
+
+      let _ = compare
+
+      let t_of_sexp : 'perms. (Sexplib0.Sexp.t -> 'perms) -> Sexplib0.Sexp.t -> 'perms t =
+        fun _of_perms__031_ -> t__of_sexp
+      ;;
+
+      let _ = t_of_sexp
+
+      let sexp_of_t : 'perms. ('perms -> Sexplib0.Sexp.t) -> 'perms t -> Sexplib0.Sexp.t =
+        fun _of_perms__033_ -> sexp_of_t_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   module Float = struct
     include T.Float
 
     type -'perms t = t_ [@@deriving bin_io ~localize, compare, sexp]
+
+    include struct
+      let _ = fun (_ : 'perms t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:432:4")
+            [ ( Bin_prot.Shape.Tid.of_string "t"
+              , [ Bin_prot.Shape.Vid.of_string "perms" ]
+              , bin_shape_t_ )
+            ]
+        in
+        fun perms ->
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) [ perms ]
+      ;;
+
+      let _ = bin_shape_t
+
+      let bin_size_t__local
+        : 'perms. 'perms Bin_prot.Size.sizer_local -> 'perms t Bin_prot.Size.sizer_local
+        =
+        fun _size_of_perms__local -> bin_size_t___local
+      ;;
+
+      let _ = bin_size_t__local
+
+      let bin_size_t : 'perms. 'perms Bin_prot.Size.sizer -> 'perms t Bin_prot.Size.sizer =
+        fun _size_of_perms -> bin_size_t_
+      ;;
+
+      let _ = bin_size_t
+
+      let bin_write_t__local
+        :  'perms.
+           'perms Bin_prot.Write.writer_local
+        -> 'perms t Bin_prot.Write.writer_local
+        =
+        fun _write_perms__local -> bin_write_t___local
+      ;;
+
+      let _ = bin_write_t__local
+
+      let bin_write_t
+        : 'perms. 'perms Bin_prot.Write.writer -> 'perms t Bin_prot.Write.writer
+        =
+        fun _write_perms -> bin_write_t_
+      ;;
+
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        (fun bin_writer_perms ->
+           { size = (fun v -> bin_size_t bin_writer_perms.size v)
+           ; write = (fun v -> bin_write_t bin_writer_perms.write v)
+           }
+         : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+
+      let __bin_read_t__
+        : 'perms. 'perms Bin_prot.Read.reader -> (int -> 'perms t) Bin_prot.Read.reader
+        =
+        fun _of__perms -> __bin_read_t___
+      ;;
+
+      let _ = __bin_read_t__
+
+      let bin_read_t
+        : 'perms. 'perms Bin_prot.Read.reader -> 'perms t Bin_prot.Read.reader
+        =
+        fun _of__perms -> bin_read_t_
+      ;;
+
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        (fun bin_reader_perms ->
+           { read = (fun buf ~pos_ref -> (bin_read_t bin_reader_perms.read) buf ~pos_ref)
+           ; vtag_read =
+               (fun buf ~pos_ref vtag ->
+                 (__bin_read_t__ bin_reader_perms.read) buf ~pos_ref vtag)
+           }
+         : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        (fun bin_perms ->
+           { writer = bin_writer_t bin_perms.writer
+           ; reader = bin_reader_t bin_perms.reader
+           ; shape = bin_shape_t bin_perms.shape
+           }
+         : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+
+      let compare
+        :  'perms.
+           ('perms -> ('perms[@merlin.hide]) -> int)
+        -> 'perms t
+        -> ('perms t[@merlin.hide])
+        -> int
+        =
+        fun _cmp__perms a__034_ b__035_ -> compare_t_ a__034_ b__035_
+      ;;
+
+      let _ = compare
+
+      let t_of_sexp : 'perms. (Sexplib0.Sexp.t -> 'perms) -> Sexplib0.Sexp.t -> 'perms t =
+        fun _of_perms__036_ -> t__of_sexp
+      ;;
+
+      let _ = t_of_sexp
+
+      let sexp_of_t : 'perms. ('perms -> Sexplib0.Sexp.t) -> 'perms t -> Sexplib0.Sexp.t =
+        fun _of_perms__038_ -> sexp_of_t_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   let to_array_id = Fn.id
@@ -557,12 +1356,124 @@ module Int = struct
   include T.Int
 
   type t = t_ [@@deriving bin_io ~localize, compare, sexp]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:559:2")
+          [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t_ ]
+      in
+      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+    ;;
+
+    let _ = bin_shape_t
+    let bin_size_t__local : t Bin_prot.Size.sizer_local = bin_size_t___local
+    let _ = bin_size_t__local
+    let bin_size_t = (bin_size_t__local :> _ Bin_prot.Size.sizer)
+    let _ = bin_size_t
+    let bin_write_t__local : t Bin_prot.Write.writer_local = bin_write_t___local
+    let _ = bin_write_t__local
+    let bin_write_t = (bin_write_t__local :> _ Bin_prot.Write.writer)
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t___
+    let _ = __bin_read_t__
+    let bin_read_t : t Bin_prot.Read.reader = bin_read_t_
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+       : _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+
+    let compare =
+      (fun a__039_ b__040_ -> compare_t_ a__039_ b__040_ : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+    let t_of_sexp = (t__of_sexp : Sexplib0.Sexp.t -> t)
+    let _ = t_of_sexp
+    let sexp_of_t = (sexp_of_t_ : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module Float = struct
   include T.Float
 
   type t = t_ [@@deriving bin_io ~localize, compare, sexp]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "array.ml.before-ppx:565:2")
+          [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t_ ]
+      in
+      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+    ;;
+
+    let _ = bin_shape_t
+    let bin_size_t__local : t Bin_prot.Size.sizer_local = bin_size_t___local
+    let _ = bin_size_t__local
+    let bin_size_t = (bin_size_t__local :> _ Bin_prot.Size.sizer)
+    let _ = bin_size_t
+    let bin_write_t__local : t Bin_prot.Write.writer_local = bin_write_t___local
+    let _ = bin_write_t__local
+    let bin_write_t = (bin_write_t__local :> _ Bin_prot.Write.writer)
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t___
+    let _ = __bin_read_t__
+    let bin_read_t : t Bin_prot.Read.reader = bin_read_t_
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+       : _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+
+    let compare =
+      (fun a__042_ b__043_ -> compare_t_ a__042_ b__043_ : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+    let t_of_sexp = (t__of_sexp : Sexplib0.Sexp.t -> t)
+    let _ = t_of_sexp
+    let sexp_of_t = (sexp_of_t_ : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module _ (M : S) : sig
@@ -584,3 +1495,7 @@ end = struct
 
   type 'a t_ = ('a, read_write) t
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

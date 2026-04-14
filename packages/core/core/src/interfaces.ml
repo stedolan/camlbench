@@ -1,4 +1,17 @@
-(** Various interface exports. *)
+[@@@ocaml.text " Various interface exports. "]
+
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"interfaces.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "interfaces.ml.before-ppx"
+;;
 
 open! Import
 
@@ -25,8 +38,6 @@ module type Stable3 = Stable_module_types.S3
 module type Stable4 = Stable_module_types.S4
 module type Stringable = Stringable.S
 module type Unit = Unit.S
-
-(* Versions of the stable module types that expose a stable_witness *)
 module type Stable_with_witness = Stable_module_types.With_stable_witness.S0
 module type Stable_int63able_with_witness = Stable_int63able.With_stable_witness.S
 
@@ -37,3 +48,7 @@ module type Stable1_with_witness = Stable_module_types.With_stable_witness.S1
 module type Stable2_with_witness = Stable_module_types.With_stable_witness.S2
 module type Stable3_with_witness = Stable_module_types.With_stable_witness.S3
 module type Stable4_with_witness = Stable_module_types.With_stable_witness.S4
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

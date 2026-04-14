@@ -1,5 +1,3 @@
-(* Size: compute size of values in the binary protocol. *)
-
 let arch_sixtyfour = Sys.word_size = 64
 
 open Common
@@ -85,7 +83,7 @@ let bin_size_int_nat0 n =
   then 1
   else if n < 0x00008000
   then 3
-  else if arch_sixtyfour && n >= (* 0x80000000 *) 1 lsl 31
+  else if arch_sixtyfour && n >= 1 lsl 31
   then 9
   else 5
 ;;
@@ -95,7 +93,7 @@ let bin_size_int_negative n =
   then 2
   else if n >= -0x00008000
   then 3
-  else if arch_sixtyfour && n < (* -0x80000000 *) -(1 lsl 31)
+  else if arch_sixtyfour && n < -(1 lsl 31)
   then 9
   else 5
 ;;
@@ -109,7 +107,7 @@ let bin_size_nat0 nat0 =
   then 1
   else if n < 0x00010000
   then 3
-  else if arch_sixtyfour && n >= (* 0x100000000 *) 1 lsl 32
+  else if arch_sixtyfour && n >= 1 lsl 32
   then 9
   else 5
 ;;
@@ -125,11 +123,6 @@ let bin_size_bytes str = bin_size_string_or_bytes (Base.Bytes.length str)
 let bin_size_md5 _ = 16
 
 let bin_size_float f =
-  (* If we just ignore the argument the compiler will still require it to exist and be
-     boxed. This means that if for instance we call this for a field of a float record,
-     the compiler will allocate the float for nothing.
-
-     With this line the compiler really ignores the float. *)
   ignore (truncate f);
   8
 ;;
@@ -139,25 +132,25 @@ let bin_size_int32 =
   then fun n -> bin_size_int (Int32.to_int n)
   else
     fun n ->
-    if n >= 0x00008000l || n < -0x00008000l then 5 else bin_size_int (Int32.to_int n)
+      if n >= 0x00008000l || n < -0x00008000l then 5 else bin_size_int (Int32.to_int n)
 ;;
 
 let bin_size_int64 =
   if arch_sixtyfour
   then
     fun n ->
-    if n >= 0x80000000L || n < -0x80000000L then 9 else bin_size_int (Int64.to_int n)
+      if n >= 0x80000000L || n < -0x80000000L then 9 else bin_size_int (Int64.to_int n)
   else
     fun n ->
-    if n >= 0x80000000L || n < -0x80000000L
-    then 9
-    else bin_size_int32 (Base.Int64.to_int32_trunc n) [@nontail]
+      if n >= 0x80000000L || n < -0x80000000L
+      then 9
+      else bin_size_int32 (Base.Int64.to_int32_trunc n) [@nontail]
 ;;
 
 let bin_size_nativeint =
   if arch_sixtyfour
-  then fun n -> bin_size_int64 (Base.Int64.of_nativeint n) [@nontail]
-  else fun n -> bin_size_int32 (Base.Nativeint.to_int32_trunc n) [@nontail]
+  then fun n -> (bin_size_int64 (Base.Int64.of_nativeint n) [@nontail])
+  else fun n -> (bin_size_int32 (Base.Nativeint.to_int32_trunc n) [@nontail])
 ;;
 
 let bin_size_ref bin_size_el r = bin_size_el !r
@@ -268,9 +261,6 @@ let bin_size_network32_int _ = 4
 let bin_size_network32_int32 _ = 4
 let bin_size_network64_int _ = 8
 let bin_size_network64_int64 _ = 8
-
-(* Local versions *)
-
 let bin_size_unit__local = bin_size_unit
 let bin_size_bool__local = bin_size_bool
 let bin_size_string__local = bin_size_string

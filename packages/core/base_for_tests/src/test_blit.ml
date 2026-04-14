@@ -1,3 +1,9 @@
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "test_blit.ml.before-ppx"
+;;
+
 open! Base
 open! Blit
 include Test_blit_intf
@@ -8,13 +14,8 @@ module type S_gen = sig
   type 'a src
   type 'a dst
 
-  (*  val blit        : ('a src, 'a dst) blit*)
   val blito : ('a src, 'a dst) blito
-
-  (*  val unsafe_blit : ('a src, 'a dst) blit*)
   val sub : ('a src, 'a dst) sub
-
-  (*val subo        : ('a src, 'a dst) subo*)
 end
 
 module type For_tests_gen = sig
@@ -48,10 +49,9 @@ module type For_tests_gen = sig
 end
 
 module Test_gen
-  (For_tests : For_tests_gen)
-  (Tested : S_gen
-              with type 'a src := 'a For_tests.Src.t
-              with type 'a dst := 'a For_tests.Dst.t) =
+    (For_tests : For_tests_gen)
+    (Tested :
+       S_gen with type 'a src := 'a For_tests.Src.t with type 'a dst := 'a For_tests.Dst.t) =
 struct
   open Tested
   open For_tests
@@ -70,91 +70,160 @@ struct
   let src_bit i = if i land 0x1 = 0 then elt1 else elt2
   let dst_bit i = if i land 0x1 = 0 then elt2 else elt1
 
-  (* Test [blit]. *)
-  let%test_unit _ =
-    let n = 4 in
-    for src_length = 0 to n do
-      for dst_length = 0 to n do
-        for src_pos = 0 to src_length do
-          for dst_pos = 0 to dst_length do
-            for src_len = 0 to min (src_length - src_pos) (dst_length - dst_pos) do
-              try
-                let is_in_range i = i >= dst_pos && i < dst_pos + src_len in
-                let check length get name sequence ~expect =
-                  for i = 0 to length sequence - 1 do
-                    if not (Elt.equal (get sequence i) (expect i))
-                    then raise_s [%message "bug" (name : string) (i : int)]
+  let () =
+    Ppx_inline_test_lib.test_unit
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<for src_length = 0 to n do   for dst_length =[...]>>")
+      ~tags:[]
+      ~filename:"test_blit.ml.before-ppx"
+      ~line_number:74
+      ~start_pos:2
+      ~end_pos:2829
+      (fun () ->
+         (let n = 4 in
+          for src_length = 0 to n do
+            for dst_length = 0 to n do
+              for src_pos = 0 to src_length do
+                for dst_pos = 0 to dst_length do
+                  for src_len = 0 to min (src_length - src_pos) (dst_length - dst_pos) do
+                    try
+                      let is_in_range i = i >= dst_pos && i < dst_pos + src_len in
+                      let check length get name sequence ~expect =
+                        for i = 0 to length sequence - 1 do
+                          if not (Elt.equal (get sequence i) (expect i))
+                          then
+                            raise_s
+                              (let ppx_sexp_message () =
+                                 Ppx_sexp_conv_lib.Sexp.List
+                                   [ Ppx_sexp_conv_lib.Conv.sexp_of_string "bug"
+                                   ; Ppx_sexp_conv_lib.Sexp.List
+                                       [ Ppx_sexp_conv_lib.Sexp.Atom "name"
+                                       ; (sexp_of_string [@merlin.hide]) name
+                                       ]
+                                   ; Ppx_sexp_conv_lib.Sexp.List
+                                       [ Ppx_sexp_conv_lib.Sexp.Atom "i"
+                                       ; (sexp_of_int [@merlin.hide]) i
+                                       ]
+                                   ]
+                                   [@@ocaml.inline never]
+                                   [@@ocaml.local never]
+                                   [@@ocaml.specialise never]
+                               in
+                               (ppx_sexp_message () [@nontail]))
+                        done
+                      in
+                      let check_src = check Src.length Src.get in
+                      let check_dst = check Dst.length Dst.get in
+                      let src =
+                        init
+                          ~len:src_length
+                          ~create:Src.create_bool
+                          ~set:Src.set
+                          ~f:src_bit
+                      in
+                      assert (Src.length src = src_length);
+                      let dst =
+                        init
+                          ~len:dst_length
+                          ~create:Dst.create_bool
+                          ~set:Dst.set
+                          ~f:dst_bit
+                      in
+                      assert (Dst.length dst = dst_length);
+                      let init_src () =
+                        for i = 0 to src_length - 1 do
+                          Src.set src i (src_bit i)
+                        done
+                      in
+                      blito ~src ~src_pos ~src_len ~dst ~dst_pos ();
+                      check_src "blit src" src ~expect:src_bit;
+                      check_dst "blit dst" dst ~expect:(fun i ->
+                        if is_in_range i
+                        then src_bit (src_pos + i - dst_pos)
+                        else dst_bit i);
+                      (match Dst.overlapping_src_dst with
+                       | `Do_not_check -> ()
+                       | `Check src_to_dst ->
+                         if dst_pos + src_len <= src_length
+                         then (
+                           init_src ();
+                           let dst = src_to_dst src in
+                           if false
+                           then (
+                             blito ~src ~src_pos ~src_len ~dst ~dst_pos ();
+                             check_dst "blit dst overlapping" dst ~expect:(fun i ->
+                               src_bit
+                                 (if is_in_range i then src_pos + i - dst_pos else i)))));
+                      init_src ();
+                      let dst = sub src ~pos:src_pos ~len:src_len in
+                      check_src "sub src" src ~expect:src_bit;
+                      check_dst "sub dst" dst ~expect:(fun i -> src_bit (src_pos + i))
+                    with
+                    | exn ->
+                      raise_s
+                        (let ppx_sexp_message () =
+                           Ppx_sexp_conv_lib.Sexp.List
+                             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "bug"
+                             ; Ppx_sexp_conv_lib.Sexp.List
+                                 [ Ppx_sexp_conv_lib.Sexp.Atom "exn"
+                                 ; (sexp_of_exn [@merlin.hide]) exn
+                                 ]
+                             ; Ppx_sexp_conv_lib.Sexp.List
+                                 [ Ppx_sexp_conv_lib.Sexp.Atom "src_length"
+                                 ; (sexp_of_int [@merlin.hide]) src_length
+                                 ]
+                             ; Ppx_sexp_conv_lib.Sexp.List
+                                 [ Ppx_sexp_conv_lib.Sexp.Atom "src_pos"
+                                 ; (sexp_of_int [@merlin.hide]) src_pos
+                                 ]
+                             ; Ppx_sexp_conv_lib.Sexp.List
+                                 [ Ppx_sexp_conv_lib.Sexp.Atom "dst_length"
+                                 ; (sexp_of_int [@merlin.hide]) dst_length
+                                 ]
+                             ; Ppx_sexp_conv_lib.Sexp.List
+                                 [ Ppx_sexp_conv_lib.Sexp.Atom "dst_pos"
+                                 ; (sexp_of_int [@merlin.hide]) dst_pos
+                                 ]
+                             ]
+                             [@@ocaml.inline never]
+                             [@@ocaml.local never]
+                             [@@ocaml.specialise never]
+                         in
+                         (ppx_sexp_message () [@nontail]))
                   done
-                in
-                let check_src = check Src.length Src.get in
-                let check_dst = check Dst.length Dst.get in
-                let src =
-                  init ~len:src_length ~create:Src.create_bool ~set:Src.set ~f:src_bit
-                in
-                assert (Src.length src = src_length);
-                let dst =
-                  init ~len:dst_length ~create:Dst.create_bool ~set:Dst.set ~f:dst_bit
-                in
-                assert (Dst.length dst = dst_length);
-                let init_src () =
-                  for i = 0 to src_length - 1 do
-                    Src.set src i (src_bit i)
-                  done
-                in
-                blito ~src ~src_pos ~src_len ~dst ~dst_pos ();
-                check_src "blit src" src ~expect:src_bit;
-                check_dst "blit dst" dst ~expect:(fun i ->
-                  if is_in_range i then src_bit (src_pos + i - dst_pos) else dst_bit i);
-                (match Dst.overlapping_src_dst with
-                 | `Do_not_check -> ()
-                 | `Check src_to_dst ->
-                   if dst_pos + src_len <= src_length
-                   then (
-                     init_src ();
-                     let dst = src_to_dst src in
-                     if false
-                     then (
-                       blito ~src ~src_pos ~src_len ~dst ~dst_pos ();
-                       check_dst "blit dst overlapping" dst ~expect:(fun i ->
-                         src_bit (if is_in_range i then src_pos + i - dst_pos else i)))));
-                (* Check [sub]. *)
-                init_src ();
-                let dst = sub src ~pos:src_pos ~len:src_len in
-                check_src "sub src" src ~expect:src_bit;
-                check_dst "sub dst" dst ~expect:(fun i -> src_bit (src_pos + i))
-              with
-              | exn ->
-                raise_s
-                  [%message
-                    "bug"
-                      (exn : exn)
-                      (src_length : int)
-                      (src_pos : int)
-                      (dst_length : int)
-                      (dst_pos : int)]
+                done
+              done
             done
-          done
-        done
-      done
-    done
+          done);
+         ())
   ;;
 
-  let%test_unit _ =
-    let src = init ~len:4 ~create:Src.create_bool ~set:Src.set ~f:src_bit in
-    let dst = init ~len:8 ~create:Dst.create_bool ~set:Dst.set ~f:dst_bit in
-    let assert_raises f = assert (Exn.does_raise f) in
-    assert_raises (fun () -> blito ~src ~src_pos:(-1) ~src_len:4 ~dst ~dst_pos:0 ());
-    assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:4 ~dst ~dst_pos:(-1) ());
-    assert_raises (fun () -> blito ~src ~src_pos:5 ~src_len:1 ~dst ~dst_pos:0 ());
-    assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:8 ~dst ~dst_pos:0 ());
-    assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:4 ~dst ~dst_pos:5 ());
-    assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:4 ~dst ~dst_pos:8 ())
+  let () =
+    Ppx_inline_test_lib.test_unit
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<assert_raises   (fun () -> blito ~src ~src_po[...]>>")
+      ~tags:[]
+      ~filename:"test_blit.ml.before-ppx"
+      ~line_number:142
+      ~start_pos:2
+      ~end_pos:731
+      (fun () ->
+         (let src = init ~len:4 ~create:Src.create_bool ~set:Src.set ~f:src_bit in
+          let dst = init ~len:8 ~create:Dst.create_bool ~set:Dst.set ~f:dst_bit in
+          let assert_raises f = assert (Exn.does_raise f) in
+          assert_raises (fun () -> blito ~src ~src_pos:(-1) ~src_len:4 ~dst ~dst_pos:0 ());
+          assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:4 ~dst ~dst_pos:(-1) ());
+          assert_raises (fun () -> blito ~src ~src_pos:5 ~src_len:1 ~dst ~dst_pos:0 ());
+          assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:8 ~dst ~dst_pos:0 ());
+          assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:4 ~dst ~dst_pos:5 ());
+          assert_raises (fun () -> blito ~src ~src_pos:0 ~src_len:4 ~dst ~dst_pos:8 ()));
+         ())
   ;;
 end
 
 module Test1
-  (Sequence : Sequence1 with type 'a elt := 'a poly)
-  (Tested : S1 with type 'a t := 'a Sequence.t) =
+    (Sequence : Sequence1 with type 'a elt := 'a poly)
+    (Tested : S1 with type 'a t := 'a Sequence.t) =
   Test_gen
     (struct
       module Elt = struct
@@ -177,9 +246,9 @@ module Test1
     (Tested)
 
 module Test1_generic
-  (Elt : Elt1)
-  (Sequence : Sequence1 with type 'a elt := 'a Elt.t)
-  (Tested : S1 with type 'a t := 'a Sequence.t) =
+    (Elt : Elt1)
+    (Sequence : Sequence1 with type 'a elt := 'a Elt.t)
+    (Tested : S1 with type 'a t := 'a Sequence.t) =
   Test_gen
     (struct
       module Elt = Elt
@@ -204,9 +273,9 @@ module Elt_to_elt1 (Elt : Elt) = struct
 end
 
 module Test
-  (Elt : Elt)
-  (Sequence : Sequence with type elt := Elt.t)
-  (Tested : S with type t := Sequence.t) =
+    (Elt : Elt)
+    (Sequence : Sequence with type elt := Elt.t)
+    (Tested : S with type t := Sequence.t) =
   Test_gen
     (struct
       module Elt = Elt_to_elt1 (Elt)
@@ -233,10 +302,10 @@ module Test
     (Tested)
 
 module Test_distinct
-  (Elt : Elt)
-  (Src : Sequence with type elt := Elt.t)
-  (Dst : Sequence with type elt := Elt.t)
-  (Tested : S_distinct with type src := Src.t with type dst := Dst.t) =
+    (Elt : Elt)
+    (Src : Sequence with type elt := Elt.t)
+    (Dst : Sequence with type elt := Elt.t)
+    (Tested : S_distinct with type src := Src.t with type dst := Dst.t) =
   Test_gen
     (struct
       module Elt = Elt_to_elt1 (Elt)
@@ -269,11 +338,12 @@ module Test_distinct
     (Tested)
 
 module Make_and_test
-  (Elt : Elt) (Sequence : sig
-    include Sequence with type elt := Elt.t
+    (Elt : Elt)
+    (Sequence : sig
+       include Sequence with type elt := Elt.t
 
-    val unsafe_blit : (t, t) blit
-  end) =
+       val unsafe_blit : (t, t) blit
+     end) =
 struct
   module B = Make (Sequence)
   include Test (Elt) (Sequence) (B)
@@ -281,12 +351,13 @@ struct
 end
 
 module Make_distinct_and_test
-  (Elt : Elt)
-  (Src : Sequence with type elt := Elt.t) (Dst : sig
-    include Sequence with type elt := Elt.t
+    (Elt : Elt)
+    (Src : Sequence with type elt := Elt.t)
+    (Dst : sig
+       include Sequence with type elt := Elt.t
 
-    val unsafe_blit : (Src.t, t) blit
-  end) =
+       val unsafe_blit : (Src.t, t) blit
+     end) =
 struct
   module B = Make_distinct (Src) (Dst)
   include Test_distinct (Elt) (Src) (Dst) (B)
@@ -294,9 +365,9 @@ struct
 end
 
 module Make1_and_test (Sequence : sig
-  include Blit.Sequence1
-  include Sequence1 with type 'a t := 'a t with type 'a elt := 'a poly
-end) =
+    include Blit.Sequence1
+    include Sequence1 with type 'a t := 'a t with type 'a elt := 'a poly
+  end) =
 struct
   module B = Make1 (Sequence)
   include Test1 (Sequence) (B)
@@ -304,12 +375,15 @@ struct
 end
 
 module Make1_generic_and_test
-  (Elt : Elt1) (Sequence : sig
-    include Blit.Sequence1
-    include Sequence1 with type 'a t := 'a t with type 'a elt := 'a Elt.t
-  end) =
+    (Elt : Elt1)
+    (Sequence : sig
+       include Blit.Sequence1
+       include Sequence1 with type 'a t := 'a t with type 'a elt := 'a Elt.t
+     end) =
 struct
   module B = Make1_generic (Sequence)
   include Test1_generic (Elt) (Sequence) (B)
   include B
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"

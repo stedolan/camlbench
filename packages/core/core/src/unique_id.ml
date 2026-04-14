@@ -1,16 +1,22 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"unique_id.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "unique_id.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open Unique_id_intf
 
 module type Id = Id
 
-(* Only "make" can cause a context-switch that might lead to a race.
-   Thus we have to check whether the contents of the cell remained
-   unchanged across this call.  The subsequent comparison, dereferencing
-   and assignment cannot cause context switches.  If the contents of the
-   cell had changed, we will have to try again to obtain a unique id.
-   This is essentially like a spin-lock and is virtually guaranteed to
-   succeed quickly. *)
 let rec race_free_create_loop cell make =
   let x = !cell in
   let new_x = make x in
@@ -42,3 +48,7 @@ module Int63 () = struct
     let reset_counter () = current := zero
   end
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

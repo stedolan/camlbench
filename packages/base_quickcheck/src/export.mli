@@ -1,5 +1,6 @@
-(** Provides default generators, observers, and shrinkers for built-in types. Follows
-    ppx_quickcheck naming conventions. *)
+[@@@ocaml.text
+  " Provides default generators, observers, and shrinkers for built-in types. Follows\n\
+  \    ppx_quickcheck naming conventions. "]
 
 open! Base
 

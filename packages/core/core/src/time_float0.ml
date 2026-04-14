@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"time_float0.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "time_float0.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open! Int.Replace_polymorphic_compare
@@ -9,21 +22,28 @@ module Absolute = struct
 
   include (
     Float :
-      sig
-        type t = float [@@deriving bin_io, hash, typerep]
+    sig
+      type t = float [@@deriving bin_io, hash, typerep]
 
-        include Comparable.S_common with type t := t
+      include sig
+        [@@@ocaml.warning "-32"]
 
-        include module type of struct
-          include Float.O
-        end
-      end)
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Typerep_lib.Typerepable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-  (* due to precision limitations in float we can't expect better than microsecond
-     precision *)
+      include Comparable.S_common with type t := t
+
+      include module type of struct
+        include Float.O
+      end
+    end)
+
   include Float.Robust_compare.Make (struct
-    let robust_comparison_tolerance = 1E-6
-  end)
+      let robust_comparison_tolerance = 1E-6
+    end)
 
   let diff t1 t2 = Span.of_sec (t1 - t2)
   let add t span = t +. Span.to_sec span
@@ -52,17 +72,14 @@ module Date_and_ofday = struct
   let to_absolute relative ~offset_from_utc = sub relative offset_from_utc
   let of_absolute absolute ~offset_from_utc = add absolute offset_from_utc
 
-  (* Years out of range for [Date.create_exn]. *)
-  let[@cold] assert_in_bounds ~sec_since_epoch =
-    (* $ TZ=UTC date --date=@-62167219200
-       Sat Jan  1 00:00:00 UTC 0000 *)
+  let assert_in_bounds ~sec_since_epoch =
     let gmtime_lower_bound = -62_167_219_200. in
-    (* $ TZ=UTC date --date=@253402300799
-       Fri Dec 31 23:59:59 UTC 9999 *)
     let gmtime_upper_bound = 253_402_300_799. in
-    if Float.( >= ) sec_since_epoch (gmtime_upper_bound +. 1.)
-       || Float.( < ) sec_since_epoch gmtime_lower_bound
+    if
+      Float.( >= ) sec_since_epoch (gmtime_upper_bound +. 1.)
+      || Float.( < ) sec_since_epoch gmtime_lower_bound
     then failwithf "Time.gmtime: out of range (%f)" sec_since_epoch ()
+  [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
   ;;
 
   let sec_per_day = Int63.of_int 86_400
@@ -71,9 +88,6 @@ module Date_and_ofday = struct
     assert_in_bounds ~sec_since_epoch:t;
     let open Int63.O in
     let days_from_epoch_approx = Int63.of_float t / sec_per_day in
-    (* when [t] is negative the integer division that calculated days_from_epoch_approx
-       will leave us one day short because it truncates (e.g. -100 / 86_400 = 0 and we
-       want -1) -- adjust for that here. *)
     if Float.( < ) t (Int63.to_float (days_from_epoch_approx * sec_per_day))
     then Int63.pred days_from_epoch_approx
     else days_from_epoch_approx
@@ -83,13 +97,12 @@ module Date_and_ofday = struct
     let open Int63.O in
     let days_from_epoch_in_sec = Int63.to_float (days_from_epoch * sec_per_day) in
     let remainder = t -. days_from_epoch_in_sec in
-    Span.of_sec remainder |> Ofday.of_span_since_start_of_day_exn
+    Ofday.of_span_since_start_of_day_exn (Span.of_sec remainder)
   ;;
 
   let date_of_days_from_epoch ~days_from_epoch =
-    Int63.to_int_exn days_from_epoch
-    |> Date0.Days.add_days Date0.Days.unix_epoch
-    |> Date0.Days.to_date
+    Date0.Days.to_date
+      (Date0.Days.add_days Date0.Days.unix_epoch (Int63.to_int_exn days_from_epoch))
   ;;
 
   let to_date t =
@@ -114,13 +127,18 @@ let next_multiple_internal ~can_equal_after ~base ~after ~interval =
   if Span.( <= ) interval Span.zero
   then
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "time_float0.ml.before-ppx"
+        ; pos_lnum = 117
+        ; pos_cnum = 3629
+        ; pos_bol = 3617
+        }
       "Time.next_multiple got nonpositive interval"
       interval
-      [%sexp_of: Span.t];
+      (Span.sexp_of_t [@merlin.hide]);
   let base_to_after = diff after base in
   if Span.( < ) base_to_after Span.zero
-  then base (* [after < base], choose [k = 0]. *)
+  then base
   else (
     let next =
       add
@@ -145,7 +163,7 @@ let prev_multiple ?(can_equal_before = false) ~base ~before ~interval () =
 ;;
 
 let now () =
-  let float_ns = Time_now.nanoseconds_since_unix_epoch () |> Int63.to_float in
+  let float_ns = Int63.to_float (Time_now.nanoseconds_since_unix_epoch ()) in
   of_span_since_epoch (Span.of_sec (float_ns *. 1E-9))
 ;;
 
@@ -153,3 +171,7 @@ module Stable = struct
   module Span = Span.Stable
   module Ofday = Ofday.Stable
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

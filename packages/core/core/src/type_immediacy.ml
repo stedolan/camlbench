@@ -1,9 +1,15 @@
-(* This module is very much dependent on the runtime representation of values.  Should the
-   way the compiler represents various types change, it needs to be reflected in this
-   module, otherwise bad things could happen.  Therefore the conversions and
-   representations are tested thoroughly in [../test/test_witness.ml] and
-   [../test/test_conversions.ml]
-*)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"type_immediacy.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "type_immediacy.ml.before-ppx"
+;;
 
 open! Import
 module List = Base.List
@@ -14,9 +20,18 @@ let sprintf = Printf.sprintf
 module Key = struct
   type t = int [@@deriving compare, sexp_of]
 
-  (* The integers here are the values underlying the polymorphic variants, they already
-     are hashes of constructor names, and hence are expected to be uniformly
-     distributed. *)
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let compare =
+      (fun a__001_ b__002_ -> compare_int a__001_ b__002_ : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+    let sexp_of_t = (sexp_of_int : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let hash x = x
 end
 
@@ -49,7 +64,28 @@ module Immediacy = struct
     | Unknown
   [@@deriving compare]
 
-  let equal = [%compare.equal: t]
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let compare =
+      (fun a__003_ b__004_ -> Stdlib.compare a__003_ b__004_
+       : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+  let equal (_x__005_ : t) _x__006_ =
+    (match
+       (fun (a__007_ : t) ((b__008_ : t) [@merlin.hide]) ->
+          (compare a__007_ b__008_ [@merlin.hide]))
+         _x__005_
+         _x__006_
+     with
+     | 0 -> true
+     | _ -> false)
+    [@merlin.hide]
+  ;;
 
   let to_string = function
     | Always -> "Always"
@@ -119,7 +155,6 @@ end = struct
   let list = create_with_name "list" Sometimes (Allowed_ints.From_zero_to 0)
 
   module Never_values = struct
-    (* int32 is boxed even on 64b platform at the moment. *)
     let int32 = never typename_of_int32
     let int64 = never typename_of_int64
     let nativeint = never typename_of_nativeint
@@ -147,8 +182,8 @@ module Computation_impl = struct
   type nonrec 'a t = 'a t
 
   include Type_generic.Variant_and_record_intf.M (struct
-    type nonrec 'a t = 'a t
-  end)
+      type nonrec 'a t = 'a t
+    end)
 
   include Never_values
 
@@ -166,9 +201,6 @@ module Computation_impl = struct
   let option _ = option
   let list _ = list
 
-  (* An [a Lazy.t] might be a boxed closure, so must have immediacy either [Never] or
-     [Sometimes].  An [a Lazy.t] value could be immediate if [a] is immediate.  But if [a]
-     is never immediate, then [a Lazy.t] cannot be. *)
   let lazy_t t =
     let immediacy =
       match immediacy t with
@@ -193,14 +225,6 @@ module Computation_impl = struct
       possibly_unboxed (Record.typename_of_t r) (Field.traverse the_only_field))
   ;;
 
-  (* Variants with all constructors having no arguments are always immediate; variants
-     with all constructors having some arguments are never immediate; mixed variants are
-     sometimes immediate.
-
-     If a variant has a single constructor, and the constructor has an argument, the
-     variant can be unboxed. If unboxed, either explicitly or by default (depending on
-     compiler settings), the representation is simply the argument. Otherwise, the rules
-     above apply normally. *)
   let variant variant =
     let no_arg_list, one_arg_list, more_arg_list =
       Variant.fold variant ~init:([], [], []) ~f:(fun (no, one, more) (Tag t as tag) ->
@@ -210,12 +234,9 @@ module Computation_impl = struct
         | _ -> no, one, tag :: more)
     in
     match no_arg_list, one_arg_list, more_arg_list with
-    | [], [ Tag tag ], [] when not (Variant.is_polymorphic variant) ->
+    | [], Tag tag :: [], [] when not (Variant.is_polymorphic variant) ->
       possibly_unboxed (Variant.typename_of_t variant) (Tag.traverse tag)
-    | [], [], [] ->
-      (* Type is uninhabited, so it's (vacuously) always immediate yet there are no
-         allowed ints *)
-      create (Variant.typename_of_t variant) Always Allowed_ints.None
+    | [], [], [] -> create (Variant.typename_of_t variant) Always Allowed_ints.None
     | [], _ :: _, _ | [], _, _ :: _ -> never (Variant.typename_of_t variant)
     | _ :: _, _, _ ->
       let no_arg_count = List.length no_arg_list in
@@ -250,10 +271,6 @@ module Computation_impl = struct
 
     type nonrec 'a t = 'a t ref
 
-    (* The default witness - which is created by calling [init] and recovered at any later
-       point by calling [get_wip_computation] - can only be used in a recursive type.
-       Other types that don't use [get_wip_computation] will just evaluate to the actual
-       witness which will replace the initial dummy one. *)
     let init _ name = ref (create name Sometimes Allowed_ints.None)
     let get_wip_computation comp = !comp
 
@@ -274,8 +291,8 @@ let of_typerep typerep =
 ;;
 
 module For_all_parameters (M : sig
-  val immediacy : Immediacy.t
-end) =
+    val immediacy : Immediacy.t
+  end) =
 struct
   let witness typerep1 typerep2 =
     let t1 = of_typerep typerep1 in
@@ -299,15 +316,8 @@ struct
     else t1
   ;;
 
-  (* always immediate *)
   let ra = Typerep.Int
-
-  (* never immediate *)
   let rn = Typerep.String
-
-  (* Each of the [For_all_parameters_*] functors works by instantiating the n-ary type
-     with all [Always] types, and then with all [Never] types.  If those produce the same
-     immediacy, then we conclude that the n-ary type is independent of its arguments. *)
 
   module For_all_parameters_S1 (X : Typerepable.S1) = struct
     let t = witness (X.typerep_of_t ra) (X.typerep_of_t rn)
@@ -364,8 +374,8 @@ module Always = struct
   type nonrec 'a t = 'a t
 
   include For_all_parameters (struct
-    let immediacy = Always
-  end)
+      let immediacy = Always
+    end)
 
   let of_typerep typerep =
     let t = of_typerep typerep in
@@ -378,7 +388,7 @@ module Always = struct
   let int_as_value = int_as_value
   let int_as_value_exn = int_as_value_exn
   let int_is_value = int_is_value
-  let[@inline always] value_as_int (type a) (_ : a t) a = a |> (Obj.magic : a -> int)
+  let value_as_int (type a) (_ : a t) a = (Obj.magic : a -> int) a [@@inline always]
   let int = int
   let char = char
   let bool = bool
@@ -389,8 +399,8 @@ module Sometimes = struct
   type nonrec 'a t = 'a t
 
   include For_all_parameters (struct
-    let immediacy = Sometimes
-  end)
+      let immediacy = Sometimes
+    end)
 
   let of_typerep typerep =
     let t = of_typerep typerep in
@@ -414,8 +424,8 @@ module Never = struct
   type nonrec 'a t = 'a t
 
   include For_all_parameters (struct
-    let immediacy = Never
-  end)
+      let immediacy = Never
+    end)
 
   let of_typerep typerep =
     let t = of_typerep typerep in
@@ -442,3 +452,7 @@ let dest t =
   | Never -> Never t
   | Unknown -> Unknown
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

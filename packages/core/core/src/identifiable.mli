@@ -1,1 +1,1 @@
-include Identifiable_intf.Identifiable (** @inline *)
+include Identifiable_intf.Identifiable [@@ocaml.doc " @inline "]

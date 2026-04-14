@@ -1,1 +1,1 @@
-include Bag_intf.Bag (** @inline *)
+include Bag_intf.Bag [@@ocaml.doc " @inline "]

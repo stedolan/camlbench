@@ -1,10 +1,17 @@
-(** Functors and signatures for dealing with modules for tuples.  *)
+[@@@ocaml.text " Functors and signatures for dealing with modules for tuples.  "]
 
 open! Import
 
-(** Signature for a 2-tuple module *)
 module T2 : sig
   type ('a, 'b) t = 'a * 'b [@@deriving sexp, typerep]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S2 with type ('a, 'b) t := ('a, 'b) t
+    include Typerep_lib.Typerepable.S2 with type ('a, 'b) t := ('a, 'b) t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Comparator.Derived2 with type ('a, 'b) t := ('a, 'b) t
 
@@ -45,10 +52,18 @@ module T2 : sig
   val map2 : ('a, 'a) t -> ('b, 'b) t -> f:('a -> 'b -> 'c) -> ('c, 'c) t
   val swap : ('a, 'b) t -> ('b, 'a) t
 end
+[@@ocaml.doc " Signature for a 2-tuple module "]
 
-(** Signature for a 3-tuple module *)
 module T3 : sig
   type ('a, 'b, 'c) t = 'a * 'b * 'c [@@deriving sexp, typerep]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S3 with type ('a, 'b, 'c) t := ('a, 'b, 'c) t
+    include Typerep_lib.Typerepable.S3 with type ('a, 'b, 'c) t := ('a, 'b, 'c) t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   val create : 'a -> 'b -> 'c -> ('a, 'b, 'c) t
   val curry : (('a, 'b, 'c) t -> 'd) -> 'a -> 'b -> 'c -> 'd
@@ -97,96 +112,143 @@ module T3 : sig
 
   val map2 : ('a, 'a, 'a) t -> ('b, 'b, 'b) t -> f:('a -> 'b -> 'c) -> ('c, 'c, 'c) t
 end
+[@@ocaml.doc " Signature for a 3-tuple module "]
 
-(** These functors allow users to write:
-    {[
-      module Foo = struct
-        include Tuple.Make       (String) (Int)
-        include Tuple.Comparator (String) (Int)
-        include Tuple.Comparable (String) (Int)
-        include Tuple.Hashable   (String) (Int)
-        include Tuple.Binable    (String) (Int)
-      end
-    ]}
-*)
+[@@@ocaml.text
+  " These functors allow users to write:\n\
+  \    {[\n\
+  \      module Foo = struct\n\
+  \        include Tuple.Make       (String) (Int)\n\
+  \        include Tuple.Comparator (String) (Int)\n\
+  \        include Tuple.Comparable (String) (Int)\n\
+  \        include Tuple.Hashable   (String) (Int)\n\
+  \        include Tuple.Binable    (String) (Int)\n\
+  \      end\n\
+  \    ]}\n"]
 
-module Make (T1 : sig
-  type t
-end) (T2 : sig
-  type t
-end) : sig
+module Make : functor
+    (T1 : sig
+       type t
+     end)
+    -> functor
+    (T2 : sig
+       type t
+     end)
+    -> sig
   type t = T1.t * T2.t
 end
 
-module Comparator (S1 : Comparator.S) (S2 : Comparator.S) :
+module Comparator : functor (S1 : Comparator.S) -> functor (S2 : Comparator.S) ->
   Comparator.S with type t = Make(S1)(S2).t
 
 module type Comparable_sexpable = sig
   type t [@@deriving sexp]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Comparable.S with type t := t
 end
 
-module Comparable_plain (S1 : Comparable.S_plain) (S2 : Comparable.S_plain) : sig
-  (*_ This type is introduced because older versions of OCaml do not support
-    destructive substitutions with `type t1 = 'a t2`. *)
-
+module Comparable_plain : functor
+    (S1 : Comparable.S_plain)
+    -> functor
+    (S2 : Comparable.S_plain)
+    -> sig
   type comparator_witness =
     (S1.comparator_witness, S2.comparator_witness) T2.comparator_witness
 
   include
     Comparable.S_plain
-      with type t := Make(S1)(S2).t
-      with type comparator_witness := comparator_witness
+    with type t := Make(S1)(S2).t
+    with type comparator_witness := comparator_witness
 end
 
-module Comparable (S1 : Comparable_sexpable) (S2 : Comparable_sexpable) :
-  Comparable_sexpable with type t := Make(S1)(S2).t
+module Comparable : functor
+    (S1 : Comparable_sexpable)
+    -> functor
+    (S2 : Comparable_sexpable)
+    -> Comparable_sexpable with type t := Make(S1)(S2).t
 
 module type Hashable_sexpable = sig
   type t [@@deriving sexp]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Hashable.S with type t := t
 end
 
-(** The difference between [Hashable] and [Hashable_t] functors is that the former's
-    result type doesn't contain type [t] and the latter does. Therefore, [Hashable] can't
-    be used to combine two pairs into 4-tuple. but [Hashable_t] can. On the other hand
-    result of [Hashable_t] cannot be combined with [Comparable].
-
-    example:
-    module Four_ints = Tuple.Hashable_t (Tuple.Hashable_t (Int)(Int))
-    (Tuple.Hashable_t (Int)(Int))
-
-    If instead we used [Hashable] compiler would complain that the input to outer functor
-    doesn't have type [t].
-
-    On the other hand:
-    module Foo = struct
-    type t = String.t * Int.t
-    include Tuple.Comparable (String) (Int)
-    include Tuple.Hashable (String) (Int)
-    end
-
-    If we used [Hashable_t] above, the compiler would complain that we have two types [t]
-    defined.
-
-    Unfortunately, it is not possible to define just one functor that could be used in
-    both cases.
-*)
-module Hashable (S1 : Hashable_sexpable) (S2 : Hashable_sexpable) :
+module Hashable : functor (S1 : Hashable_sexpable) -> functor (S2 : Hashable_sexpable) ->
   Hashable_sexpable with type t := Make(S1)(S2).t
+[@@ocaml.doc
+  " The difference between [Hashable] and [Hashable_t] functors is that the former's\n\
+  \    result type doesn't contain type [t] and the latter does. Therefore, [Hashable] \
+   can't\n\
+  \    be used to combine two pairs into 4-tuple. but [Hashable_t] can. On the other hand\n\
+  \    result of [Hashable_t] cannot be combined with [Comparable].\n\n\
+  \    example:\n\
+  \    module Four_ints = Tuple.Hashable_t (Tuple.Hashable_t (Int)(Int))\n\
+  \    (Tuple.Hashable_t (Int)(Int))\n\n\
+  \    If instead we used [Hashable] compiler would complain that the input to outer \
+   functor\n\
+  \    doesn't have type [t].\n\n\
+  \    On the other hand:\n\
+  \    module Foo = struct\n\
+  \    type t = String.t * Int.t\n\
+  \    include Tuple.Comparable (String) (Int)\n\
+  \    include Tuple.Hashable (String) (Int)\n\
+  \    end\n\n\
+  \    If we used [Hashable_t] above, the compiler would complain that we have two types \
+   [t]\n\
+  \    defined.\n\n\
+  \    Unfortunately, it is not possible to define just one functor that could be used in\n\
+  \    both cases.\n"]
 
-module Hashable_t (S1 : Hashable_sexpable) (S2 : Hashable_sexpable) :
-  Hashable_sexpable with type t = Make(S1)(S2).t
+module Hashable_t : functor
+    (S1 : Hashable_sexpable)
+    -> functor
+    (S2 : Hashable_sexpable)
+    -> Hashable_sexpable with type t = Make(S1)(S2).t
 
-module Sexpable (S1 : Sexpable.S) (S2 : Sexpable.S) :
+module Sexpable : functor (S1 : Sexpable.S) -> functor (S2 : Sexpable.S) ->
   Sexpable.S with type t := Make(S1)(S2).t
 
-module Binable (B1 : Binable.S) (B2 : Binable.S) : Binable.S with type t := Make(B1)(B2).t
+module Binable : functor (B1 : Binable.S) -> functor (B2 : Binable.S) ->
+  Binable.S with type t := Make(B1)(B2).t
 
-module Hasher (H1 : sig
-  type t [@@deriving compare, hash, sexp]
-end) (H2 : sig
-  type t [@@deriving compare, hash, sexp]
-end) : Hashable_sexpable with type t := Make(H1)(H2).t
+module Hasher : functor
+    (H1 : sig
+       type t [@@deriving compare, hash, sexp]
+
+       include sig
+         [@@@ocaml.warning "-32"]
+
+         include Ppx_compare_lib.Comparable.S with type t := t
+         include Ppx_hash_lib.Hashable.S with type t := t
+         include Sexplib0.Sexpable.S with type t := t
+       end
+       [@@ocaml.doc "@inline"] [@@merlin.hide]
+     end)
+    -> functor
+    (H2 : sig
+       type t [@@deriving compare, hash, sexp]
+
+       include sig
+         [@@@ocaml.warning "-32"]
+
+         include Ppx_compare_lib.Comparable.S with type t := t
+         include Ppx_hash_lib.Hashable.S with type t := t
+         include Sexplib0.Sexpable.S with type t := t
+       end
+       [@@ocaml.doc "@inline"] [@@merlin.hide]
+     end)
+    -> Hashable_sexpable with type t := Make(H1)(H2).t

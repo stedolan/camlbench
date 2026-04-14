@@ -4,8 +4,8 @@
   (names heap_block_stubs))
  (name heap_block)
  (public_name core.heap_block)
- (libraries base)
+ (libraries base ppx_bench.runtime-lib ppx_expect.runtime)
  (js_of_ocaml
   (javascript_files runtime.js))
- (preprocess
-  (pps ppx_jane)))
+ ;;(preprocess (pps ppx_jane))
+)

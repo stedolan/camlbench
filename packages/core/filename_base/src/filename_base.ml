@@ -1,17 +1,41 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"filename_base.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "filename_base.ml.before-ppx"
+;;
+
 open! Base
 
 include (
   String :
-    sig
-      type t = string [@@deriving compare, hash, sexp, sexp_grammar]
+  sig
+    type t = string [@@deriving compare, hash, sexp, sexp_grammar]
 
-      include
-        Comparable.S
-          with type t := t
-          with type comparator_witness = String.comparator_witness
+    include sig
+      [@@@ocaml.warning "-32"]
 
-      val comparator : (t, comparator_witness) Comparator.t
-    end)
+      include Ppx_compare_lib.Comparable.S with type t := t
+      include Ppx_hash_lib.Hashable.S with type t := t
+      include Sexplib0.Sexpable.S with type t := t
+
+      val t_sexp_grammar : t Sexplib0.Sexp_grammar.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    include
+      Comparable.S
+      with type t := t
+      with type comparator_witness = String.comparator_witness
+
+    val comparator : (t, comparator_witness) Comparator.t
+  end)
 
 include struct
   open Stdlib.Filename
@@ -68,16 +92,16 @@ let to_absolute_exn p ~relative_to =
 ;;
 
 let split s = dirname s, basename s
-
-(* [max_pathname_component_size] comes from getconf _POSIX_NAME_MAX / *)
 let max_pathname_component_size = 255
 
 let is_posix_pathname_component s =
   let module S = String in
   s <> "."
   && s <> ".."
-  && Int.(0 < S.length s)
-  && Int.(S.length s <= max_pathname_component_size)
+  && (let open Int in
+      0 < S.length s)
+  && (let open Int in
+      S.length s <= max_pathname_component_size)
   && (not (S.contains s '/'))
   && not (S.contains s '\000')
 ;;
@@ -128,15 +152,33 @@ let of_absolute_exn a ~relative_to:b =
   if is_relative a
   then
     raise_s
-      [%message
-        "Filename.of_absolute_exn: first argument must be an absolute path"
-          ~first_arg:(a : string)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Filename.of_absolute_exn: first argument must be an absolute path"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "first_arg"
+               ; (sexp_of_string [@merlin.hide]) a
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   if is_relative b
   then
     raise_s
-      [%message
-        "Filename.of_absolute_exn: [~relative_to] must be an absolute path"
-          ~relative_to:(b : string)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Filename.of_absolute_exn: [~relative_to] must be an absolute path"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "relative_to"
+               ; (sexp_of_string [@merlin.hide]) b
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let a_parts = parts a in
   let b_parts = parts b in
   let a_suffix, b_suffix = skip_common_prefix a_parts b_parts in
@@ -153,3 +195,6 @@ let open_temp_file_fd = `Use_Filename_unix
 let realpath = `Use_Filename_unix
 let temp_dir = `Use_Filename_unix
 let temp_file = `Use_Filename_unix
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

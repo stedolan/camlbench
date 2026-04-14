@@ -1,33 +1,64 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"univ_map.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "univ_map.ml.before-ppx"
+;;
+
 open! Base
 include Univ_map_intf
 module Uid = Type_equal.Id.Uid
 
 module Make1
-  (Key : Key) (Data : sig
-    type ('s, 'a) t [@@deriving sexp_of]
-  end) =
+    (Key : Key)
+    (Data : sig
+       type ('s, 'a) t [@@deriving sexp_of]
+
+       include sig
+         [@@@ocaml.warning "-32"]
+
+         val sexp_of_t
+           :  ('s -> Sexplib0.Sexp.t)
+           -> ('a -> Sexplib0.Sexp.t)
+           -> ('s, 'a) t
+           -> Sexplib0.Sexp.t
+       end
+       [@@ocaml.doc "@inline"] [@@merlin.hide]
+     end) =
 struct
-  (* A wrapper for the [Key] module that adds a dynamic check to [Key.type_id].
-
-     It's a bug if the user-provided [Key.type_id] gives different type ids on different
-     calls.  Because this check should be fairly cheap, we do it dynamically to avoid
-     subtler problems later.
-
-     Of course, we're not checking truly pathological things like the provided
-     [Key.type_id] only changes the value it returns on every third call... *)
   module Key = struct
     type 'a t = 'a Key.t [@@deriving sexp_of]
 
-    (* test-friendly sexp conversion *)
+    include struct
+      let _ = fun (_ : 'a t) -> ()
+
+      let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+        fun _of_a__001_ x__002_ -> Key.sexp_of_t _of_a__001_ x__002_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let sexp_of_type_id type_id =
-      [%sexp
-        { name = (Type_equal.Id.name type_id : string)
-        ; uid =
-            (if Ppx_inline_test_lib.am_running
-             then Sexp.Atom "<uid>"
-             else Type_equal.Id.Uid.sexp_of_t (Type_equal.Id.uid type_id)
-              : Sexp.t)
-        }]
+      Ppx_sexp_conv_lib.Sexp.List
+        [ Ppx_sexp_conv_lib.Sexp.List
+            [ Ppx_sexp_conv_lib.Sexp.Atom "name"
+            ; (sexp_of_string [@merlin.hide]) (Type_equal.Id.name type_id)
+            ]
+        ; Ppx_sexp_conv_lib.Sexp.List
+            [ Ppx_sexp_conv_lib.Sexp.Atom "uid"
+            ; (Sexp.sexp_of_t [@merlin.hide])
+                (if Ppx_inline_test_lib.am_running
+                 then Sexp.Atom "<uid>"
+                 else Type_equal.Id.Uid.sexp_of_t (Type_equal.Id.uid type_id))
+            ]
+        ]
     ;;
 
     let type_id key =
@@ -37,12 +68,30 @@ struct
       then type_id1
       else
         raise_s
-          [%message
-            "[Key.type_id] must not provide different type ids when called on the same \
-             input"
-              (key : _ Key.t)
-              (type_id1 : type_id)
-              (type_id2 : type_id)]
+          (let ppx_sexp_message () =
+             Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                   "[Key.type_id] must not provide different type ids when called on the \
+                    same input"
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "key"
+                   ; ((fun x__003_ ->
+                        Key.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__003_)
+                        [@merlin.hide])
+                       key
+                   ]
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "type_id1"
+                   ; (sexp_of_type_id [@merlin.hide]) type_id1
+                   ]
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "type_id2"
+                   ; (sexp_of_type_id [@merlin.hide]) type_id2
+                   ]
+               ]
+               [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+           in
+           (ppx_sexp_message () [@nontail]))
     ;;
   end
 
@@ -69,17 +118,32 @@ struct
 
   type 's t = 's Packed.t Map.M(Uid).t
 
-  let to_alist t = Map.data t |> List.sort ~compare:Packed.compare
+  let to_alist t = List.sort ~compare:Packed.compare (Map.data t)
 
   let sexp_of_t sexp_of_a t =
-    to_alist t
-    |> List.map ~f:(fun packed -> Packed.type_id_name packed, packed)
-    |> [%sexp_of: (string * a Packed.t) list]
+    ((fun x__008_ ->
+       sexp_of_list
+         (fun (arg0__004_, arg1__005_) ->
+            let res0__006_ = sexp_of_string arg0__004_
+            and res1__007_ = Packed.sexp_of_t sexp_of_a arg1__005_ in
+            Sexplib0.Sexp.List [ res0__006_; res1__007_ ])
+         x__008_) [@merlin.hide])
+      (List.map ~f:(fun packed -> Packed.type_id_name packed, packed) (to_alist t))
   ;;
 
   let invariant (t : _ t) =
-    Invariant.invariant [%here] t [%sexp_of: _ t] (fun () ->
-      Map.iteri t ~f:(fun ~key ~data -> assert (Uid.equal key (Packed.type_id_uid data))))
+    Invariant.invariant
+      { Ppx_here_lib.pos_fname = "univ_map.ml.before-ppx"
+      ; pos_lnum = 81
+      ; pos_cnum = 2455
+      ; pos_bol = 2431
+      }
+      t
+      ((fun x__009_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__009_)
+         [@merlin.hide])
+      (fun () ->
+         Map.iteri t ~f:(fun ~key ~data ->
+           assert (Uid.equal key (Packed.type_id_uid data))))
   ;;
 
   let set t ~key ~data = Map.set t ~key:(uid_of_key key) ~data:(Packed.T (key, data))
@@ -99,7 +163,6 @@ struct
     match Map.find t (uid_of_key key) with
     | None -> None
     | Some (Packed.T (key', value)) ->
-      (* cannot raise -- see [invariant] *)
       let Type_equal.T =
         Type_equal.Id.same_witness_exn (Key.type_id key) (Key.type_id key')
       in
@@ -149,18 +212,52 @@ struct
 end
 
 module Make
-  (Key : Key) (Data : sig
-    type 'a t [@@deriving sexp_of]
-  end) =
+    (Key : Key)
+    (Data : sig
+       type 'a t [@@deriving sexp_of]
+
+       include sig
+         [@@@ocaml.warning "-32"]
+
+         val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+       end
+       [@@ocaml.doc "@inline"] [@@merlin.hide]
+     end) =
 struct
   module M =
     Make1
       (Key)
       (struct
         type (_, 'a) t = 'a Data.t [@@deriving sexp_of]
+
+        include struct
+          let _ = fun (_ : (_, 'a) t) -> ()
+
+          let sexp_of_t
+            :  'a__010_ 'a.
+               ('a__010_ -> Sexplib0.Sexp.t)
+            -> ('a -> Sexplib0.Sexp.t)
+            -> ('a__010_, 'a) t
+            -> Sexplib0.Sexp.t
+            =
+            fun _of_a__011_ _of_a__012_ x__013_ -> Data.sexp_of_t _of_a__012_ x__013_
+          ;;
+
+          let _ = sexp_of_t
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
       end)
 
   type t = unit M.t [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let sexp_of_t =
+      (fun x__014_ -> M.sexp_of_t sexp_of_unit x__014_ : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   module Key = Key
 
@@ -221,7 +318,6 @@ struct
       | `Left (T (key, data)) -> f ~key (`Left data)
       | `Right (T (key, data)) -> f ~key (`Right data)
       | `Both (T (left_key, left_data), T (right_key, right_data)) ->
-        (* Can't raise due to the invariant *)
         let Type_equal.T =
           Type_equal.Id.same_witness_exn (Key.type_id left_key) (Key.type_id right_key)
         in
@@ -230,10 +326,10 @@ struct
 end
 
 module Merge1
-  (Key : Key)
-  (Input1_data : Data1)
-  (Input2_data : Data1)
-  (Output_data : Data1) =
+    (Key : Key)
+    (Input1_data : Data1)
+    (Input2_data : Data1)
+    (Output_data : Data1) =
 struct
   type ('s1, 's2, 's3) f =
     { f :
@@ -249,10 +345,11 @@ struct
   module Output = Make1 (Key) (Output_data)
 
   let merge
-    (type s1 s2)
-    (t1 : s1 Make1(Key)(Input1_data).t)
-    (t2 : s2 Make1(Key)(Input2_data).t)
-    ~f:{ f }
+        (type s1)
+        (type s2)
+        (t1 : s1 Make1(Key)(Input1_data).t)
+        (t2 : s2 Make1(Key)(Input2_data).t)
+        ~f:{ f }
     =
     let f ~key merge_result =
       Option.map (f ~key merge_result) ~f:(fun data -> Output.Packed.T (key, data))
@@ -261,7 +358,6 @@ struct
       | `Left (T (key, data)) -> f ~key (`Left data)
       | `Right (T (key, data)) -> f ~key (`Right data)
       | `Both (T (left_key, left_data), T (right_key, right_data)) ->
-        (* Can't raise due to the invariant *)
         let Type_equal.T =
           Type_equal.Id.same_witness_exn (Key.type_id left_key) (Key.type_id right_key)
         in
@@ -272,6 +368,16 @@ end
 module Type_id_key = struct
   type 'a t = 'a Type_equal.Id.t [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : 'a t) -> ()
+
+    let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+      fun _of_a__015_ x__016_ -> Type_equal.Id.sexp_of_t _of_a__015_ x__016_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let type_id = Fn.id
 end
 
@@ -280,6 +386,16 @@ include (
     (Type_id_key)
     (struct
       type 'a t = 'a [@@deriving sexp_of]
+
+      include struct
+        let _ = fun (_ : 'a t) -> ()
+
+        let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+          fun _of_a__017_ -> _of_a__017_
+        ;;
+
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
     end) :
       S with type 'a data = 'a and module Key := Type_id_key)
 
@@ -345,3 +461,7 @@ module Multi = struct
   let add = add
   let change = change
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

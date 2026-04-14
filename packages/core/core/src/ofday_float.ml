@@ -1,17 +1,38 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"ofday_float.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "ofday_float.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open Digit_string_helpers
 open! Int.Replace_polymorphic_compare
 module Span = Span_float
 
-(* Create an abstract type for Ofday to prevent us from confusing it with
-   other floats.
-*)
 module Stable = struct
   module V1 = struct
     module T : sig
       type underlying = float
       type t = private underlying [@@deriving bin_io, hash, typerep, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Typerep_lib.Typerepable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
 
       include Comparable.S_common with type t := t
       include Robustly_comparable with type t := t
@@ -29,49 +50,44 @@ module Stable = struct
       val start_of_day : t
       val start_of_next_day : t
     end = struct
-      (* Number of seconds since midnight. *)
       type underlying = Float.t
 
       include (
-        struct
-          include Float
+      struct
+        include Float
 
-          let sign = sign_exn
+        let sign = sign_exn
 
-          let stable_witness : t Stable_witness.t =
-            Stable_witness.Export.stable_witness_float
-          ;;
-        end :
-          sig
-            type t = underlying [@@deriving bin_io, hash, typerep, stable_witness]
+        let stable_witness : t Stable_witness.t =
+          Stable_witness.Export.stable_witness_float
+        ;;
+      end :
+      sig
+        type t = underlying [@@deriving bin_io, hash, typerep, stable_witness]
 
-            include Comparable.S_common with type t := t
-            include Comparable.With_zero with type t := t
-            include Robustly_comparable with type t := t
-            include Floatable with type t := t
-          end)
+        include sig
+          [@@@ocaml.warning "-32"]
 
-      (* IF THIS REPRESENTATION EVER CHANGES, ENSURE THAT EITHER
-         (1) all values serialize the same way in both representations, or
-         (2) you add a new Time.Ofday version to stable.ml *)
+          include Bin_prot.Binable.S with type t := t
+          include Ppx_hash_lib.Hashable.S with type t := t
+          include Typerep_lib.Typerepable.S with type t := t
 
-      (* due to precision limitations in float we can't expect better than microsecond
-         precision *)
-      include Float.Robust_compare.Make (struct
-        let robust_comparison_tolerance = 1E-6
+          val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+        end
+        [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+        include Comparable.S_common with type t := t
+        include Comparable.With_zero with type t := t
+        include Robustly_comparable with type t := t
+        include Floatable with type t := t
       end)
+
+      include Float.Robust_compare.Make (struct
+          let robust_comparison_tolerance = 1E-6
+        end)
 
       let to_span_since_start_of_day t = Span.of_sec t
 
-      (* Another reasonable choice would be only allowing Ofday.t to be < 24hr, but this
-         choice was made early on and people became used to being able to easily call 24hr
-         the end of the day.  It's a bit sad because it shares that moment with the
-         beginning of the next day, and round trips oddly if passed through
-         Time.to_date_ofday/Time.of_date_ofday.
-
-         Note: [Schedule.t] requires that the end of day be representable, as it's the
-         only way to write a schedule in terms of [Ofday.t]s that spans two weekdays. *)
-      (* ofday must be >= 0 and <= 24h *)
       let is_valid (t : t) =
         let t = to_span_since_start_of_day t in
         Span.( <= ) Span.zero t && Span.( <= ) t Span.day
@@ -91,7 +107,21 @@ module Stable = struct
         | C.Nan -> invalid_arg "Ofday.of_span_since_start_of_day_exn: NaN value"
         | C.Normal | C.Subnormal | C.Zero ->
           if not (is_valid s)
-          then invalid_argf !"Ofday out of range: %{Span}" span ()
+          then
+            invalid_argf
+              ((Format
+                  ( String_literal
+                      ( "Ofday out of range: "
+                      , Custom
+                          ( Custom_succ Custom_zero
+                          , (fun () _custom_printf__001_ ->
+                              Span.to_string _custom_printf__001_)
+                          , End_of_format ) )
+                  , "Ofday out of range: %{Span}" )
+               : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+               [@merlin.hide])
+              span
+              ()
           else s
       ;;
 
@@ -127,15 +157,6 @@ module Stable = struct
       Option.value_exn (T.sub T.start_of_next_day Span.microsecond)
     ;;
 
-    (* [create] chops off any subsecond part when [sec = 60] to handle leap seconds. In
-       particular it's trying to be generous about reading in times on things like fix
-       messages that might include an extra unlikely second.
-
-       Other ways of writing a time, like 1000ms, while mathematically valid, don't match
-       ways that people actually write times down, so we didn't see the need to support
-       them. That is, a clock might legitimately read 23:59:60 (or, with 60 seconds at
-       times of day other than 23:59, depending on the time zone), but it doesn't seem
-       reasonable for a clock to read "23:59:59 and 1000ms". *)
     let create ?hr ?min ?sec ?ms ?us ?ns () =
       let ms, us, ns =
         match sec with
@@ -155,10 +176,10 @@ module Stable = struct
       assert (if drop_ms then drop_us else true);
       let float_sec = Span.to_sec (T.to_span_since_start_of_day t) in
       let us = Float.int63_round_nearest_exn (float_sec *. 1e6) in
-      let ms, us = us / !1000, us mod !1000 |> i in
-      let sec, ms = ms / !1000, ms mod !1000 |> i in
-      let min, sec = sec / !60, sec mod !60 |> i in
-      let hr, min = min / !60, min mod !60 |> i in
+      let ms, us = us / !1000, i (us mod !1000) in
+      let sec, ms = ms / !1000, i (ms mod !1000) in
+      let min, sec = sec / !60, i (sec mod !60) in
+      let hr, min = min / !60, i (min mod !60) in
       let hr = i hr in
       let dont_print_us = drop_us || (trim && us = 0) in
       let dont_print_ms = drop_ms || (trim && ms = 0 && dont_print_us) in
@@ -200,9 +221,7 @@ module Stable = struct
         let ofday1 = Span.to_sec (T.to_span_since_start_of_day ofday1) in
         let ofday2 = Span.to_sec (T.to_span_since_start_of_day ofday2) in
         let diff = ofday1 -. ofday2 in
-        (*  d1 is in (-hour; hour) *)
         let d1 = Float.mod_float diff hour in
-        (*  d2 is in (0;hour) *)
         let d2 = Float.mod_float (d1 +. hour) hour in
         let d = if Float.( > ) d2 (hour /. 2.) then d2 -. hour else d2 in
         Span.of_sec d
@@ -213,11 +232,11 @@ module Stable = struct
     let to_string t = to_string_gen ~drop_ms:false ~drop_us:false ~trim:false t
 
     include Pretty_printer.Register (struct
-      type nonrec t = t
+        type nonrec t = t
 
-      let to_string = to_string
-      let module_name = "Core.Time.Ofday"
-    end)
+        let to_string = to_string
+        let module_name = "Core.Time.Ofday"
+      end)
 
     let create_from_parsed string ~hr ~min ~sec ~subsec_pos ~subsec_len =
       let subsec =
@@ -225,9 +244,8 @@ module Stable = struct
         then 0.
         else Float.of_string (String.sub string ~pos:subsec_pos ~len:subsec_len)
       in
-      Float.of_int ((hr * 3600) + (min * 60) + sec) +. subsec
-      |> Span.of_sec
-      |> T.of_span_since_start_of_day_exn
+      T.of_span_since_start_of_day_exn
+        (Span.of_sec (Float.of_int ((hr * 3600) + (min * 60) + sec) +. subsec))
     ;;
 
     let of_string s = Ofday_helpers.parse s ~f:create_from_parsed
@@ -254,21 +272,79 @@ module Stable = struct
     ;;
 
     include Diffable.Atomic.Make (struct
-      type nonrec t = t [@@deriving bin_io, equal, sexp]
-    end)
+        type nonrec t = t [@@deriving bin_io, equal, sexp]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "ofday_float.ml.before-ppx:257:6")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let equal =
+            (fun a__002_ b__003_ -> equal a__002_ b__003_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+          let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+          let _ = t_of_sexp
+          let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+          let _ = sexp_of_t
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+      end)
   end
 end
 
 include Stable.V1
 
 let gen_incl lo hi =
-  Span.gen_incl (to_span_since_start_of_day lo) (to_span_since_start_of_day hi)
-  |> Quickcheck.Generator.map ~f:of_span_since_start_of_day_exn
+  Quickcheck.Generator.map
+    ~f:of_span_since_start_of_day_exn
+    (Span.gen_incl (to_span_since_start_of_day lo) (to_span_since_start_of_day hi))
 ;;
 
 let gen_uniform_incl lo hi =
-  Span.gen_uniform_incl (to_span_since_start_of_day lo) (to_span_since_start_of_day hi)
-  |> Quickcheck.Generator.map ~f:of_span_since_start_of_day_exn
+  Quickcheck.Generator.map
+    ~f:of_span_since_start_of_day_exn
+    (Span.gen_uniform_incl
+       (to_span_since_start_of_day lo)
+       (to_span_since_start_of_day hi))
 ;;
 
 let quickcheck_generator = gen_incl start_of_day start_of_next_day
@@ -280,31 +356,126 @@ let quickcheck_observer =
 let quickcheck_shrinker = Quickcheck.Shrinker.empty ()
 
 include Hashable.Make_binable (struct
-  type nonrec t = t [@@deriving bin_io, compare, hash, sexp_of]
+    type nonrec t = t [@@deriving bin_io, compare, hash, sexp_of]
 
-  (* Previous versions rendered hash-based containers using float serialization rather
-       than time serialization, so when reading hash-based containers in we accept either
-       serialization. *)
-  let t_of_sexp sexp =
-    match Float.t_of_sexp sexp with
-    | float -> of_float float
-    | exception _ -> t_of_sexp sexp
-  ;;
-end)
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "ofday_float.ml.before-ppx:283:2")
+            [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+      ;;
+
+      let _ = bin_shape_t
+      let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+      let _ = bin_size_t
+      let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+      let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+      let _ = __bin_read_t__
+      let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+
+      let compare =
+        (fun a__005_ b__006_ -> compare a__005_ b__006_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        fun hsv arg -> hash_fold_t hsv arg
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+        let func = hash in
+        fun x -> func x
+      ;;
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    let t_of_sexp sexp =
+      match Float.t_of_sexp sexp with
+      | float -> of_float float
+      | exception _ -> t_of_sexp sexp
+    ;;
+  end)
 
 module C = struct
   type t = T.t [@@deriving bin_io]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "ofday_float.ml.before-ppx:296:2")
+          [ Bin_prot.Shape.Tid.of_string "t", [], T.bin_shape_t ]
+      in
+      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+    ;;
+
+    let _ = bin_shape_t
+    let bin_size_t : t Bin_prot.Size.sizer = T.bin_size_t
+    let _ = bin_size_t
+    let bin_write_t : t Bin_prot.Write.writer = T.bin_write_t
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = T.__bin_read_t__
+    let _ = __bin_read_t__
+    let bin_read_t : t Bin_prot.Read.reader = T.bin_read_t
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+       : _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   type comparator_witness = T.comparator_witness
 
   let comparator = T.comparator
   let compare = T.comparator.compare
-
-  (* In 108.06a and earlier, ofdays in sexps of Maps and Sets were raw floats.  From
-     108.07 through 109.13, the output format remained raw as before, but both the raw and
-     pretty format were accepted as input.  From 109.14 on, the output format was changed
-     from raw to pretty, while continuing to accept both formats.  Once we believe most
-     programs are beyond 109.14, we will switch the input format to no longer accept
-     raw. *)
   let sexp_of_t = sexp_of_t
 
   let t_of_sexp sexp =
@@ -320,3 +491,6 @@ include Comparable.Validate (C)
 
 let of_span_since_start_of_day = of_span_since_start_of_day_exn
 let to_millisec_string = to_millisecond_string
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -1,4 +1,15 @@
-(*_ This is just to extend Uid with the standard hashability and binability primitives *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"type_equal_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "type_equal_intf.ml.before-ppx"
+;;
 
 module type Uid = sig
   include module type of struct
@@ -20,10 +31,14 @@ module type Id = sig
 end
 
 module type Type_equal = sig
-  (** @inline *)
   include module type of struct
     include Base.Type_equal
   end
+  [@@ocaml.doc " @inline "]
 
   module Id : Id
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

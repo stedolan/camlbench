@@ -1,6 +1,15 @@
-(* A substring is a contiguous sequence of characters in a string.  We use a
-   functor because we want substrings of [string] and [bigstring].
-*)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"make_substring.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "make_substring.ml.before-ppx"
+;;
 
 open! Import
 open Std_internal
@@ -31,8 +40,6 @@ module Blit = struct
   let bigstring_bytes = Bigstring.To_bytes.blito
 end
 
-(* We can't call the base module [Base] because [@@deriving quickcheck] wants to access
-   the [Base] library directly, and we'd be shadowing it. *)
 module F (Underlying : Base) : S with type base = Underlying.t = struct
   type base = Underlying.t
 
@@ -43,15 +50,86 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
     }
   [@@deriving quickcheck]
 
-  (* note we override the generated [quickcheck_generator] below, once we've defined
-     [create] *)
+  include struct
+    let _ = fun (_ : t) -> ()
 
-  (* {[
-       let invariant t =
-         assert (0 <= t.pos);
-         assert (0 <= t.len);
-         assert (t.pos + t.len <= Base.length t.base);
-       ;; ]} *)
+    let quickcheck_generator =
+      Ppx_quickcheck_runtime.Base_quickcheck.Generator.create
+        (fun ~size:_size__010_ ~random:_random__011_ ->
+           { base =
+               Ppx_quickcheck_runtime.Base_quickcheck.Generator.generate
+                 Underlying.quickcheck_generator
+                 ~size:_size__010_
+                 ~random:_random__011_
+           ; pos =
+               Ppx_quickcheck_runtime.Base_quickcheck.Generator.generate
+                 quickcheck_generator_int
+                 ~size:_size__010_
+                 ~random:_random__011_
+           ; len =
+               Ppx_quickcheck_runtime.Base_quickcheck.Generator.generate
+                 quickcheck_generator_int
+                 ~size:_size__010_
+                 ~random:_random__011_
+           })
+    ;;
+
+    let _ = quickcheck_generator
+
+    let quickcheck_observer =
+      Ppx_quickcheck_runtime.Base_quickcheck.Observer.create
+        (fun _x__004_ ~size:_size__008_ ~hash:_hash__009_ ->
+           let { base = _x__005_; pos = _x__006_; len = _x__007_ } = _x__004_ in
+           let _hash__009_ =
+             Ppx_quickcheck_runtime.Base_quickcheck.Observer.observe
+               Underlying.quickcheck_observer
+               _x__005_
+               ~size:_size__008_
+               ~hash:_hash__009_
+           in
+           let _hash__009_ =
+             Ppx_quickcheck_runtime.Base_quickcheck.Observer.observe
+               quickcheck_observer_int
+               _x__006_
+               ~size:_size__008_
+               ~hash:_hash__009_
+           in
+           let _hash__009_ =
+             Ppx_quickcheck_runtime.Base_quickcheck.Observer.observe
+               quickcheck_observer_int
+               _x__007_
+               ~size:_size__008_
+               ~hash:_hash__009_
+           in
+           _hash__009_)
+    ;;
+
+    let _ = quickcheck_observer
+
+    let quickcheck_shrinker =
+      Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.create
+        (fun { base = _x__001_; pos = _x__002_; len = _x__003_ } ->
+           Ppx_quickcheck_runtime.Base.Sequence.round_robin
+             [ Ppx_quickcheck_runtime.Base.Sequence.map
+                 (Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.shrink
+                    Underlying.quickcheck_shrinker
+                    _x__001_)
+                 ~f:(fun _x__001_ -> { base = _x__001_; pos = _x__002_; len = _x__003_ })
+             ; Ppx_quickcheck_runtime.Base.Sequence.map
+                 (Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.shrink
+                    quickcheck_shrinker_int
+                    _x__002_)
+                 ~f:(fun _x__002_ -> { base = _x__001_; pos = _x__002_; len = _x__003_ })
+             ; Ppx_quickcheck_runtime.Base.Sequence.map
+                 (Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.shrink
+                    quickcheck_shrinker_int
+                    _x__003_)
+                 ~f:(fun _x__003_ -> { base = _x__001_; pos = _x__002_; len = _x__003_ })
+             ])
+    ;;
+
+    let _ = quickcheck_shrinker
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let base t = t.base
   let pos t = t.pos
@@ -85,11 +163,12 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
 
   let quickcheck_generator =
     let open Quickcheck.Let_syntax in
-    let%bind base = Underlying.quickcheck_generator in
-    let base_len = Underlying.length base in
-    let%bind len = Int.gen_uniform_incl 0 base_len in
-    let%bind pos = Int.gen_uniform_incl 0 (base_len - len) in
-    return (create ~pos ~len base)
+    Let_syntax.bind Underlying.quickcheck_generator ~f:(fun base ->
+      let base_len = Underlying.length base in
+      Let_syntax.bind (Int.gen_uniform_incl 0 base_len) ~f:(fun len ->
+        Let_syntax.bind
+          (Int.gen_uniform_incl 0 (base_len - len))
+          ~f:(fun pos -> return (create ~pos ~len base))))
   ;;
 
   let get_no_bounds_check t i = Underlying.get (base t) (pos t + i)
@@ -114,7 +193,7 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
 
     let fold t ~init ~f =
       let rec go acc i = if i >= length t then acc else go (f acc (get t i)) (i + 1) in
-      go init 0 [@nontail]
+      (go init 0 [@nontail])
     ;;
 
     let iter =
@@ -131,7 +210,7 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
           let rec go acc i =
             if i >= length t then acc else go (f i acc (get_no_bounds_check t i)) (i + 1)
           in
-          go init 0 [@nontail])
+          (go init 0 [@nontail]))
     ;;
 
     let iteri =
@@ -151,8 +230,6 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
   let iter = C.iter
   let fold_result = C.fold_result
   let fold_until = C.fold_until
-
-  (* [C.to_list] has to construct then reverse the list *)
   let to_list t = List.init (length t) ~f:(get t)
   let to_array = C.to_array
   let find_map = C.find_map
@@ -251,7 +328,7 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
       (List.fold ts ~init:0 ~f:(fun dst_pos t ->
          blit_dst t ~dst ~dst_pos;
          dst_pos + length t)
-        : int);
+       : int);
     dst
   ;;
 
@@ -264,3 +341,7 @@ module F (Underlying : Base) : S with type base = Underlying.t = struct
 
   let concat_bigstring ts = concat_gen Bigstring.create blit_to_bigstring ts
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -1,414 +1,854 @@
-(** This is a wrapper around INRIA's standard [Gc] module. Provides memory
-    management control and statistics, and finalized values. *)
+[@@@ocaml.text
+  " This is a wrapper around INRIA's standard [Gc] module. Provides memory\n\
+  \    management control and statistics, and finalized values. "]
 
 open! Import
 
-(*_
-  (***********************************************************************)
-  (*                                                                     *)
-  (*                           Objective Caml                            *)
-  (*                                                                     *)
-  (*             Damien Doligez, projet Para, INRIA Rocquencourt         *)
-  (*                                                                     *)
-  (*  Copyright 1996 Institut National de Recherche en Informatique et   *)
-  (*  en Automatique.  All rights reserved.  This file is distributed    *)
-  (*  under the terms of the GNU Library General Public License, with    *)
-  (*  the special exception on linking described in file ../LICENSE.     *)
-  (*                                                                     *)
-  (***********************************************************************)
-
-  (* $Id: gc.mli,v 1.42 2005-10-25 18:34:07 doligez Exp $ *)
-*)
 module Stat : sig
   [%%if ocaml_version < (4, 12, 0)]
 
   type t =
     { minor_words : float
-        (** Number of words allocated in the minor heap since
-        the program was started.  This number is accurate in
-        byte-code programs, but only an approximation in programs
-        compiled to native code. *)
+          [@ocaml.doc
+            " Number of words allocated in the minor heap since\n\
+            \        the program was started.  This number is accurate in\n\
+            \        byte-code programs, but only an approximation in programs\n\
+            \        compiled to native code. "]
     ; promoted_words : float
-        (** Number of words allocated in the minor heap that
-        survived a minor collection and were moved to the major heap
-        since the program was started. *)
+          [@ocaml.doc
+            " Number of words allocated in the minor heap that\n\
+            \        survived a minor collection and were moved to the major heap\n\
+            \        since the program was started. "]
     ; major_words : float
-        (** Number of words allocated in the major heap, including
-        the promoted words, since the program was started. *)
+          [@ocaml.doc
+            " Number of words allocated in the major heap, including\n\
+            \        the promoted words, since the program was started. "]
     ; minor_collections : int
-        (** Number of minor collections since the program was started. *)
+          [@ocaml.doc " Number of minor collections since the program was started. "]
     ; major_collections : int
-        (** Number of major collection cycles completed since the program
-        was started. *)
+          [@ocaml.doc
+            " Number of major collection cycles completed since the program\n\
+            \        was started. "]
     ; heap_words : int
-        (** Total size of the major heap, in words.
-        This metric is currently not available when using the OCaml 5 runtime: the field
-        value is always [0]. *)
+          [@ocaml.doc
+            " Total size of the major heap, in words.\n\
+            \        This metric is currently not available when using the OCaml 5 \
+             runtime: the field\n\
+            \        value is always [0]. "]
     ; heap_chunks : int
-        (** Number of contiguous pieces of memory that make up the major heap.
-        This metric is currently not available when using the OCaml 5 runtime: the field
-        value is always [0]. *)
+          [@ocaml.doc
+            " Number of contiguous pieces of memory that make up the major heap.\n\
+            \        This metric is currently not available when using the OCaml 5 \
+             runtime: the field\n\
+            \        value is always [0]. "]
     ; live_words : int
-        (** Number of words of live data in the major heap, including the header
-        words. *)
-    ; live_blocks : int (** Number of live blocks in the major heap. *)
-    ; free_words : int (** Number of words in the free list. *)
+          [@ocaml.doc
+            " Number of words of live data in the major heap, including the header\n\
+            \        words. "]
+    ; live_blocks : int [@ocaml.doc " Number of live blocks in the major heap. "]
+    ; free_words : int [@ocaml.doc " Number of words in the free list. "]
     ; free_blocks : int
-        (** Number of blocks in the free list.
-        This metric is currently not available when using the OCaml 5 runtime: the field
-        value is always [0]. *)
+          [@ocaml.doc
+            " Number of blocks in the free list.\n\
+            \        This metric is currently not available when using the OCaml 5 \
+             runtime: the field\n\
+            \        value is always [0]. "]
     ; largest_free : int
-        (** Size (in words) of the largest block in the free list.
-        This metric is currently not available when using the OCaml 5 runtime: the field
-        value is always [0]. *)
+          [@ocaml.doc
+            " Size (in words) of the largest block in the free list.\n\
+            \        This metric is currently not available when using the OCaml 5 \
+             runtime: the field\n\
+            \        value is always [0]. "]
     ; fragments : int
-        (** Number of wasted words due to fragmentation.  These are
-        1-words free blocks placed between two live blocks.  They
-        are not available for allocation. *)
-    ; compactions : int (** Number of heap compactions since the program was started. *)
+          [@ocaml.doc
+            " Number of wasted words due to fragmentation.  These are\n\
+            \        1-words free blocks placed between two live blocks.  They\n\
+            \        are not available for allocation. "]
+    ; compactions : int
+          [@ocaml.doc " Number of heap compactions since the program was started. "]
     ; top_heap_words : int
-        (** Maximum size reached by the major heap, in words.
-        This metric is currently not available when using the OCaml 5 runtime: the field
-        value is always [0]. *)
+          [@ocaml.doc
+            " Maximum size reached by the major heap, in words.\n\
+            \        This metric is currently not available when using the OCaml 5 \
+             runtime: the field\n\
+            \        value is always [0]. "]
     ; stack_size : int
-        (** Current size of the stack, in words.
-        This metric is currently not available when using the OCaml 5 runtime: the field
-        value is always [0]. *)
+          [@ocaml.doc
+            " Current size of the stack, in words.\n\
+            \        This metric is currently not available when using the OCaml 5 \
+             runtime: the field\n\
+            \        value is always [0]. "]
     }
   [@@deriving bin_io, sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   [%%elif ocaml_version < (5, 5, 0)]
 
   type t =
     { minor_words : float
-        (** Number of words allocated in the minor heap since
-        the program was started.  This number is accurate in
-        byte-code programs, but only an approximation in programs
-        compiled to native code. *)
+          [@ocaml.doc
+            " Number of words allocated in the minor heap since\n\
+            \        the program was started.  This number is accurate in\n\
+            \        byte-code programs, but only an approximation in programs\n\
+            \        compiled to native code. "]
     ; promoted_words : float
-        (** Number of words allocated in the minor heap that
-        survived a minor collection and were moved to the major heap
-        since the program was started. *)
+          [@ocaml.doc
+            " Number of words allocated in the minor heap that\n\
+            \        survived a minor collection and were moved to the major heap\n\
+            \        since the program was started. "]
     ; major_words : float
-        (** Number of words allocated in the major heap, including
-        the promoted words, since the program was started. *)
+          [@ocaml.doc
+            " Number of words allocated in the major heap, including\n\
+            \        the promoted words, since the program was started. "]
     ; minor_collections : int
-        (** Number of minor collections since the program was started. *)
+          [@ocaml.doc " Number of minor collections since the program was started. "]
     ; major_collections : int
-        (** Number of major collection cycles completed since the program
-        was started. *)
-    ; heap_words : int (** Total size of the major heap, in words. *)
+          [@ocaml.doc
+            " Number of major collection cycles completed since the program\n\
+            \        was started. "]
+    ; heap_words : int [@ocaml.doc " Total size of the major heap, in words. "]
     ; heap_chunks : int
-        (** Number of contiguous pieces of memory that make up the major heap. *)
+          [@ocaml.doc
+            " Number of contiguous pieces of memory that make up the major heap. "]
     ; live_words : int
-        (** Number of words of live data in the major heap, including the header
-        words. *)
-    ; live_blocks : int (** Number of live blocks in the major heap. *)
-    ; free_words : int (** Number of words in the free list. *)
-    ; free_blocks : int (** Number of blocks in the free list. *)
-    ; largest_free : int (** Size (in words) of the largest block in the free list. *)
+          [@ocaml.doc
+            " Number of words of live data in the major heap, including the header\n\
+            \        words. "]
+    ; live_blocks : int [@ocaml.doc " Number of live blocks in the major heap. "]
+    ; free_words : int [@ocaml.doc " Number of words in the free list. "]
+    ; free_blocks : int [@ocaml.doc " Number of blocks in the free list. "]
+    ; largest_free : int
+          [@ocaml.doc " Size (in words) of the largest block in the free list. "]
     ; fragments : int
-        (** Number of wasted words due to fragmentation.  These are
-        1-words free blocks placed between two live blocks.  They
-        are not available for allocation. *)
-    ; compactions : int (** Number of heap compactions since the program was started. *)
-    ; top_heap_words : int (** Maximum size reached by the major heap, in words. *)
-    ; stack_size : int (** Current size of the stack, in words. *)
+          [@ocaml.doc
+            " Number of wasted words due to fragmentation.  These are\n\
+            \        1-words free blocks placed between two live blocks.  They\n\
+            \        are not available for allocation. "]
+    ; compactions : int
+          [@ocaml.doc " Number of heap compactions since the program was started. "]
+    ; top_heap_words : int
+          [@ocaml.doc " Maximum size reached by the major heap, in words. "]
+    ; stack_size : int [@ocaml.doc " Current size of the stack, in words. "]
     ; forced_major_collections : int
-        (** Number of forced full major collection cycles completed since the program
-        was started. *)
+          [@ocaml.doc
+            " Number of forced full major collection cycles completed since the program\n\
+            \        was started. "]
     }
   [@@deriving
     sexp_of
-    , fields
-        ~getters
-        ~fields
-        ~iterators:(create, fold, iter, map, to_list)
-        ~direct_iterators:to_list]
+  , fields
+      ~getters
+      ~fields
+      ~iterators:(create, fold, iter, map, to_list)
+      ~direct_iterators:to_list]
+
+  include sig
+    [@@@ocaml.warning "-32-60"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+    val forced_major_collections : t -> int
+    val stack_size : t -> int
+    val top_heap_words : t -> int
+    val compactions : t -> int
+    val fragments : t -> int
+    val largest_free : t -> int
+    val free_blocks : t -> int
+    val free_words : t -> int
+    val live_blocks : t -> int
+    val live_words : t -> int
+    val heap_chunks : t -> int
+    val heap_words : t -> int
+    val major_collections : t -> int
+    val minor_collections : t -> int
+    val major_words : t -> float
+    val promoted_words : t -> float
+    val minor_words : t -> float
+
+    module Fields : sig
+      val forced_major_collections : (t, int) Fieldslib.Field.t
+      val stack_size : (t, int) Fieldslib.Field.t
+      val top_heap_words : (t, int) Fieldslib.Field.t
+      val compactions : (t, int) Fieldslib.Field.t
+      val fragments : (t, int) Fieldslib.Field.t
+      val largest_free : (t, int) Fieldslib.Field.t
+      val free_blocks : (t, int) Fieldslib.Field.t
+      val free_words : (t, int) Fieldslib.Field.t
+      val live_blocks : (t, int) Fieldslib.Field.t
+      val live_words : (t, int) Fieldslib.Field.t
+      val heap_chunks : (t, int) Fieldslib.Field.t
+      val heap_words : (t, int) Fieldslib.Field.t
+      val major_collections : (t, int) Fieldslib.Field.t
+      val minor_collections : (t, int) Fieldslib.Field.t
+      val major_words : (t, float) Fieldslib.Field.t
+      val promoted_words : (t, float) Fieldslib.Field.t
+      val minor_words : (t, float) Fieldslib.Field.t
+
+      val fold
+        :  init:'acc__0
+        -> minor_words:('acc__0 -> (t, float) Fieldslib.Field.t -> 'acc__1)
+        -> promoted_words:('acc__1 -> (t, float) Fieldslib.Field.t -> 'acc__2)
+        -> major_words:('acc__2 -> (t, float) Fieldslib.Field.t -> 'acc__3)
+        -> minor_collections:('acc__3 -> (t, int) Fieldslib.Field.t -> 'acc__4)
+        -> major_collections:('acc__4 -> (t, int) Fieldslib.Field.t -> 'acc__5)
+        -> heap_words:('acc__5 -> (t, int) Fieldslib.Field.t -> 'acc__6)
+        -> heap_chunks:('acc__6 -> (t, int) Fieldslib.Field.t -> 'acc__7)
+        -> live_words:('acc__7 -> (t, int) Fieldslib.Field.t -> 'acc__8)
+        -> live_blocks:('acc__8 -> (t, int) Fieldslib.Field.t -> 'acc__9)
+        -> free_words:('acc__9 -> (t, int) Fieldslib.Field.t -> 'acc__10)
+        -> free_blocks:('acc__10 -> (t, int) Fieldslib.Field.t -> 'acc__11)
+        -> largest_free:('acc__11 -> (t, int) Fieldslib.Field.t -> 'acc__12)
+        -> fragments:('acc__12 -> (t, int) Fieldslib.Field.t -> 'acc__13)
+        -> compactions:('acc__13 -> (t, int) Fieldslib.Field.t -> 'acc__14)
+        -> top_heap_words:('acc__14 -> (t, int) Fieldslib.Field.t -> 'acc__15)
+        -> stack_size:('acc__15 -> (t, int) Fieldslib.Field.t -> 'acc__16)
+        -> forced_major_collections:('acc__16 -> (t, int) Fieldslib.Field.t -> 'acc__17)
+        -> 'acc__17
+
+      val create
+        :  minor_words:float
+        -> promoted_words:float
+        -> major_words:float
+        -> minor_collections:int
+        -> major_collections:int
+        -> heap_words:int
+        -> heap_chunks:int
+        -> live_words:int
+        -> live_blocks:int
+        -> free_words:int
+        -> free_blocks:int
+        -> largest_free:int
+        -> fragments:int
+        -> compactions:int
+        -> top_heap_words:int
+        -> stack_size:int
+        -> forced_major_collections:int
+        -> t
+
+      val map
+        :  minor_words:((t, float) Fieldslib.Field.t -> float)
+        -> promoted_words:((t, float) Fieldslib.Field.t -> float)
+        -> major_words:((t, float) Fieldslib.Field.t -> float)
+        -> minor_collections:((t, int) Fieldslib.Field.t -> int)
+        -> major_collections:((t, int) Fieldslib.Field.t -> int)
+        -> heap_words:((t, int) Fieldslib.Field.t -> int)
+        -> heap_chunks:((t, int) Fieldslib.Field.t -> int)
+        -> live_words:((t, int) Fieldslib.Field.t -> int)
+        -> live_blocks:((t, int) Fieldslib.Field.t -> int)
+        -> free_words:((t, int) Fieldslib.Field.t -> int)
+        -> free_blocks:((t, int) Fieldslib.Field.t -> int)
+        -> largest_free:((t, int) Fieldslib.Field.t -> int)
+        -> fragments:((t, int) Fieldslib.Field.t -> int)
+        -> compactions:((t, int) Fieldslib.Field.t -> int)
+        -> top_heap_words:((t, int) Fieldslib.Field.t -> int)
+        -> stack_size:((t, int) Fieldslib.Field.t -> int)
+        -> forced_major_collections:((t, int) Fieldslib.Field.t -> int)
+        -> t
+
+      val iter
+        :  minor_words:((t, float) Fieldslib.Field.t -> unit)
+        -> promoted_words:((t, float) Fieldslib.Field.t -> unit)
+        -> major_words:((t, float) Fieldslib.Field.t -> unit)
+        -> minor_collections:((t, int) Fieldslib.Field.t -> unit)
+        -> major_collections:((t, int) Fieldslib.Field.t -> unit)
+        -> heap_words:((t, int) Fieldslib.Field.t -> unit)
+        -> heap_chunks:((t, int) Fieldslib.Field.t -> unit)
+        -> live_words:((t, int) Fieldslib.Field.t -> unit)
+        -> live_blocks:((t, int) Fieldslib.Field.t -> unit)
+        -> free_words:((t, int) Fieldslib.Field.t -> unit)
+        -> free_blocks:((t, int) Fieldslib.Field.t -> unit)
+        -> largest_free:((t, int) Fieldslib.Field.t -> unit)
+        -> fragments:((t, int) Fieldslib.Field.t -> unit)
+        -> compactions:((t, int) Fieldslib.Field.t -> unit)
+        -> top_heap_words:((t, int) Fieldslib.Field.t -> unit)
+        -> stack_size:((t, int) Fieldslib.Field.t -> unit)
+        -> forced_major_collections:((t, int) Fieldslib.Field.t -> unit)
+        -> unit
+
+      val to_list
+        :  minor_words:((t, float) Fieldslib.Field.t -> 'elem__)
+        -> promoted_words:((t, float) Fieldslib.Field.t -> 'elem__)
+        -> major_words:((t, float) Fieldslib.Field.t -> 'elem__)
+        -> minor_collections:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> major_collections:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> heap_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> heap_chunks:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> live_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> live_blocks:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> free_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> free_blocks:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> largest_free:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> fragments:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> compactions:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> top_heap_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> stack_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> forced_major_collections:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> 'elem__ list
+
+      module Direct : sig
+        val to_list
+          :  t
+          -> minor_words:((t, float) Fieldslib.Field.t -> t -> float -> 'elem__)
+          -> promoted_words:((t, float) Fieldslib.Field.t -> t -> float -> 'elem__)
+          -> major_words:((t, float) Fieldslib.Field.t -> t -> float -> 'elem__)
+          -> minor_collections:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> major_collections:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> heap_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> heap_chunks:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> live_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> live_blocks:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> free_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> free_blocks:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> largest_free:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> fragments:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> compactions:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> top_heap_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> stack_size:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> forced_major_collections:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> 'elem__ list
+      end
+    end
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   [%%else]
 
   type t =
     { minor_words : float
-        (** Number of words allocated in the minor heap since
-        the program was started.  This number is accurate in
-        byte-code programs, but only an approximation in programs
-        compiled to native code. *)
+          [@ocaml.doc
+            " Number of words allocated in the minor heap since\n\
+            \        the program was started.  This number is accurate in\n\
+            \        byte-code programs, but only an approximation in programs\n\
+            \        compiled to native code. "]
     ; promoted_words : float
-        (** Number of words allocated in the minor heap that
-        survived a minor collection and were moved to the major heap
-        since the program was started. *)
+          [@ocaml.doc
+            " Number of words allocated in the minor heap that\n\
+            \        survived a minor collection and were moved to the major heap\n\
+            \        since the program was started. "]
     ; major_words : float
-        (** Number of words allocated in the major heap, including
-        the promoted words, since the program was started. *)
+          [@ocaml.doc
+            " Number of words allocated in the major heap, including\n\
+            \        the promoted words, since the program was started. "]
     ; minor_collections : int
-        (** Number of minor collections since the program was started. *)
+          [@ocaml.doc " Number of minor collections since the program was started. "]
     ; major_collections : int
-        (** Number of major collection cycles completed since the program
-        was started. *)
-    ; heap_words : int (** Total size of the major heap, in words. *)
+          [@ocaml.doc
+            " Number of major collection cycles completed since the program\n\
+            \        was started. "]
+    ; heap_words : int [@ocaml.doc " Total size of the major heap, in words. "]
     ; heap_chunks : int
-        (** Number of contiguous pieces of memory that make up the major heap. *)
+          [@ocaml.doc
+            " Number of contiguous pieces of memory that make up the major heap. "]
     ; live_words : int
-        (** Number of words of live data in the major heap, including the header
-        words. *)
-    ; live_blocks : int (** Number of live blocks in the major heap. *)
-    ; free_words : int (** Number of words in the free list. *)
-    ; free_blocks : int (** Number of blocks in the free list. *)
-    ; largest_free : int (** Size (in words) of the largest block in the free list. *)
+          [@ocaml.doc
+            " Number of words of live data in the major heap, including the header\n\
+            \        words. "]
+    ; live_blocks : int [@ocaml.doc " Number of live blocks in the major heap. "]
+    ; free_words : int [@ocaml.doc " Number of words in the free list. "]
+    ; free_blocks : int [@ocaml.doc " Number of blocks in the free list. "]
+    ; largest_free : int
+          [@ocaml.doc " Size (in words) of the largest block in the free list. "]
     ; fragments : int
-        (** Number of wasted words due to fragmentation.  These are
-        1-words free blocks placed between two live blocks.  They
-        are not available for allocation. *)
-    ; compactions : int (** Number of heap compactions since the program was started. *)
-    ; top_heap_words : int (** Maximum size reached by the major heap, in words. *)
-    ; stack_size : int (** Current size of the stack, in words. *)
+          [@ocaml.doc
+            " Number of wasted words due to fragmentation.  These are\n\
+            \        1-words free blocks placed between two live blocks.  They\n\
+            \        are not available for allocation. "]
+    ; compactions : int
+          [@ocaml.doc " Number of heap compactions since the program was started. "]
+    ; top_heap_words : int
+          [@ocaml.doc " Maximum size reached by the major heap, in words. "]
+    ; stack_size : int [@ocaml.doc " Current size of the stack, in words. "]
     ; forced_major_collections : int
-        (** Number of forced full major collection cycles completed since the program
-        was started. *)
+          [@ocaml.doc
+            " Number of forced full major collection cycles completed since the program\n\
+            \        was started. "]
     ; live_stacks_words : int
     }
   [@@deriving
     sexp_of
-    , fields
-        ~getters
-        ~fields
-        ~iterators:(create, fold, iter, map, to_list)
-        ~direct_iterators:to_list]
+  , fields
+      ~getters
+      ~fields
+      ~iterators:(create, fold, iter, map, to_list)
+      ~direct_iterators:to_list]
+
+  include sig
+    [@@@ocaml.warning "-32-60"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+    val live_stacks_words : t -> int
+    val forced_major_collections : t -> int
+    val stack_size : t -> int
+    val top_heap_words : t -> int
+    val compactions : t -> int
+    val fragments : t -> int
+    val largest_free : t -> int
+    val free_blocks : t -> int
+    val free_words : t -> int
+    val live_blocks : t -> int
+    val live_words : t -> int
+    val heap_chunks : t -> int
+    val heap_words : t -> int
+    val major_collections : t -> int
+    val minor_collections : t -> int
+    val major_words : t -> float
+    val promoted_words : t -> float
+    val minor_words : t -> float
+
+    module Fields : sig
+      val live_stacks_words : (t, int) Fieldslib.Field.t
+      val forced_major_collections : (t, int) Fieldslib.Field.t
+      val stack_size : (t, int) Fieldslib.Field.t
+      val top_heap_words : (t, int) Fieldslib.Field.t
+      val compactions : (t, int) Fieldslib.Field.t
+      val fragments : (t, int) Fieldslib.Field.t
+      val largest_free : (t, int) Fieldslib.Field.t
+      val free_blocks : (t, int) Fieldslib.Field.t
+      val free_words : (t, int) Fieldslib.Field.t
+      val live_blocks : (t, int) Fieldslib.Field.t
+      val live_words : (t, int) Fieldslib.Field.t
+      val heap_chunks : (t, int) Fieldslib.Field.t
+      val heap_words : (t, int) Fieldslib.Field.t
+      val major_collections : (t, int) Fieldslib.Field.t
+      val minor_collections : (t, int) Fieldslib.Field.t
+      val major_words : (t, float) Fieldslib.Field.t
+      val promoted_words : (t, float) Fieldslib.Field.t
+      val minor_words : (t, float) Fieldslib.Field.t
+
+      val fold
+        :  init:'acc__0
+        -> minor_words:('acc__0 -> (t, float) Fieldslib.Field.t -> 'acc__1)
+        -> promoted_words:('acc__1 -> (t, float) Fieldslib.Field.t -> 'acc__2)
+        -> major_words:('acc__2 -> (t, float) Fieldslib.Field.t -> 'acc__3)
+        -> minor_collections:('acc__3 -> (t, int) Fieldslib.Field.t -> 'acc__4)
+        -> major_collections:('acc__4 -> (t, int) Fieldslib.Field.t -> 'acc__5)
+        -> heap_words:('acc__5 -> (t, int) Fieldslib.Field.t -> 'acc__6)
+        -> heap_chunks:('acc__6 -> (t, int) Fieldslib.Field.t -> 'acc__7)
+        -> live_words:('acc__7 -> (t, int) Fieldslib.Field.t -> 'acc__8)
+        -> live_blocks:('acc__8 -> (t, int) Fieldslib.Field.t -> 'acc__9)
+        -> free_words:('acc__9 -> (t, int) Fieldslib.Field.t -> 'acc__10)
+        -> free_blocks:('acc__10 -> (t, int) Fieldslib.Field.t -> 'acc__11)
+        -> largest_free:('acc__11 -> (t, int) Fieldslib.Field.t -> 'acc__12)
+        -> fragments:('acc__12 -> (t, int) Fieldslib.Field.t -> 'acc__13)
+        -> compactions:('acc__13 -> (t, int) Fieldslib.Field.t -> 'acc__14)
+        -> top_heap_words:('acc__14 -> (t, int) Fieldslib.Field.t -> 'acc__15)
+        -> stack_size:('acc__15 -> (t, int) Fieldslib.Field.t -> 'acc__16)
+        -> forced_major_collections:('acc__16 -> (t, int) Fieldslib.Field.t -> 'acc__17)
+        -> live_stacks_words:('acc__17 -> (t, int) Fieldslib.Field.t -> 'acc__18)
+        -> 'acc__18
+
+      val create
+        :  minor_words:float
+        -> promoted_words:float
+        -> major_words:float
+        -> minor_collections:int
+        -> major_collections:int
+        -> heap_words:int
+        -> heap_chunks:int
+        -> live_words:int
+        -> live_blocks:int
+        -> free_words:int
+        -> free_blocks:int
+        -> largest_free:int
+        -> fragments:int
+        -> compactions:int
+        -> top_heap_words:int
+        -> stack_size:int
+        -> forced_major_collections:int
+        -> live_stacks_words:int
+        -> t
+
+      val map
+        :  minor_words:((t, float) Fieldslib.Field.t -> float)
+        -> promoted_words:((t, float) Fieldslib.Field.t -> float)
+        -> major_words:((t, float) Fieldslib.Field.t -> float)
+        -> minor_collections:((t, int) Fieldslib.Field.t -> int)
+        -> major_collections:((t, int) Fieldslib.Field.t -> int)
+        -> heap_words:((t, int) Fieldslib.Field.t -> int)
+        -> heap_chunks:((t, int) Fieldslib.Field.t -> int)
+        -> live_words:((t, int) Fieldslib.Field.t -> int)
+        -> live_blocks:((t, int) Fieldslib.Field.t -> int)
+        -> free_words:((t, int) Fieldslib.Field.t -> int)
+        -> free_blocks:((t, int) Fieldslib.Field.t -> int)
+        -> largest_free:((t, int) Fieldslib.Field.t -> int)
+        -> fragments:((t, int) Fieldslib.Field.t -> int)
+        -> compactions:((t, int) Fieldslib.Field.t -> int)
+        -> top_heap_words:((t, int) Fieldslib.Field.t -> int)
+        -> stack_size:((t, int) Fieldslib.Field.t -> int)
+        -> forced_major_collections:((t, int) Fieldslib.Field.t -> int)
+        -> live_stacks_words:((t, int) Fieldslib.Field.t -> int)
+        -> t
+
+      val iter
+        :  minor_words:((t, float) Fieldslib.Field.t -> unit)
+        -> promoted_words:((t, float) Fieldslib.Field.t -> unit)
+        -> major_words:((t, float) Fieldslib.Field.t -> unit)
+        -> minor_collections:((t, int) Fieldslib.Field.t -> unit)
+        -> major_collections:((t, int) Fieldslib.Field.t -> unit)
+        -> heap_words:((t, int) Fieldslib.Field.t -> unit)
+        -> heap_chunks:((t, int) Fieldslib.Field.t -> unit)
+        -> live_words:((t, int) Fieldslib.Field.t -> unit)
+        -> live_blocks:((t, int) Fieldslib.Field.t -> unit)
+        -> free_words:((t, int) Fieldslib.Field.t -> unit)
+        -> free_blocks:((t, int) Fieldslib.Field.t -> unit)
+        -> largest_free:((t, int) Fieldslib.Field.t -> unit)
+        -> fragments:((t, int) Fieldslib.Field.t -> unit)
+        -> compactions:((t, int) Fieldslib.Field.t -> unit)
+        -> top_heap_words:((t, int) Fieldslib.Field.t -> unit)
+        -> stack_size:((t, int) Fieldslib.Field.t -> unit)
+        -> forced_major_collections:((t, int) Fieldslib.Field.t -> unit)
+        -> live_stacks_words:((t, int) Fieldslib.Field.t -> unit)
+        -> unit
+
+      val to_list
+        :  minor_words:((t, float) Fieldslib.Field.t -> 'elem__)
+        -> promoted_words:((t, float) Fieldslib.Field.t -> 'elem__)
+        -> major_words:((t, float) Fieldslib.Field.t -> 'elem__)
+        -> minor_collections:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> major_collections:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> heap_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> heap_chunks:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> live_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> live_blocks:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> free_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> free_blocks:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> largest_free:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> fragments:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> compactions:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> top_heap_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> stack_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> forced_major_collections:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> live_stacks_words:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> 'elem__ list
+
+      module Direct : sig
+        val to_list
+          :  t
+          -> minor_words:((t, float) Fieldslib.Field.t -> t -> float -> 'elem__)
+          -> promoted_words:((t, float) Fieldslib.Field.t -> t -> float -> 'elem__)
+          -> major_words:((t, float) Fieldslib.Field.t -> t -> float -> 'elem__)
+          -> minor_collections:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> major_collections:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> heap_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> heap_chunks:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> live_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> live_blocks:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> free_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> free_blocks:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> largest_free:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> fragments:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> compactions:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> top_heap_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> stack_size:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> forced_major_collections:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> live_stacks_words:((t, int) Fieldslib.Field.t -> t -> int -> 'elem__)
+          -> 'elem__ list
+      end
+    end
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   [%%endif]
 
   include Comparable.S_plain with type t := t
 
-  (** [add first second] computes [first+second] pointwise across each field; this helps
-      in aggregating statistics across processes. *)
   val add : t -> t -> t
+  [@@ocaml.doc
+    " [add first second] computes [first+second] pointwise across each field; this helps\n\
+    \      in aggregating statistics across processes. "]
 
-  (** [diff after before] computes [after-before] pointwise across each field; this helps
-      show the effect (on all stats) of some code block. *)
   val diff : t -> t -> t
+  [@@ocaml.doc
+    " [diff after before] computes [after-before] pointwise across each field; this helps\n\
+    \      show the effect (on all stats) of some code block. "]
 end
 
 type stat = Stat.t
 
-(** The memory management counters are returned in a [stat] record.
-
-    The total amount of memory allocated by the program since it was started
-    is (in words) [minor_words + major_words - promoted_words].  Multiply by
-    the word size (4 on a 32-bit machine, 8 on a 64-bit machine) to get
-    the number of bytes.
-*)
+[@@@ocaml.text
+  " The memory management counters are returned in a [stat] record.\n\n\
+  \    The total amount of memory allocated by the program since it was started\n\
+  \    is (in words) [minor_words + major_words - promoted_words].  Multiply by\n\
+  \    the word size (4 on a 32-bit machine, 8 on a 64-bit machine) to get\n\
+  \    the number of bytes.\n"]
 
 module Control : sig
   [%%if ocaml_version < (5, 0, 0)]
 
   type t =
     { mutable minor_heap_size : int
-        (** The size (in words) of the minor heap.  Changing this parameter will
-        trigger a minor collection.
-
-        Default: 262144 words / 1MB (32bit) / 2MB (64bit).
-    *)
+          [@ocaml.doc
+            " The size (in words) of the minor heap.  Changing this parameter will\n\
+            \        trigger a minor collection.\n\n\
+            \        Default: 262144 words / 1MB (32bit) / 2MB (64bit).\n\
+            \    "]
     ; mutable major_heap_increment : int
-        (** How much to add to the major heap when increasing it. If this
-        number is less than or equal to 1000, it is a percentage of
-        the current heap size (i.e. setting it to 100 will double the heap
-        size at each increase). If it is more than 1000, it is a fixed
-        number of words that will be added to the heap.
-
-        Default: 15%.
-    *)
+          [@ocaml.doc
+            " How much to add to the major heap when increasing it. If this\n\
+            \        number is less than or equal to 1000, it is a percentage of\n\
+            \        the current heap size (i.e. setting it to 100 will double the heap\n\
+            \        size at each increase). If it is more than 1000, it is a fixed\n\
+            \        number of words that will be added to the heap.\n\n\
+            \        Default: 15%.\n\
+            \    "]
     ; mutable space_overhead : int
-        (** The major GC speed is computed from this parameter.
-        This is the memory that will be "wasted" because the GC does not
-        immediately collect unreachable blocks.  It is expressed as a
-        percentage of the memory used for live data.
-        The GC will work more (use more CPU time and collect
-        blocks more eagerly) if [space_overhead] is smaller.
-
-        Default: 80. *)
+          [@ocaml.doc
+            " The major GC speed is computed from this parameter.\n\
+            \        This is the memory that will be \"wasted\" because the GC does not\n\
+            \        immediately collect unreachable blocks.  It is expressed as a\n\
+            \        percentage of the memory used for live data.\n\
+            \        The GC will work more (use more CPU time and collect\n\
+            \        blocks more eagerly) if [space_overhead] is smaller.\n\n\
+            \        Default: 80. "]
     ; mutable verbose : int
-        (** This value controls the GC messages on standard error output.
-        It is a sum of some of the following flags, to print messages
-        on the corresponding events:
-        - [0x001] Start of major GC cycle.
-        - [0x002] Minor collection and major GC slice.
-        - [0x004] Growing and shrinking of the heap.
-        - [0x008] Resizing of stacks and memory manager tables.
-        - [0x010] Heap compaction.
-        - [0x020] Change of GC parameters.
-        - [0x040] Computation of major GC slice size.
-        - [0x080] Calling of finalisation functions.
-        - [0x100] Bytecode executable search at start-up.
-        - [0x200] Computation of compaction triggering condition.
-
-        Default: 0. *)
+          [@ocaml.doc
+            " This value controls the GC messages on standard error output.\n\
+            \        It is a sum of some of the following flags, to print messages\n\
+            \        on the corresponding events:\n\
+            \        - [0x001] Start of major GC cycle.\n\
+            \        - [0x002] Minor collection and major GC slice.\n\
+            \        - [0x004] Growing and shrinking of the heap.\n\
+            \        - [0x008] Resizing of stacks and memory manager tables.\n\
+            \        - [0x010] Heap compaction.\n\
+            \        - [0x020] Change of GC parameters.\n\
+            \        - [0x040] Computation of major GC slice size.\n\
+            \        - [0x080] Calling of finalisation functions.\n\
+            \        - [0x100] Bytecode executable search at start-up.\n\
+            \        - [0x200] Computation of compaction triggering condition.\n\n\
+            \        Default: 0. "]
     ; mutable max_overhead : int
-        (** Heap compaction is triggered when the estimated amount
-        of "wasted" memory is more than [max_overhead] percent of the
-        amount of live data.  If [max_overhead] is set to 0, heap
-        compaction is triggered at the end of each major GC cycle
-        (this setting is intended for testing purposes only).
-        If [max_overhead >= 1000000], compaction is never triggered.
-
-        Default: 500. *)
+          [@ocaml.doc
+            " Heap compaction is triggered when the estimated amount\n\
+            \        of \"wasted\" memory is more than [max_overhead] percent of the\n\
+            \        amount of live data.  If [max_overhead] is set to 0, heap\n\
+            \        compaction is triggered at the end of each major GC cycle\n\
+            \        (this setting is intended for testing purposes only).\n\
+            \        If [max_overhead >= 1000000], compaction is never triggered.\n\n\
+            \        Default: 500. "]
     ; mutable stack_limit : int
-        (** The maximum size of the stack (in words).  This is only
-        relevant to the byte-code runtime, as the native code runtime
-        uses the operating system's stack.
-
-        Default: 1048576 words / 4MB (32bit) / 8MB (64bit). *)
+          [@ocaml.doc
+            " The maximum size of the stack (in words).  This is only\n\
+            \        relevant to the byte-code runtime, as the native code runtime\n\
+            \        uses the operating system's stack.\n\n\
+            \        Default: 1048576 words / 4MB (32bit) / 8MB (64bit). "]
     ; mutable allocation_policy : int
-        (** The policy used for allocating in the heap.  Possible
-        values are 0 and 1.  0 is the next-fit policy, which is
-        quite fast but can result in fragmentation.  1 is the
-        first-fit policy, which can be slower in some cases but
-        can be better for programs with fragmentation problems.
-
-        Default: 0. *)
+          [@ocaml.doc
+            " The policy used for allocating in the heap.  Possible\n\
+            \        values are 0 and 1.  0 is the next-fit policy, which is\n\
+            \        quite fast but can result in fragmentation.  1 is the\n\
+            \        first-fit policy, which can be slower in some cases but\n\
+            \        can be better for programs with fragmentation problems.\n\n\
+            \        Default: 0. "]
     ; window_size : int
-        (** The size of the window used by the major GC for smoothing
-        out variations in its workload. This is an integer between
-        1 and 50.
-
-        Default: 1. @since 4.03.0 *)
+          [@ocaml.doc
+            " The size of the window used by the major GC for smoothing\n\
+            \        out variations in its workload. This is an integer between\n\
+            \        1 and 50.\n\n\
+            \        Default: 1. @since 4.03.0 "]
     ; custom_major_ratio : int
-        (** Target ratio of floating garbage to major heap size for
-        out-of-heap memory held by custom values located in the major
-        heap. The GC speed is adjusted to try to use this much memory
-        for dead values that are not yet collected. Expressed as a
-        percentage of major heap size. The default value keeps the
-        out-of-heap floating garbage about the same size as the
-        in-heap overhead.
-        Note: this only applies to values allocated with
-        [caml_alloc_custom_mem] (e.g. bigarrays).
-        Default: 44.
-        @since 4.08.0 *)
+          [@ocaml.doc
+            " Target ratio of floating garbage to major heap size for\n\
+            \        out-of-heap memory held by custom values located in the major\n\
+            \        heap. The GC speed is adjusted to try to use this much memory\n\
+            \        for dead values that are not yet collected. Expressed as a\n\
+            \        percentage of major heap size. The default value keeps the\n\
+            \        out-of-heap floating garbage about the same size as the\n\
+            \        in-heap overhead.\n\
+            \        Note: this only applies to values allocated with\n\
+            \        [caml_alloc_custom_mem] (e.g. bigarrays).\n\
+            \        Default: 44.\n\
+            \        @since 4.08.0 "]
     ; custom_minor_ratio : int
-        (** Bound on floating garbage for out-of-heap memory held by
-        custom values in the minor heap. A minor GC is triggered when
-        this much memory is held by custom values located in the minor
-        heap. Expressed as a percentage of minor heap size.
-        Note: this only applies to values allocated with
-        [caml_alloc_custom_mem] (e.g. bigarrays).
-        Default: 100.
-        @since 4.08.0 *)
+          [@ocaml.doc
+            " Bound on floating garbage for out-of-heap memory held by\n\
+            \        custom values in the minor heap. A minor GC is triggered when\n\
+            \        this much memory is held by custom values located in the minor\n\
+            \        heap. Expressed as a percentage of minor heap size.\n\
+            \        Note: this only applies to values allocated with\n\
+            \        [caml_alloc_custom_mem] (e.g. bigarrays).\n\
+            \        Default: 100.\n\
+            \        @since 4.08.0 "]
     ; custom_minor_max_size : int
-        (** Maximum amount of out-of-heap memory for each custom value
-        allocated in the minor heap. When a custom value is allocated
-        on the minor heap and holds more than this many bytes, only
-        this value is counted against [custom_minor_ratio] and the
-        rest is directly counted against [custom_major_ratio].
-        Note: this only applies to values allocated with
-        [caml_alloc_custom_mem] (e.g. bigarrays).
-        Default: 8192 bytes.
-        @since 4.08.0 *)
+          [@ocaml.doc
+            " Maximum amount of out-of-heap memory for each custom value\n\
+            \        allocated in the minor heap. When a custom value is allocated\n\
+            \        on the minor heap and holds more than this many bytes, only\n\
+            \        this value is counted against [custom_minor_ratio] and the\n\
+            \        rest is directly counted against [custom_major_ratio].\n\
+            \        Note: this only applies to values allocated with\n\
+            \        [caml_alloc_custom_mem] (e.g. bigarrays).\n\
+            \        Default: 8192 bytes.\n\
+            \        @since 4.08.0 "]
     }
   [@@deriving sexp_of, fields ~iterators:to_list]
+
+  include sig
+    [@@@ocaml.warning "-32-60"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+
+    module Fields : sig
+      val to_list
+        :  minor_heap_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> major_heap_increment:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> space_overhead:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> verbose:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> max_overhead:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> stack_limit:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> allocation_policy:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> window_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> custom_major_ratio:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> custom_minor_ratio:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> custom_minor_max_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> 'elem__ list
+    end
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   [%%else]
 
   type t =
     { minor_heap_size : int
-        (** The size (in words) of the minor heap.  Changing
-        this parameter will trigger a minor collection.
-
-        Under the OCaml 5 runtime: the total size of the minor heap used by the program
-        can be obtained by summing the the heap sizes of the active domains.
-
-        Default: 262144 words / 1MB (32bit) / 2MB (64bit).
-    *)
+          [@ocaml.doc
+            " The size (in words) of the minor heap.  Changing\n\
+            \        this parameter will trigger a minor collection.\n\n\
+            \        Under the OCaml 5 runtime: the total size of the minor heap used by \
+             the program\n\
+            \        can be obtained by summing the the heap sizes of the active \
+             domains.\n\n\
+            \        Default: 262144 words / 1MB (32bit) / 2MB (64bit).\n\
+            \    "]
     ; major_heap_increment : int
-        (** How much to add to the major heap when increasing it. If this
-        number is less than or equal to 1000, it is a percentage of
-        the current heap size (i.e. setting it to 100 will double the heap
-        size at each increase). If it is more than 1000, it is a fixed
-        number of words that will be added to the heap.
-        Default: 15%.
-    *)
+          [@ocaml.doc
+            " How much to add to the major heap when increasing it. If this\n\
+            \        number is less than or equal to 1000, it is a percentage of\n\
+            \        the current heap size (i.e. setting it to 100 will double the heap\n\
+            \        size at each increase). If it is more than 1000, it is a fixed\n\
+            \        number of words that will be added to the heap.\n\
+            \        Default: 15%.\n\
+            \    "]
     ; space_overhead : int
-        (** The major GC speed is computed from this parameter.
-        This is the memory that will be "wasted" because the GC does not
-        immediately collect unreachable blocks.  It is expressed as a
-        percentage of the memory used for live data.
-        The GC will work more (use more CPU time and collect
-        blocks more eagerly) if [space_overhead] is smaller.
-        Default: 80 for the OCaml 4 runtime, 120 for the OCaml 5 runtime
-        (the latter subject to change). *)
+          [@ocaml.doc
+            " The major GC speed is computed from this parameter.\n\
+            \        This is the memory that will be \"wasted\" because the GC does not\n\
+            \        immediately collect unreachable blocks.  It is expressed as a\n\
+            \        percentage of the memory used for live data.\n\
+            \        The GC will work more (use more CPU time and collect\n\
+            \        blocks more eagerly) if [space_overhead] is smaller.\n\
+            \        Default: 80 for the OCaml 4 runtime, 120 for the OCaml 5 runtime\n\
+            \        (the latter subject to change). "]
     ; verbose : int
-        (** This value controls the GC messages on standard error output.
-        It is a sum of some of the following flags, to print messages
-        on the corresponding events:
-        - [0x001] Start of major GC cycle.
-        - [0x002] Minor collection and major GC slice.
-        - [0x004] Growing and shrinking of the heap.
-        - [0x008] Resizing of stacks and memory manager tables.
-        - [0x010] Heap compaction.
-        - [0x020] Change of GC parameters.
-        - [0x040] Computation of major GC slice size.
-        - [0x080] Calling of finalisation functions.
-        - [0x100] Bytecode executable search at start-up.
-        - [0x200] Computation of compaction triggering condition.
-        - [0x400] Output GC statistics at program exit (OCaml 5 runtime only).
-          Default: 0. *)
+          [@ocaml.doc
+            " This value controls the GC messages on standard error output.\n\
+            \        It is a sum of some of the following flags, to print messages\n\
+            \        on the corresponding events:\n\
+            \        - [0x001] Start of major GC cycle.\n\
+            \        - [0x002] Minor collection and major GC slice.\n\
+            \        - [0x004] Growing and shrinking of the heap.\n\
+            \        - [0x008] Resizing of stacks and memory manager tables.\n\
+            \        - [0x010] Heap compaction.\n\
+            \        - [0x020] Change of GC parameters.\n\
+            \        - [0x040] Computation of major GC slice size.\n\
+            \        - [0x080] Calling of finalisation functions.\n\
+            \        - [0x100] Bytecode executable search at start-up.\n\
+            \        - [0x200] Computation of compaction triggering condition.\n\
+            \        - [0x400] Output GC statistics at program exit (OCaml 5 runtime \
+             only).\n\
+            \          Default: 0. "]
     ; max_overhead : int
-        (** Heap compaction is triggered when the estimated amount
-        of "wasted" memory is more than [max_overhead] percent of the
-        amount of live data.  If [max_overhead] is set to 0, heap
-        compaction is triggered at the end of each major GC cycle
-        (this setting is intended for testing purposes only).
-        If [max_overhead >= 1000000], compaction is never triggered.
-        Default: 500. *)
+          [@ocaml.doc
+            " Heap compaction is triggered when the estimated amount\n\
+            \        of \"wasted\" memory is more than [max_overhead] percent of the\n\
+            \        amount of live data.  If [max_overhead] is set to 0, heap\n\
+            \        compaction is triggered at the end of each major GC cycle\n\
+            \        (this setting is intended for testing purposes only).\n\
+            \        If [max_overhead >= 1000000], compaction is never triggered.\n\
+            \        Default: 500. "]
     ; stack_limit : int
-        (** The maximum size of the stack (in words).  This is only
-        relevant to the byte-code runtime, as the native code runtime
-        uses the operating system's stack.
-        Default: 1048576 words / 4MB (32bit) / 8MB (64bit). *)
+          [@ocaml.doc
+            " The maximum size of the stack (in words).  This is only\n\
+            \        relevant to the byte-code runtime, as the native code runtime\n\
+            \        uses the operating system's stack.\n\
+            \        Default: 1048576 words / 4MB (32bit) / 8MB (64bit). "]
     ; allocation_policy : int
-        (** The policy used for allocating in the heap.  Possible
-        values are 0 and 1.  0 is the next-fit policy, which is
-        quite fast but can result in fragmentation.  1 is the
-        first-fit policy, which can be slower in some cases but
-        can be better for programs with fragmentation problems.
-        Default: 0. *)
+          [@ocaml.doc
+            " The policy used for allocating in the heap.  Possible\n\
+            \        values are 0 and 1.  0 is the next-fit policy, which is\n\
+            \        quite fast but can result in fragmentation.  1 is the\n\
+            \        first-fit policy, which can be slower in some cases but\n\
+            \        can be better for programs with fragmentation problems.\n\
+            \        Default: 0. "]
     ; window_size : int
-        (** The size of the window used by the major GC for smoothing
-        out variations in its workload. This is an integer between
-        1 and 50.
-        Default: 1. @since 4.03.0 *)
+          [@ocaml.doc
+            " The size of the window used by the major GC for smoothing\n\
+            \        out variations in its workload. This is an integer between\n\
+            \        1 and 50.\n\
+            \        Default: 1. @since 4.03.0 "]
     ; custom_major_ratio : int
-        (** Target ratio of floating garbage to major heap size for
-        out-of-heap memory held by custom values located in the major
-        heap. The GC speed is adjusted to try to use this much memory
-        for dead values that are not yet collected. Expressed as a
-        percentage of major heap size. The default value keeps the
-        out-of-heap floating garbage about the same size as the
-        in-heap overhead.
-        Note: this only applies to values allocated with
-        [caml_alloc_custom_mem] (e.g. bigarrays).
-        Default: 44.
-        @since 4.08.0 *)
+          [@ocaml.doc
+            " Target ratio of floating garbage to major heap size for\n\
+            \        out-of-heap memory held by custom values located in the major\n\
+            \        heap. The GC speed is adjusted to try to use this much memory\n\
+            \        for dead values that are not yet collected. Expressed as a\n\
+            \        percentage of major heap size. The default value keeps the\n\
+            \        out-of-heap floating garbage about the same size as the\n\
+            \        in-heap overhead.\n\
+            \        Note: this only applies to values allocated with\n\
+            \        [caml_alloc_custom_mem] (e.g. bigarrays).\n\
+            \        Default: 44.\n\
+            \        @since 4.08.0 "]
     ; custom_minor_ratio : int
-        (** Bound on floating garbage for out-of-heap memory held by
-        custom values in the minor heap. A minor GC is triggered when
-        this much memory is held by custom values located in the minor
-        heap. Expressed as a percentage of minor heap size.
-        Note: this only applies to values allocated with
-        [caml_alloc_custom_mem] (e.g. bigarrays).
-        Default: 100.
-        @since 4.08.0 *)
+          [@ocaml.doc
+            " Bound on floating garbage for out-of-heap memory held by\n\
+            \        custom values in the minor heap. A minor GC is triggered when\n\
+            \        this much memory is held by custom values located in the minor\n\
+            \        heap. Expressed as a percentage of minor heap size.\n\
+            \        Note: this only applies to values allocated with\n\
+            \        [caml_alloc_custom_mem] (e.g. bigarrays).\n\
+            \        Default: 100.\n\
+            \        @since 4.08.0 "]
     ; custom_minor_max_size : int
-        (** Maximum amount of out-of-heap memory for each custom value
-        allocated in the minor heap. When a custom value is allocated
-        on the minor heap and holds more than this many bytes, only
-        this value is counted against [custom_minor_ratio] and the
-        rest is directly counted against [custom_major_ratio].
-        Note: this only applies to values allocated with
-        [caml_alloc_custom_mem] (e.g. bigarrays).
-        Default: 8192 bytes.
-        @since 4.08.0 *)
+          [@ocaml.doc
+            " Maximum amount of out-of-heap memory for each custom value\n\
+            \        allocated in the minor heap. When a custom value is allocated\n\
+            \        on the minor heap and holds more than this many bytes, only\n\
+            \        this value is counted against [custom_minor_ratio] and the\n\
+            \        rest is directly counted against [custom_major_ratio].\n\
+            \        Note: this only applies to values allocated with\n\
+            \        [caml_alloc_custom_mem] (e.g. bigarrays).\n\
+            \        Default: 8192 bytes.\n\
+            \        @since 4.08.0 "]
     }
   [@@deriving sexp_of, fields ~iterators:to_list]
+
+  include sig
+    [@@@ocaml.warning "-32-60"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+
+    module Fields : sig
+      val to_list
+        :  minor_heap_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> major_heap_increment:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> space_overhead:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> verbose:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> max_overhead:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> stack_limit:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> allocation_policy:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> window_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> custom_major_ratio:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> custom_minor_ratio:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> custom_minor_max_size:((t, int) Fieldslib.Field.t -> 'elem__)
+        -> 'elem__ list
+    end
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   [%%endif]
 
@@ -417,60 +857,61 @@ end
 
 type control = Control.t
 
-(** The GC parameters are given as a [control] record.
-    Note that these parameters can also be initialised
-    by setting the OCAMLRUNPARAM environment variable.
-    See the documentation of ocamlrun. *)
+[@@@ocaml.text
+  " The GC parameters are given as a [control] record.\n\
+  \    Note that these parameters can also be initialised\n\
+  \    by setting the OCAMLRUNPARAM environment variable.\n\
+  \    See the documentation of ocamlrun. "]
 
-(** Return the current values of the memory management counters in a
-    [stat] record that represent the program's total memory stats.
-
-    OCaml 4 runtime: This function examines every heap block to get the
-    statistics.
-
-    OCaml 5 runtime: This function causes a full major collection. *)
 external stat : unit -> stat = "caml_gc_stat"
+[@@ocaml.doc
+  " Return the current values of the memory management counters in a\n\
+  \    [stat] record that represent the program's total memory stats.\n\n\
+  \    OCaml 4 runtime: This function examines every heap block to get the\n\
+  \    statistics.\n\n\
+  \    OCaml 5 runtime: This function causes a full major collection. "]
 
-(** Creating a [Stat.t] can allocate on the minor heap. Return the expected number of
-    words allocated. **)
 val stat_size : unit -> int
+[@@ocaml.doc
+  " Creating a [Stat.t] can allocate on the minor heap. Return the expected number of\n\
+  \    words allocated. *"]
 
-(** Same as [stat] except that [live_words], [live_blocks], [free_words],
-    [free_blocks], [largest_free], and [fragments] are set to 0.
-
-    OCaml 4 runtime: This function is much faster than [stat] because it does not need to
-    go through the heap.
-
-    OCaml 5 runtime: Due to per-domain buffers it may only represent the state of the
-    program's total memory usage since the last minor collection. As a result returned
-    values are representing an approximation of the gc statistics.
-
-    This function is much
-    faster than [stat] because it does not need to trigger a full major collection. *)
 external quick_stat : unit -> stat = "caml_gc_quick_stat"
+[@@ocaml.doc
+  " Same as [stat] except that [live_words], [live_blocks], [free_words],\n\
+  \    [free_blocks], [largest_free], and [fragments] are set to 0.\n\n\
+  \    OCaml 4 runtime: This function is much faster than [stat] because it does not \
+   need to\n\
+  \    go through the heap.\n\n\
+  \    OCaml 5 runtime: Due to per-domain buffers it may only represent the state of the\n\
+  \    program's total memory usage since the last minor collection. As a result returned\n\
+  \    values are representing an approximation of the gc statistics.\n\n\
+  \    This function is much\n\
+  \    faster than [stat] because it does not need to trigger a full major collection. "]
 
-(** Return [(minor_words, promoted_words, major_words)] (on the OCaml 5 runtime, for the
-    current domain or potentially previous domains).  This function is as fast as
-    [quick_stat].
-
-    Note: on the OCaml 5 runtime, [quick_stat] and [counters] might not return the same
-    value, even if there's only a single domain.
-    If there's only one domain running then [counters] returns the exact number of minor
-    words, promoted words and major words allocated so far.
-*)
 external counters : unit -> float * float * float = "caml_gc_counters"
+[@@ocaml.doc
+  " Return [(minor_words, promoted_words, major_words)] (on the OCaml 5 runtime, for the\n\
+  \    current domain or potentially previous domains).  This function is as fast as\n\
+  \    [quick_stat].\n\n\
+  \    Note: on the OCaml 5 runtime, [quick_stat] and [counters] might not return the same\n\
+  \    value, even if there's only a single domain.\n\
+  \    If there's only one domain running then [counters] returns the exact number of \
+   minor\n\
+  \    words, promoted words and major words allocated so far.\n"]
 
-(** On 32-bit machines the [int]s returned by the following functions may overflow. *)
+[@@@ocaml.text
+  " On 32-bit machines the [int]s returned by the following functions may overflow. "]
 
-(** Number of words allocated in the minor heap by this domain (or, on the OCaml
-    5 runtime, potentially previous domains). This number is accurate in byte-code
-    programs, but only an approximation in programs compiled to native code.
-
-    Note that [minor_words] does not allocate, but we do not annotate it as [noalloc]
-    because we want the compiler to save the value of the allocation pointer register
-    (%r15 on x86-64) to the global variable [caml_young_ptr] before the C stub tries to
-    read its value. *)
 external minor_words : unit -> int = "core_gc_minor_words"
+[@@ocaml.doc
+  " Number of words allocated in the minor heap by this domain (or, on the OCaml\n\
+  \    5 runtime, potentially previous domains). This number is accurate in byte-code\n\
+  \    programs, but only an approximation in programs compiled to native code.\n\n\
+  \    Note that [minor_words] does not allocate, but we do not annotate it as [noalloc]\n\
+  \    because we want the compiler to save the value of the allocation pointer register\n\
+  \    (%r15 on x86-64) to the global variable [caml_young_ptr] before the C stub tries to\n\
+  \    read its value. "]
 
 external major_words : unit -> int = "core_gc_major_words" [@@noalloc]
 external promoted_words : unit -> int = "core_gc_promoted_words" [@@noalloc]
@@ -481,84 +922,98 @@ val heap_words : unit -> int
 val heap_chunks : unit -> int
 val top_heap_words : unit -> int
 
-(** This function returns [major_words () + minor_words ()].  It exists purely for speed
-    (one call into C rather than two).  Like [major_words] and [minor_words],
-    [major_plus_minor_words] avoids allocating a [stat] record or a float, and may
-    overflow on 32-bit machines.
-
-    This function is not marked [[@@noalloc]] to ensure that the allocation pointer is
-    up-to-date when the minor-heap measurement is made.
-*)
 external major_plus_minor_words : unit -> int = "core_gc_major_plus_minor_words"
+[@@ocaml.doc
+  " This function returns [major_words () + minor_words ()].  It exists purely for speed\n\
+  \    (one call into C rather than two).  Like [major_words] and [minor_words],\n\
+  \    [major_plus_minor_words] avoids allocating a [stat] record or a float, and may\n\
+  \    overflow on 32-bit machines.\n\n\
+  \    This function is not marked [[@@noalloc]] to ensure that the allocation pointer is\n\
+  \    up-to-date when the minor-heap measurement is made.\n"]
 
-(** This function returns [major_words () - promoted_words () + minor_words ()], as fast
-    as possible. As [major_plus_minor_words], we avoid allocating but cannot be marked
-    [@@noalloc] yet. It may overflow in 32-bit mode.
-*)
 external allocated_words : unit -> int = "core_gc_allocated_words"
+[@@ocaml.doc
+  " This function returns [major_words () - promoted_words () + minor_words ()], as fast\n\
+  \    as possible. As [major_plus_minor_words], we avoid allocating but cannot be marked\n\
+  \    [@@noalloc] yet. It may overflow in 32-bit mode.\n"]
 
-(** Return the current values of the GC parameters in a [control] record. *)
 external get : unit -> control = "caml_gc_get"
+[@@ocaml.doc " Return the current values of the GC parameters in a [control] record. "]
 
-(** [set r] changes the GC parameters according to the [control] record [r].
-    The normal usage is:
-    [Gc.set { (Gc.get()) with Gc.Control.verbose = 0x00d }] *)
 external set : control -> unit = "caml_gc_set"
+[@@ocaml.doc
+  " [set r] changes the GC parameters according to the [control] record [r].\n\
+  \    The normal usage is:\n\
+  \    [Gc.set { (Gc.get()) with Gc.Control.verbose = 0x00d }] "]
 
-(** Trigger a minor collection. *)
 external minor : unit -> unit = "caml_gc_minor"
+[@@ocaml.doc " Trigger a minor collection. "]
 
-(** Do a minor collection and a slice of major collection.  The argument
-    is the size of the slice, 0 to use the automatically-computed
-    slice size.  In all cases, the result is the computed slice size. *)
 external major_slice : int -> int = "caml_gc_major_slice"
+[@@ocaml.doc
+  " Do a minor collection and a slice of major collection.  The argument\n\
+  \    is the size of the slice, 0 to use the automatically-computed\n\
+  \    slice size.  In all cases, the result is the computed slice size. "]
 
-(** Do a minor collection and finish the current major collection cycle. *)
 external major : unit -> unit = "caml_gc_major"
+[@@ocaml.doc " Do a minor collection and finish the current major collection cycle. "]
 
-(** Do a minor collection, finish the current major collection cycle,
-    and perform a complete new cycle.  This will collect all currently
-    unreachable blocks. *)
 external full_major : unit -> unit = "caml_gc_full_major"
+[@@ocaml.doc
+  " Do a minor collection, finish the current major collection cycle,\n\
+  \    and perform a complete new cycle.  This will collect all currently\n\
+  \    unreachable blocks. "]
 
-(** Perform a full major collection and compact the heap.  Note that heap
-    compaction is a lengthy operation. *)
 external compact : unit -> unit = "caml_gc_compaction"
+[@@ocaml.doc
+  " Perform a full major collection and compact the heap.  Note that heap\n\
+  \    compaction is a lengthy operation. "]
 
-(** Print the current values of the memory management counters (in
-    human-readable form) into the channel argument. *)
 val print_stat : out_channel -> unit
+[@@ocaml.doc
+  " Print the current values of the memory management counters (in\n\
+  \    human-readable form) into the channel argument. "]
 
-(** Return the total number of bytes allocated since the program was
-    started.  It is returned as a [float] to avoid overflow problems
-    with [int] on 32-bit machines. *)
 val allocated_bytes : unit -> float
+[@@ocaml.doc
+  " Return the total number of bytes allocated since the program was\n\
+  \    started.  It is returned as a [float] to avoid overflow problems\n\
+  \    with [int] on 32-bit machines. "]
 
-(** [keep_alive a] ensures that [a] is live at the point where [keep_alive a] is called.
-    It is like [ignore a], except that the compiler won't be able to simplify it and
-    potentially collect [a] too soon. *)
 val keep_alive : _ -> unit
+[@@ocaml.doc
+  " [keep_alive a] ensures that [a] is live at the point where [keep_alive a] is called.\n\
+  \    It is like [ignore a], except that the compiler won't be able to simplify it and\n\
+  \    potentially collect [a] too soon. "]
 
-(** The policy used for allocating in the heap.
-
-    The Next_fit policy is quite fast but can result in fragmentation.
-
-    The First_fit policy can be slower in some cases but can be better for programs with
-    fragmentation problems.
-
-    The Best_fit policy is as fast as Next_fit and has less fragmentation than First_fit.
-
-    The default is Best_fit.
-*)
 module Allocation_policy : sig
   type t =
     | Next_fit
     | First_fit
     | Best_fit
   [@@deriving compare, equal, hash, sexp_of]
-end
 
-(** Adjust the specified GC parameters. *)
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_compare_lib.Equal.S with type t := t
+    include Ppx_hash_lib.Hashable.S with type t := t
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+end
+[@@ocaml.doc
+  " The policy used for allocating in the heap.\n\n\
+  \    The Next_fit policy is quite fast but can result in fragmentation.\n\n\
+  \    The First_fit policy can be slower in some cases but can be better for programs \
+   with\n\
+  \    fragmentation problems.\n\n\
+  \    The Best_fit policy is as fast as Next_fit and has less fragmentation than \
+   First_fit.\n\n\
+  \    The default is Best_fit.\n"]
+
 val tune
   :  ?logger:(string -> unit)
   -> ?minor_heap_size:int
@@ -574,6 +1029,7 @@ val tune
   -> ?custom_minor_max_size:int
   -> unit
   -> unit
+[@@ocaml.doc " Adjust the specified GC parameters. "]
 
 val disable_compaction
   :  ?logger:(string -> unit)
@@ -588,13 +1044,21 @@ module For_testing : sig
       ; minor_words_allocated : int
       }
     [@@deriving sexp_of]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
-  (** [measure_allocation f] measures the words allocated by running [f ()] *)
   val measure_allocation : (unit -> 'a) -> 'a * Allocation_report.t
+  [@@ocaml.doc " [measure_allocation f] measures the words allocated by running [f ()] "]
 
-  (** Same as [measure_allocation], but for functions that return a local value. *)
   val measure_allocation_local : (unit -> 'a) -> 'a * Allocation_report.t
+  [@@ocaml.doc
+    " Same as [measure_allocation], but for functions that return a local value. "]
 
   module Allocation_log : sig
     type t =
@@ -603,138 +1067,176 @@ module For_testing : sig
       ; backtrace : string
       }
     [@@deriving sexp_of, globalize]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+      val globalize : t -> t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
-  (** [measure_and_log_allocation f] logs each allocation that [f ()] performs, as well as
-      reporting the total. (This can be slow if [f] allocates heavily).
-
-      This function is only supported since OCaml 4.11. On prior versions, the function
-      always returns an empty log. *)
   val measure_and_log_allocation
     :  (unit -> 'a)
     -> 'a * Allocation_report.t * Allocation_log.t list
+  [@@ocaml.doc
+    " [measure_and_log_allocation f] logs each allocation that [f ()] performs, as well as\n\
+    \      reporting the total. (This can be slow if [f] allocates heavily).\n\n\
+    \      This function is only supported since OCaml 4.11. On prior versions, the \
+     function\n\
+    \      always returns an empty log. "]
 
-  (** Same as [measure_and_log_allocation], but for functions that return a local
-      value. *)
   val measure_and_log_allocation_local
     :  (unit -> 'a)
     -> 'a * Allocation_report.t * Allocation_log.t list
+  [@@ocaml.doc
+    " Same as [measure_and_log_allocation], but for functions that return a local\n\
+    \      value. "]
 
-  (** [is_zero_alloc f] runs [f ()] and returns [true] if it does not allocate, or [false]
-      otherwise. [is_zero_alloc] does not allocate. *)
   val is_zero_alloc : (unit -> _) -> bool
+  [@@ocaml.doc
+    " [is_zero_alloc f] runs [f ()] and returns [true] if it does not allocate, or [false]\n\
+    \      otherwise. [is_zero_alloc] does not allocate. "]
 
-  (** Same as [is_zero_alloc], but for functions that return a local value. *)
   val is_zero_alloc_local : (unit -> _) -> bool
+  [@@ocaml.doc " Same as [is_zero_alloc], but for functions that return a local value. "]
 
-  (** [assert_no_allocation [%here] f] raises if [f] allocates. *)
   val assert_no_allocation : Source_code_position.t -> (unit -> 'a) -> 'a
+  [@@ocaml.doc " [assert_no_allocation [%here] f] raises if [f] allocates. "]
 
-  (** Same as [assert_no_allocation], but for functions that return a local value. *)
   val assert_no_allocation_local : Source_code_position.t -> (unit -> 'a) -> 'a
+  [@@ocaml.doc
+    " Same as [assert_no_allocation], but for functions that return a local value. "]
 end
 
-(** The [Expert] module contains functions that novice users should not use, due to their
-    complexity.
-
-    In particular, finalizers are difficult to use correctly, because they can run at any
-    time, even in the middle of other code, and because unhandled exceptions in a
-    finalizer can be raised at any point in other code.  This introduces all the semantic
-    complexities of multithreading, which is usually a bad idea.  It is much easier to use
-    async finalizers, see {!Async_kernel.Async_gc.add_finalizer}, which do not involve
-    multithreading, and runs user code as ordinary async jobs.
-
-    If you do use [Core] finalizers, you should strive to make the finalization function
-    perform a simple idempotent action, like setting a ref.  The same rules as for
-    signal handlers apply to finalizers.  *)
 module Expert : sig
-  (** [add_finalizer b f] ensures that [f] runs after [b] becomes unreachable.  The OCaml
-      runtime only supports finalizers on heap blocks, hence [add_finalizer] requires [b :
-      _ Heap_block.t].  The runtime essentially maintains a set of finalizer pairs:
-
-      {v
-        'a Heap_block.t * ('a Heap_block.t -> unit)
-      v}
-
-      Each call to [add_finalizer] adds a new pair to the set.  It is allowed for many
-      pairs to have the same heap block, the same function, or both.  Each pair is a
-      distinct element of the set.
-
-      After a garbage collection determines that a heap block [b] is unreachable, it
-      removes from the set of finalizers all finalizer pairs [(b, f)] whose block is [b],
-      and then and runs [f b] for all such pairs.  Thus, a finalizer registered with
-      [add_finalizer] will run at most once.
-
-      The GC will call the finalisation functions in the order of deallocation.  When
-      several values become unreachable at the same time (i.e. during the same GC cycle),
-      the finalisation functions will be called in the reverse order of the corresponding
-      calls to [add_finalizer].  If [add_finalizer] is called in the same order as the
-      values are allocated, that means each value is finalised before the values it
-      depends upon.  Of course, this becomes false if additional dependencies are
-      introduced by assignments.
-
-      In a finalizer pair [(b, f)], it is a mistake for the closure of [f] to reference
-      (directly or indirectly) [b] -- [f] should only access [b] via its argument.
-      Referring to [b] in any other way will cause [b] to be kept alive forever, since [f]
-      itself is a root of garbage collection, and can itself only be collected after the
-      pair [(b, f)] is removed from the set of finalizers.
-
-      The [f] function can use all features of OCaml, including assignments that make the
-      value reachable again.  It can also loop forever (in this case, the other
-      finalisation functions will be called during the execution of f).  It can call
-      [add_finalizer] on [v] or other values to register other functions or even itself.
-
-      All finalizers are called with [Exn.handle_uncaught_and_exit], to prevent the
-      finalizer from raising, because raising from a finalizer could raise to any
-      allocation or GC point in any thread, which would be impossible to reason about.
-
-      [add_finalizer_exn b f] is like [add_finalizer], but will raise if [b] is not a heap
-      block.
-  *)
   val add_finalizer : 'a Heap_block.t -> ('a Heap_block.t -> unit) -> unit
+  [@@ocaml.doc
+    " [add_finalizer b f] ensures that [f] runs after [b] becomes unreachable.  The OCaml\n\
+    \      runtime only supports finalizers on heap blocks, hence [add_finalizer] \
+     requires [b :\n\
+    \      _ Heap_block.t].  The runtime essentially maintains a set of finalizer pairs:\n\n\
+    \      {v\n\
+    \        'a Heap_block.t * ('a Heap_block.t -> unit)\n\
+    \      v}\n\n\
+    \      Each call to [add_finalizer] adds a new pair to the set.  It is allowed for \
+     many\n\
+    \      pairs to have the same heap block, the same function, or both.  Each pair is a\n\
+    \      distinct element of the set.\n\n\
+    \      After a garbage collection determines that a heap block [b] is unreachable, it\n\
+    \      removes from the set of finalizers all finalizer pairs [(b, f)] whose block \
+     is [b],\n\
+    \      and then and runs [f b] for all such pairs.  Thus, a finalizer registered with\n\
+    \      [add_finalizer] will run at most once.\n\n\
+    \      The GC will call the finalisation functions in the order of deallocation.  When\n\
+    \      several values become unreachable at the same time (i.e. during the same GC \
+     cycle),\n\
+    \      the finalisation functions will be called in the reverse order of the \
+     corresponding\n\
+    \      calls to [add_finalizer].  If [add_finalizer] is called in the same order as \
+     the\n\
+    \      values are allocated, that means each value is finalised before the values it\n\
+    \      depends upon.  Of course, this becomes false if additional dependencies are\n\
+    \      introduced by assignments.\n\n\
+    \      In a finalizer pair [(b, f)], it is a mistake for the closure of [f] to \
+     reference\n\
+    \      (directly or indirectly) [b] -- [f] should only access [b] via its argument.\n\
+    \      Referring to [b] in any other way will cause [b] to be kept alive forever, \
+     since [f]\n\
+    \      itself is a root of garbage collection, and can itself only be collected \
+     after the\n\
+    \      pair [(b, f)] is removed from the set of finalizers.\n\n\
+    \      The [f] function can use all features of OCaml, including assignments that \
+     make the\n\
+    \      value reachable again.  It can also loop forever (in this case, the other\n\
+    \      finalisation functions will be called during the execution of f).  It can call\n\
+    \      [add_finalizer] on [v] or other values to register other functions or even \
+     itself.\n\n\
+    \      All finalizers are called with [Exn.handle_uncaught_and_exit], to prevent the\n\
+    \      finalizer from raising, because raising from a finalizer could raise to any\n\
+    \      allocation or GC point in any thread, which would be impossible to reason \
+     about.\n\n\
+    \      [add_finalizer_exn b f] is like [add_finalizer], but will raise if [b] is not \
+     a heap\n\
+    \      block.\n\
+    \  "]
 
   val add_finalizer_exn : 'a -> ('a -> unit) -> unit
 
-  (** Same as {!add_finalizer} except that the function is not called until the value has
-      become unreachable for the last time.  This means that the finalization function
-      does not receive the value as an argument.  Every weak pointer and ephemeron that
-      contained this value as key or data is unset before running the finalization
-      function. *)
   val add_finalizer_last : 'a Heap_block.t -> (unit -> unit) -> unit
+  [@@ocaml.doc
+    " Same as {!add_finalizer} except that the function is not called until the value has\n\
+    \      become unreachable for the last time.  This means that the finalization \
+     function\n\
+    \      does not receive the value as an argument.  Every weak pointer and ephemeron \
+     that\n\
+    \      contained this value as key or data is unset before running the finalization\n\
+    \      function. "]
 
   val add_finalizer_last_exn : 'a -> (unit -> unit) -> unit
 
-  (** The runtime essentially maintains a bool ref:
-
-      {[
-        val finalizer_is_running : bool ref
-      ]}
-
-      The runtime uses this bool ref to ensure that only one finalizer is running at a
-      time, by setting it to [true] when a finalizer starts and setting it to [false] when
-      a finalizer finishes.  The runtime will not start running a finalizer if
-      [!finalizer_is_running = true].  Calling [finalize_release] essentially does
-      [finalizer_is_running := false], which allows another finalizer to start whether
-      or not the current finalizer finishes. *)
   val finalize_release : unit -> unit
+  [@@ocaml.doc
+    " The runtime essentially maintains a bool ref:\n\n\
+    \      {[\n\
+    \        val finalizer_is_running : bool ref\n\
+    \      ]}\n\n\
+    \      The runtime uses this bool ref to ensure that only one finalizer is running \
+     at a\n\
+    \      time, by setting it to [true] when a finalizer starts and setting it to \
+     [false] when\n\
+    \      a finalizer finishes.  The runtime will not start running a finalizer if\n\
+    \      [!finalizer_is_running = true].  Calling [finalize_release] essentially does\n\
+    \      [finalizer_is_running := false], which allows another finalizer to start \
+     whether\n\
+    \      or not the current finalizer finishes. "]
 
-  (** A GC alarm calls a user function at the end of each major GC cycle. *)
   module Alarm : sig
     type t [@@deriving sexp_of]
 
-    (** [create f] arranges for [f] to be called at the end of each major GC cycle,
-        starting with the current cycle or the next one.  [f] can be called in any thread,
-        and so introduces all the complexity of threading.  [f] is called with
-        [Exn.handle_uncaught_and_exit], to prevent it from raising, because raising could
-        raise to any allocation or GC point in any thread, which would be impossible to
-        reason about. *)
-    val create : (unit -> unit) -> t
+    include sig
+      [@@@ocaml.warning "-32"]
 
-    (** [delete t] will stop the calls to the function associated to [t].  Calling [delete
-        t] again has no effect. *)
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    val create : (unit -> unit) -> t
+    [@@ocaml.doc
+      " [create f] arranges for [f] to be called at the end of each major GC cycle,\n\
+      \        starting with the current cycle or the next one.  [f] can be called in \
+       any thread,\n\
+      \        and so introduces all the complexity of threading.  [f] is called with\n\
+      \        [Exn.handle_uncaught_and_exit], to prevent it from raising, because \
+       raising could\n\
+      \        raise to any allocation or GC point in any thread, which would be \
+       impossible to\n\
+      \        reason about. "]
+
     val delete : t -> unit
+    [@@ocaml.doc
+      " [delete t] will stop the calls to the function associated to [t].  Calling [delete\n\
+      \        t] again has no effect. "]
   end
+  [@@ocaml.doc " A GC alarm calls a user function at the end of each major GC cycle. "]
 end
+[@@ocaml.doc
+  " The [Expert] module contains functions that novice users should not use, due to their\n\
+  \    complexity.\n\n\
+  \    In particular, finalizers are difficult to use correctly, because they can run at \
+   any\n\
+  \    time, even in the middle of other code, and because unhandled exceptions in a\n\
+  \    finalizer can be raised at any point in other code.  This introduces all the \
+   semantic\n\
+  \    complexities of multithreading, which is usually a bad idea.  It is much easier \
+   to use\n\
+  \    async finalizers, see {!Async_kernel.Async_gc.add_finalizer}, which do not involve\n\
+  \    multithreading, and runs user code as ordinary async jobs.\n\n\
+  \    If you do use [Core] finalizers, you should strive to make the finalization \
+   function\n\
+  \    perform a simple idempotent action, like setting a ref.  The same rules as for\n\
+  \    signal handlers apply to finalizers.  "]
 
 module Stable : sig
   module Stat : sig
@@ -743,21 +1245,73 @@ module Stable : sig
     module V1 : sig
       type nonrec t = Stat.t
       [@@deriving bin_io, compare, equal, hash, sexp, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_compare_lib.Equal.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
     module V2 : sig
       type nonrec t [@@deriving bin_io, compare, equal, hash, sexp, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_compare_lib.Equal.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
     [%%else]
 
     module V1 : sig
       type nonrec t [@@deriving bin_io, compare, equal, hash, sexp, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_compare_lib.Equal.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
     module V2 : sig
       type nonrec t = Stat.t
       [@@deriving bin_io, compare, equal, hash, sexp, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_compare_lib.Equal.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
 
     [%%endif]
@@ -767,12 +1321,37 @@ module Stable : sig
     module V1 : sig
       type nonrec t = Allocation_policy.t
       [@@deriving bin_io, compare, equal, hash, sexp, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_compare_lib.Equal.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
   end
 
   module Control : sig
     module V1 : sig
       type nonrec t = Control.t [@@deriving bin_io, compare, equal, sexp, stable_witness]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_compare_lib.Equal.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+
+        val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
   end
 end

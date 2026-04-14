@@ -1,8 +1,9 @@
 open! Base
 
 module type S_bigarray = sig
-  (** This helper module type exists separately just to [open Bigarray] in its scope. *)
-  open Bigarray
+  open Bigarray [@@ocaml.doc
+                  " This helper module type exists separately just to [open Bigarray] in \
+                   its scope. "]
 
   type 'a t
 
@@ -37,5 +38,5 @@ module type S = sig
   val either : 'a t -> 'b t -> ('a, 'b) Either.t t
   val result : 'a t -> 'b t -> ('a, 'b) Result.t t
 
-  include S_bigarray with type 'a t := 'a t (** @inline *)
+  include S_bigarray with type 'a t := 'a t [@@ocaml.doc " @inline "]
 end

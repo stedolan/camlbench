@@ -7,6 +7,4 @@
  (js_of_ocaml
   (javascript_files runtime.js))
  (libraries base int_repr)
- (ocamlopt_flags :standard -O3)
- (preprocess
-  (pps ppx_jane)))
+ (ocamlopt_flags :standard -O3))

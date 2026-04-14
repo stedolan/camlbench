@@ -1,3 +1,3 @@
-(** Date module. *)
+[@@@ocaml.text " Date module. "]
 
-include Date_intf.Date (** @inline *)
+include Date_intf.Date [@@ocaml.doc " @inline "]

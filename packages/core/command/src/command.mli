@@ -1,1 +1,1 @@
-include Command_intf.Command (** @inline *)
+include Command_intf.Command [@@ocaml.doc " @inline "]

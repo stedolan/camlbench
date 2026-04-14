@@ -1,9 +1,19 @@
-(** This module extends the Base [Blit] module *)
+[@@@ocaml.text " This module extends the Base [Blit] module "]
+
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"blit_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "blit_intf.ml.before-ppx"
+;;
 
 open Base.Blit
-
-(*_ These are not implemented less-general-in-terms-of-more-general because odoc produces
-  unreadable documentation in that case, with or without [inline] on [include]. *)
 
 module type S_permissions = sig
   open Perms.Export
@@ -30,11 +40,15 @@ module type S1_permissions = sig
 end
 
 module type Blit = sig
-  (** @inline *)
   include module type of struct
     include Base.Blit
   end
+  [@@ocaml.doc " @inline "]
 
   module type S_permissions = S_permissions
   module type S1_permissions = S1_permissions
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

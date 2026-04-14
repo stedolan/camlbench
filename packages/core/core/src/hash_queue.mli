@@ -1,1 +1,1 @@
-include Hash_queue_intf.Hash_queue (** @inline *)
+include Hash_queue_intf.Hash_queue [@@ocaml.doc " @inline "]

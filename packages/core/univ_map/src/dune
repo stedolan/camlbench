@@ -1,6 +1,6 @@
 (library
  (name univ_map)
  (public_name core.univ_map)
- (libraries base)
- (preprocess
-  (pps ppx_jane)))
+ (libraries base ppx_bench.runtime-lib ppx_expect.runtime ppx_sexp_conv.runtime-lib ppx_here.runtime-lib)
+;; (preprocess (pps ppx_jane))
+)

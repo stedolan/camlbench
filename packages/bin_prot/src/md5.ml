@@ -14,10 +14,7 @@ module Stable = struct
       Common.raise_variant_wrong_type "Shape.Md5.t" !pos_ref
     ;;
 
-    let stable_witness : t Stable_witness.t =
-      (* we assume this type to have a stable format *)
-      Stable_witness.assert_stable
-    ;;
+    let stable_witness : t Stable_witness.t = Stable_witness.assert_stable
   end
 end
 

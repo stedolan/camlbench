@@ -1,8 +1,3 @@
-(* Write_ml: writing values to the binary protocol using (mostly) OCaml. *)
-
-(* Note: the code is this file is carefully written to avoid unnecessary allocations. When
-   touching this code, be sure to run the benchmarks to check for regressions. *)
-
 open Common
 include Write_intf.Definitions
 
@@ -15,12 +10,10 @@ external bswap16 : (int[@local_opt]) -> (int[@local_opt]) = "%bswap16"
 external bswap32 : (int32[@local_opt]) -> (int32[@local_opt]) = "%bswap_int32"
 external bswap64 : (int64[@local_opt]) -> (int64[@local_opt]) = "%bswap_int64"
 
-(*$ open Bin_prot_cinaps $*)
-
-let code_NEG_INT8 = (*$ Code.char NEG_INT8 *) '\xff' (*$*)
-let code_INT16 = (*$ Code.char INT16 *) '\xfe' (*$*)
-let code_INT32 = (*$ Code.char INT32 *) '\xfd' (*$*)
-let code_INT64 = (*$ Code.char INT64 *) '\xfc' (*$*)
+let code_NEG_INT8 = '\255'
+let code_INT16 = '\254'
+let code_INT32 = '\253'
+let code_INT64 = '\252'
 let arch_sixtyfour = Sys.word_size = 64
 let arch_big_endian = Sys.big_endian
 
@@ -102,7 +95,7 @@ let all_bin_write_int32 buf pos n =
   unsafe_set buf pos code_INT32;
   unsafe_set32le buf (pos + 1) n;
   next
-  [@@inline]
+[@@inline]
 ;;
 
 let all_bin_write_int64 buf pos n =
@@ -111,7 +104,7 @@ let all_bin_write_int64 buf pos n =
   unsafe_set buf pos code_INT64;
   unsafe_set64le buf (pos + 1) n;
   next
-  [@@inline]
+[@@inline]
 ;;
 
 let bin_write_char buf ~pos c =
@@ -159,7 +152,6 @@ let bin_write_string buf ~pos str =
   let new_pos = bin_write_nat0 buf ~pos plen in
   let next = new_pos + len in
   check_next buf next;
-  (* TODO: optimize for small strings *)
   unsafe_blit_string_buf ~src_pos:0 str ~dst_pos:new_pos buf ~len;
   next
 ;;
@@ -170,7 +162,6 @@ let bin_write_bytes buf ~pos str =
   let new_pos = bin_write_nat0 buf ~pos plen in
   let next = new_pos + len in
   check_next buf next;
-  (* TODO: optimize for small bytes *)
   unsafe_blit_bytes_buf ~src_pos:0 str ~dst_pos:new_pos buf ~len;
   next
 ;;
@@ -181,19 +172,19 @@ let bin_write_float buf ~pos x =
   check_next buf next;
   unsafe_set64le buf pos (Base.Int64.bits_of_float x);
   next
-  [@@inline]
+[@@inline]
 ;;
 
 let bin_write_int32 =
   if arch_sixtyfour
-  then fun [@inline] buf ~pos n -> bin_write_int buf ~pos (Int32.to_int n)
+  then (fun buf ~pos n -> bin_write_int buf ~pos (Int32.to_int n)) [@inline]
   else
-    fun [@inline] buf ~pos n ->
-    if n >= 0x00008000l || n < -0x00008000l
-    then (
-      assert_pos pos;
-      all_bin_write_int32 buf pos n)
-    else bin_write_int buf ~pos (Int32.to_int n)
+    (fun buf ~pos n ->
+      if n >= 0x00008000l || n < -0x00008000l
+      then (
+        assert_pos pos;
+        all_bin_write_int32 buf pos n)
+      else bin_write_int buf ~pos (Int32.to_int n)) [@inline]
 ;;
 
 let bin_write_int64 buf ~pos n =
@@ -208,13 +199,13 @@ let bin_write_int64 buf ~pos n =
     assert_pos pos;
     all_bin_write_int32 buf pos (Base.Int64.to_int32_trunc n) [@nontail])
   else bin_write_int buf ~pos (Int64.to_int n)
-  [@@inline]
+[@@inline]
 ;;
 
 let bin_write_nativeint buf ~pos n =
-  if arch_sixtyfour
-     && (n >= (* 0x80000000n *) Nativeint.shift_left 1n 31
-         || n < (* -0x80000000n *) Nativeint.neg (Nativeint.shift_left 1n 31))
+  if
+    arch_sixtyfour
+    && (n >= Nativeint.shift_left 1n 31 || n < Nativeint.neg (Nativeint.shift_left 1n 31))
   then (
     assert_pos pos;
     all_bin_write_int64 buf pos (Base.Int64.of_nativeint n) [@nontail])
@@ -223,7 +214,7 @@ let bin_write_nativeint buf ~pos n =
     assert_pos pos;
     all_bin_write_int32 buf pos (Base.Nativeint.to_int32_trunc n) [@nontail])
   else bin_write_int buf ~pos (Nativeint.to_int n)
-  [@@inline]
+[@@inline]
 ;;
 
 let bin_write_ref bin_write_el buf ~pos r = bin_write_el buf ~pos !r
@@ -265,7 +256,7 @@ let bin_write_list =
     loop ~bin_write_el ~buf ~els_pos lst
 ;;
 
-let[@inline always] bin_write_float_array_gen ~length ~blit buf ~pos a =
+let bin_write_float_array_gen ~length ~blit buf ~pos a =
   let len = length a in
   let plen = Nat0.unsafe_of_int len in
   let pos = bin_write_nat0 buf ~pos plen in
@@ -274,6 +265,7 @@ let[@inline always] bin_write_float_array_gen ~length ~blit buf ~pos a =
   check_next buf next;
   blit ~src_pos:0 a ~dst_pos:pos buf ~len;
   next
+[@@inline always]
 ;;
 
 external float_array_length : Float.Array.t -> int = "%floatarray_length"
@@ -306,8 +298,9 @@ let bin_write_array_loop bin_write_el buf ~els_pos ~n ar =
 
 let bin_write_array (type a) bin_write_el buf ~pos ar =
   let module Obj = Base.Exported_for_specific_uses.Obj_local in
-  if (Obj.magic (bin_write_el : a writer) : float writer)
-     == (bin_write_float :> float writer)
+  if
+    (Obj.magic (bin_write_el : a writer) : float writer)
+    == (bin_write_float :> float writer)
   then bin_write_float_array buf ~pos (Obj.magic (ar : a array) : float array) [@nontail]
   else (
     let n = Base.Array.length ar in
@@ -521,8 +514,6 @@ let bin_write_md5 buf ~pos x =
     unsafe_set32 buf (pos + 12) d);
   next
 ;;
-
-(* Local versions *)
 
 let bin_write_unit__local = bin_write_unit
 let bin_write_bool__local = bin_write_bool

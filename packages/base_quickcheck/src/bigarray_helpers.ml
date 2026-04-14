@@ -37,7 +37,7 @@ module Array1 = struct
   ;;
 
   let sexp_of_t sexp_of_elt _sexp_of_pack _sexp_of_layout t =
-    [%sexp (to_array t : elt array)]
+    ((fun x__001_ -> sexp_of_array sexp_of_elt x__001_) [@merlin.hide]) (to_array t)
   ;;
 
   let hash_fold hash_fold_elt state t =
@@ -77,7 +77,8 @@ module Array2 = struct
   ;;
 
   let sexp_of_t sexp_of_elt _sexp_of_pack _sexp_of_layout t =
-    [%sexp (to_array t : elt array array)]
+    ((fun x__002_ -> sexp_of_array (sexp_of_array sexp_of_elt) x__002_) [@merlin.hide])
+      (to_array t)
   ;;
 
   let hash_fold hash_fold_elt state t =

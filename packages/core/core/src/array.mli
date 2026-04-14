@@ -1,33 +1,49 @@
-(** Fixed-length, mutable vector of elements with O(1) [get] and [set] operations.
-
-    This module extends {{!Base.Array}[Base.Array]}. *)
+[@@@ocaml.text
+  " Fixed-length, mutable vector of elements with O(1) [get] and [set] operations.\n\n\
+  \    This module extends {{!Base.Array}[Base.Array]}. "]
 
 open Import
 open Perms.Export
 
-(** {2 The [Array] type} *)
+[@@@ocaml.text " {2 The [Array] type} "]
 
 type 'a t = 'a Base.Array.t [@@deriving bin_io ~localize, quickcheck, typerep]
 
-(** {2 The signature included from [Base.Array]} *)
+include sig
+  [@@@ocaml.warning "-32"]
 
-(** @inline *)
+  include Bin_prot.Binable.S_local1 with type 'a t := 'a t
+  include Ppx_quickcheck_runtime.Quickcheckable.S1 with type 'a t := 'a t
+  include Typerep_lib.Typerepable.S1 with type 'a t := 'a t
+end
+[@@ocaml.doc "@inline"] [@@merlin.hide]
+
+[@@@ocaml.text " {2 The signature included from [Base.Array]} "]
+
 include module type of struct
     include Base.Array
   end
   with type 'a t := 'a t
+[@@ocaml.doc " @inline "]
 
-(** {2 Extensions}
-
-    We add extensions for [Int] and [Float] arrays to make them bin-able, comparable,
-    sexpable, and blit-able (via [Blit.S]). [Permissioned] provides fine-grained access
-    control for arrays.
-
-    Operations supporting "normalized" indexes are also available.
-*)
+[@@@ocaml.text
+  " {2 Extensions}\n\n\
+  \    We add extensions for [Int] and [Float] arrays to make them bin-able, comparable,\n\
+  \    sexpable, and blit-able (via [Blit.S]). [Permissioned] provides fine-grained access\n\
+  \    control for arrays.\n\n\
+  \    Operations supporting \"normalized\" indexes are also available.\n"]
 
 module Int : sig
   type nonrec t = int t [@@deriving bin_io ~localize, compare, sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S_local with type t := t
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Blit.S with type t := t
 
@@ -39,11 +55,20 @@ module Int : sig
     -> len:int
     -> unit
     = "core_array_unsafe_int_blit"
-    [@@noalloc]
+  [@@noalloc]
 end
 
 module Float : sig
   type nonrec t = float t [@@deriving bin_io ~localize, compare, sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S_local with type t := t
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Blit.S with type t := t
 
@@ -55,39 +80,60 @@ module Float : sig
     -> len:int
     -> unit
     = "core_array_unsafe_float_blit"
-    [@@noalloc]
+  [@@noalloc]
 end
 
-(** [normalize array index] returns a new index into the array such that if the index is
-    less than zero, the returned index will "wrap around" -- i.e., [array.(normalize array
-    (-1))] returns the last element of the array. *)
 val normalize : 'a t -> int -> int
+[@@ocaml.doc
+  " [normalize array index] returns a new index into the array such that if the index is\n\
+  \    less than zero, the returned index will \"wrap around\" -- i.e., \
+   [array.(normalize array\n\
+  \    (-1))] returns the last element of the array. "]
 
-(** [slice t start stop] returns a new array including elements [t.(start)] through
-    [t.(stop-1)], normalized Python-style with the exception that [stop = 0] is treated as
-    [stop = length t]. *)
 val slice : 'a t -> int -> int -> 'a t
+[@@ocaml.doc
+  " [slice t start stop] returns a new array including elements [t.(start)] through\n\
+  \    [t.(stop-1)], normalized Python-style with the exception that [stop = 0] is \
+   treated as\n\
+  \    [stop = length t]. "]
 
-(** Array access with [normalize]d index. *)
-val nget : 'a t -> int -> 'a
+val nget : 'a t -> int -> 'a [@@ocaml.doc " Array access with [normalize]d index. "]
 
-(** Array modification with [normalize]d index. *)
 val nset : 'a t -> int -> 'a -> unit
+[@@ocaml.doc " Array modification with [normalize]d index. "]
 
-(** The [Permissioned] module gives the ability to restrict permissions on an array, so
-    you can give a function read-only access to an array, create an immutable array, etc.
-*)
 module Permissioned : sig
-  (** The meaning of the ['perms] parameter is as usual (see the [Perms] module for more
-      details) with the non-obvious difference that you don't need any permissions to
-      extract the length of an array.  This was done for simplicity because some
-      information about the length of an array can leak out even if you only have write
-      permissions since you can catch out-of-bounds errors.
-  *)
-  type ('a, -'perms) t [@@deriving bin_io ~localize, compare, sexp]
+  type ('a, -'perms) t
+  [@@ocaml.doc
+    " The meaning of the ['perms] parameter is as usual (see the [Perms] module for more\n\
+    \      details) with the non-obvious difference that you don't need any permissions to\n\
+    \      extract the length of an array.  This was done for simplicity because some\n\
+    \      information about the length of an array can leak out even if you only have \
+     write\n\
+    \      permissions since you can catch out-of-bounds errors.\n\
+    \  "]
+  [@@deriving bin_io ~localize, compare, sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S_local2 with type ('a, -'perms) t := ('a, 'perms) t
+    include Ppx_compare_lib.Comparable.S2 with type ('a, -'perms) t := ('a, 'perms) t
+    include Sexplib0.Sexpable.S2 with type ('a, -'perms) t := ('a, 'perms) t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   module Int : sig
     type nonrec -'perms t = (int, 'perms) t [@@deriving bin_io ~localize, compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Bin_prot.Binable.S_local1 with type -'perms t := 'perms t
+      include Ppx_compare_lib.Comparable.S1 with type -'perms t := 'perms t
+      include Sexplib0.Sexpable.S1 with type -'perms t := 'perms t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     include Blit.S_permissions with type 'perms t := 'perms t
 
@@ -99,11 +145,20 @@ module Permissioned : sig
       -> len:int
       -> unit
       = "core_array_unsafe_int_blit"
-      [@@noalloc]
+    [@@noalloc]
   end
 
   module Float : sig
     type nonrec -'perms t = (float, 'perms) t [@@deriving bin_io ~localize, compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Bin_prot.Binable.S_local1 with type -'perms t := 'perms t
+      include Ppx_compare_lib.Comparable.S1 with type -'perms t := 'perms t
+      include Sexplib0.Sexpable.S1 with type -'perms t := 'perms t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     include Blit.S_permissions with type 'perms t := 'perms t
 
@@ -141,53 +196,58 @@ module Permissioned : sig
       -> len:int
       -> unit
       = "core_array_unsafe_float_blit"
-      [@@noalloc]
+    [@@noalloc]
   end
 
-  (** [of_array_id] and [to_array_id] return the same underlying array.  On the other
-      hand, [to_array] (inherited from [Container.S1_permissions] below) makes a copy.
-
-      To create a new (possibly immutable) copy of an array [a], use [copy (of_array_id
-      a)].  More generally, any function that takes a (possibly mutable) [t] can be called
-      on an array by calling [of_array_id] on it first.
-
-      There is a conceptual type equality between ['a Array.t] and
-      [('a, read_write) Array.Permissioned.t].  The reason for not exposing this as an
-      actual type equality is that we also want:
-
-      {ul
-      {- The type equality ['a Array.t = 'a array] for interoperability with code which
-      does not use Core.}
-      {- The type [('a, 'perms) Array.Permissioned.t] to be abstract, so that the
-      permission phantom type will have an effect.}
-      }
-
-      Since we don't control the definition of ['a array], this would require a type
-      [('a, 'perms) Array.Permissioned.t] which is abstract, except that
-      [('a, read_write) Array.Permissioned.t] is concrete, which is not possible.
-  *)
   val of_array_id : 'a array -> ('a, [< read_write ]) t
+  [@@ocaml.doc
+    " [of_array_id] and [to_array_id] return the same underlying array.  On the other\n\
+    \      hand, [to_array] (inherited from [Container.S1_permissions] below) makes a \
+     copy.\n\n\
+    \      To create a new (possibly immutable) copy of an array [a], use [copy \
+     (of_array_id\n\
+    \      a)].  More generally, any function that takes a (possibly mutable) [t] can be \
+     called\n\
+    \      on an array by calling [of_array_id] on it first.\n\n\
+    \      There is a conceptual type equality between ['a Array.t] and\n\
+    \      [('a, read_write) Array.Permissioned.t].  The reason for not exposing this as \
+     an\n\
+    \      actual type equality is that we also want:\n\n\
+    \      {ul\n\
+    \      {- The type equality ['a Array.t = 'a array] for interoperability with code \
+     which\n\
+    \      does not use Core.}\n\
+    \      {- The type [('a, 'perms) Array.Permissioned.t] to be abstract, so that the\n\
+    \      permission phantom type will have an effect.}\n\
+    \      }\n\n\
+    \      Since we don't control the definition of ['a array], this would require a type\n\
+    \      [('a, 'perms) Array.Permissioned.t] which is abstract, except that\n\
+    \      [('a, read_write) Array.Permissioned.t] is concrete, which is not possible.\n\
+    \  "]
 
   val to_array_id : ('a, [> read_write ]) t -> 'a array
 
-  (** [to_sequence_immutable t] converts [t] to a sequence. Unlike [to_sequence],
-      [to_sequence_immutable] does not need to copy [t] since it is immutable. *)
   val to_sequence_immutable : ('a, [> immutable ]) t -> 'a Sequence.t
+  [@@ocaml.doc
+    " [to_sequence_immutable t] converts [t] to a sequence. Unlike [to_sequence],\n\
+    \      [to_sequence_immutable] does not need to copy [t] since it is immutable. "]
 
   include
     Indexed_container.S1_with_creators_permissions
-      with type ('a, 'perms) t := ('a, 'perms) t
+    with type ('a, 'perms) t := ('a, 'perms) t
 
   include Blit.S1_permissions with type ('a, 'perms) t := ('a, 'perms) t
   include Binary_searchable.S1_permissions with type ('a, 'perms) t := ('a, 'perms) t
 
-  (** These functions are in [Container.S1_permissions], but they are re-exposed here so
-      that their types can be changed to make them more permissive (see comment above). *)
+  [@@@ocaml.text
+    " These functions are in [Container.S1_permissions], but they are re-exposed here so\n\
+    \      that their types can be changed to make them more permissive (see comment \
+     above). "]
 
   val length : (_, _) t -> int
   val is_empty : (_, _) t -> bool
 
-  (** counterparts of regular array functions above *)
+  [@@@ocaml.text " counterparts of regular array functions above "]
 
   external get
     :  (('a, [> read ]) t[@local_opt])
@@ -390,3 +450,7 @@ module Permissioned : sig
   val to_sequence : ('a, [> read ]) t -> 'a Sequence.t
   val to_sequence_mutable : ('a, [> read ]) t -> 'a Sequence.t
 end
+[@@ocaml.doc
+  " The [Permissioned] module gives the ability to restrict permissions on an array, so\n\
+  \    you can give a function read-only access to an array, create an immutable array, \
+   etc.\n"]

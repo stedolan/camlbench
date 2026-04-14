@@ -1,5 +1,6 @@
-(** This module is here to ensure that we don't use the functions in [Caml.Printexc]
-    inadvertently. *)
+[@@@ocaml.text
+  " This module is here to ensure that we don't use the functions in [Caml.Printexc]\n\
+  \    inadvertently. "]
 
 open! Import
 

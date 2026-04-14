@@ -1,4 +1,15 @@
-(* Conversions between units of measure based on bytes. *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"byte_units.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "byte_units.ml.before-ppx"
+;;
 
 open! Import
 open Std_internal
@@ -35,16 +46,18 @@ let of_bytes_int63 = of_repr
 let of_bytes_int64_exn b = of_repr (Repr.of_int64_exn b)
 let of_bytes_float_exn b = of_repr (Repr.of_float b)
 
-let (bytes [@deprecated
-             "[since 2019-01] Use [bytes_int_exn], [bytes_int63], [bytes_int64] or \
-              [bytes_float] as appropriate."])
+let (bytes
+     [@deprecated
+       "[since 2019-01] Use [bytes_int_exn], [bytes_int63], [bytes_int64] or \
+        [bytes_float] as appropriate."])
   =
   bytes_float
 ;;
 
-let (of_bytes [@deprecated
-                "[since 2019-01] Use [of_bytes_int], [of_bytes_int63], \
-                 [of_bytes_int64_exn] or [of_bytes_float_exn] as appropriate."])
+let (of_bytes
+     [@deprecated
+       "[since 2019-01] Use [of_bytes_int], [of_bytes_int63], [of_bytes_int64_exn] or \
+        [of_bytes_float_exn] as appropriate."])
   =
   of_bytes_float_exn
 ;;
@@ -136,15 +149,14 @@ let largest_measure t =
 ;;
 
 let gen_incl lo hi =
-  Repr.gen_incl (to_repr lo) (to_repr hi) |> Quickcheck.Generator.map ~f:of_repr
+  Quickcheck.Generator.map ~f:of_repr (Repr.gen_incl (to_repr lo) (to_repr hi))
 ;;
 
 let gen_uniform_incl lo hi =
-  Repr.gen_uniform_incl (to_repr lo) (to_repr hi) |> Quickcheck.Generator.map ~f:of_repr
+  Quickcheck.Generator.map ~f:of_repr (Repr.gen_uniform_incl (to_repr lo) (to_repr hi))
 ;;
 
 module Stable = struct
-  (* Share the common [of_sexp] code for [V1] and [V2]. *)
   module Of_sexp_v1_v2 : sig
     val t_of_sexp : Sexp.t -> t
   end = struct
@@ -180,6 +192,46 @@ module Stable = struct
   module V1 = struct
     type nonrec t = t [@@deriving compare, hash, typerep]
 
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : t) -> ()
+
+      let compare =
+        (fun a__001_ b__002_ -> compare a__001_ b__002_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        fun hsv arg -> hash_fold_t hsv arg
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+        let func = hash in
+        fun x -> func x
+      ;;
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+          type nonrec t = t
+
+          let name = "byte_units.ml.before-ppx.Stable.V1.t"
+          let _ = name
+        end)
+
+      let typename_of_t = Typename_of_t.typename_of_t
+      let _ = typename_of_t
+
+      let typerep_of_t =
+        let name_of_t = Typename_of_t.named in
+        Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy typerep_of_t))
+      ;;
+
+      let _ = typerep_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let to_binable = bytes_float
     let of_binable = of_bytes_float_exn
 
@@ -200,39 +252,283 @@ module Stable = struct
     include Of_sexp_v1_v2
 
     let sexp_of_t t =
-      (* V1 only goes up to gigabytes *)
       match largest_measure t with
-      | `Bytes -> [%sexp `Bytes (bytes_float t : float)]
-      | `Kilobytes -> [%sexp `Kilobytes (kilobytes t : float)]
-      | `Megabytes -> [%sexp `Megabytes (megabytes t : float)]
+      | `Bytes ->
+        Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.Atom "Bytes"
+          ; (sexp_of_float [@merlin.hide]) (bytes_float t)
+          ]
+      | `Kilobytes ->
+        Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.Atom "Kilobytes"
+          ; (sexp_of_float [@merlin.hide]) (kilobytes t)
+          ]
+      | `Megabytes ->
+        Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.Atom "Megabytes"
+          ; (sexp_of_float [@merlin.hide]) (megabytes t)
+          ]
       | `Gigabytes | `Terabytes | `Petabytes | `Exabytes ->
-        [%sexp `Gigabytes (gigabytes t : float)]
+        Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.Atom "Gigabytes"
+          ; (sexp_of_float [@merlin.hide]) (gigabytes t)
+          ]
     ;;
 
     let to_string t = String.lowercase (to_string t)
     let of_string = of_string
 
-    (* This test documents the original to-string representation and fails under javascript
-       due to differences in the rounding. *)
-    let%expect_test (_ [@tags "no-js"]) =
-      printf !"%{}" (of_bytes_int 1000);
-      [%expect {| 1000b |}];
-      printf !"%{}" (of_bytes_int 1023);
-      [%expect {| 1023b |}];
-      printf !"%{}" (of_bytes_int 1024);
-      [%expect {| 1k |}];
-      printf !"%{}" (of_bytes_int 1025);
-      [%expect {| 1.000977k |}];
-      printf !"%{}" (of_bytes_int 1500);
-      [%expect {| 1.464844k |}];
-      printf !"%{}" (of_bytes_int 10000);
-      [%expect {| 9.765625k |}];
-      printf !"%{}" (of_bytes_int 100000);
-      [%expect {| 97.65625k |}];
-      printf !"%{}" (of_bytes_int 1000000);
-      [%expect {| 976.5625k |}];
-      printf !"%{}" (of_bytes_int 10000000);
-      [%expect {| 9.536743164m |}]
+    let () =
+      match Ppx_inline_test_lib.testing with
+      | `Not_testing -> ()
+      | `Testing _ ->
+        let module Ppx_expect_test_block =
+          Ppx_expect_runtime.Make_test_block (Expect_test_config)
+        in
+        Ppx_expect_test_block.run_suite
+          ~filename_rel_to_project_root:"byte_units.ml.before-ppx"
+          ~line_number:217
+          ~location:{ start_bol = 6858; start_pos = 6862; end_pos = 7562 }
+          ~trailing_loc:{ start_bol = 7528; start_pos = 7562; end_pos = 7562 }
+          ~body_loc:{ start_bol = 6858; start_pos = 6862; end_pos = 7562 }
+          ~formatting_flexibility:
+            (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+               Ppx_expect_runtime.Expect_node_formatting.default)
+          ~expected_exn:None
+          ~trailing_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 9)
+          ~exn_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 10)
+          ~description:None
+          ~tags:[ "no-js" ]
+          ~inline_test_config:(module Inline_test_config)
+          ~expectations:
+            ([ ( Ppx_expect_runtime.Expectation_id.of_int_exn 8
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 9.536743164m "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7528; start_pos = 7543; end_pos = 7561 } ))
+                   ~node_loc:{ start_bol = 7528; start_pos = 7534; end_pos = 7562 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 7
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 976.5625k "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7450; start_pos = 7465; end_pos = 7480 } ))
+                   ~node_loc:{ start_bol = 7450; start_pos = 7456; end_pos = 7481 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 6
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 97.65625k "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7373; start_pos = 7388; end_pos = 7403 } ))
+                   ~node_loc:{ start_bol = 7373; start_pos = 7379; end_pos = 7404 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 5
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 9.765625k "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7297; start_pos = 7312; end_pos = 7327 } ))
+                   ~node_loc:{ start_bol = 7297; start_pos = 7303; end_pos = 7328 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 4
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 1.464844k "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7222; start_pos = 7237; end_pos = 7252 } ))
+                   ~node_loc:{ start_bol = 7222; start_pos = 7228; end_pos = 7253 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 3
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 1.000977k "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7148; start_pos = 7163; end_pos = 7178 } ))
+                   ~node_loc:{ start_bol = 7148; start_pos = 7154; end_pos = 7179 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 2
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 1k "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7081; start_pos = 7096; end_pos = 7104 } ))
+                   ~node_loc:{ start_bol = 7081; start_pos = 7087; end_pos = 7105 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 1
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 1023b "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 7011; start_pos = 7026; end_pos = 7037 } ))
+                   ~node_loc:{ start_bol = 7011; start_pos = 7017; end_pos = 7038 } )
+             ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 0
+               , Ppx_expect_runtime.Test_node.Create.expect
+                   ~formatting_flexibility:
+                     (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                      .Flexible_modulo
+                        Ppx_expect_runtime.Expect_node_formatting.default)
+                   ~located_payload:
+                     (Some
+                        ( { contents = " 1000b "
+                          ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                          }
+                        , { start_bol = 6941; start_pos = 6956; end_pos = 6967 } ))
+                   ~node_loc:{ start_bol = 6941; start_pos = 6947; end_pos = 6968 } )
+             ]
+            [@merlin.hide])
+          (fun () ->
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__003_ -> to_string _custom_printf__003_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 1000);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 0) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__004_ -> to_string _custom_printf__004_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 1023);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 1) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__005_ -> to_string _custom_printf__005_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 1024);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 2) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__006_ -> to_string _custom_printf__006_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 1025);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 3) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__007_ -> to_string _custom_printf__007_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 1500);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 4) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__008_ -> to_string _custom_printf__008_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 10000);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 5) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__009_ -> to_string _custom_printf__009_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 100000);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 6) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__010_ -> to_string _custom_printf__010_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 1000000);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 7) [@merlin.hide];
+             printf
+               ((Format
+                   ( Custom
+                       ( Custom_succ Custom_zero
+                       , (fun () _custom_printf__011_ -> to_string _custom_printf__011_)
+                       , End_of_format )
+                   , "%{}" )
+                : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                [@merlin.hide])
+               (of_bytes_int 10000000);
+             Ppx_expect_test_block.run_test
+               ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 8) [@merlin.hide])
     ;;
 
     let t_of_sexp sexp =
@@ -246,6 +542,52 @@ module Stable = struct
 
   module V2 = struct
     type nonrec t = t [@@deriving compare, equal, hash, typerep]
+
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : t) -> ()
+
+      let compare =
+        (fun a__012_ b__013_ -> compare a__012_ b__013_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let equal =
+        (fun a__014_ b__015_ -> equal a__014_ b__015_ : t -> (t[@merlin.hide]) -> bool)
+      ;;
+
+      let _ = equal
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        fun hsv arg -> hash_fold_t hsv arg
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+        let func = hash in
+        fun x -> func x
+      ;;
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+          type nonrec t = t
+
+          let name = "byte_units.ml.before-ppx.Stable.V2.t"
+          let _ = name
+        end)
+
+      let typename_of_t = Typename_of_t.typename_of_t
+      let _ = typename_of_t
+
+      let typerep_of_t =
+        let name_of_t = Typename_of_t.named in
+        Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy typerep_of_t))
+      ;;
+
+      let _ = typerep_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let to_binable = bytes_int63
     let of_binable = of_bytes_int63
@@ -266,7 +608,12 @@ module Stable = struct
 
     include Of_sexp_v1_v2
 
-    let sexp_of_t t = [%sexp `Bytes (bytes_int63 t : Int63.t)]
+    let sexp_of_t t =
+      Ppx_sexp_conv_lib.Sexp.List
+        [ Ppx_sexp_conv_lib.Sexp.Atom "Bytes"
+        ; (Int63.sexp_of_t [@merlin.hide]) (bytes_int63 t)
+        ]
+    ;;
   end
 end
 
@@ -297,42 +644,354 @@ module Short = struct
 
   let sexp_of_t t = Sexp.Atom (to_string t)
 
-  let%expect_test _ =
-    printf !"%{}" (of_bytes_int 1000);
-    [%expect {| 1000B |}];
-    printf !"%{}" (of_bytes_int 1023);
-    [%expect {| 1023B |}];
-    printf !"%{}" (of_bytes_int 1024);
-    [%expect {| 1.00K |}];
-    printf !"%{}" (of_bytes_int 1025);
-    [%expect {| 1.00K |}];
-    printf !"%{}" (of_bytes_int 10000);
-    [%expect {| 9.77K |}];
-    printf !"%{}" (of_bytes_int 100000);
-    [%expect {| 97.7K |}];
-    printf !"%{}" (of_bytes_int 1000000);
-    [%expect {| 977K |}];
-    printf !"%{}" (of_bytes_int 10000000);
-    [%expect {| 9.54M |}];
-    printf !"%{}" (of_bytes_float_exn 10000000000.);
-    [%expect {| 9.31G |}];
-    printf !"%{}" (of_bytes_float_exn 1000000000000.);
-    [%expect {| 931G |}];
-    printf !"%{}" (of_bytes_float_exn 100000000000000.);
-    [%expect {| 90.9T |}];
-    printf !"%{}" (of_bytes_float_exn 100000000000000000.);
-    [%expect {| 88.8P |}];
-    printf !"%{}" (of_bytes_float_exn 3000000000000000000.);
-    [%expect {| 2.60E |}];
-    ()
+  let () =
+    match Ppx_inline_test_lib.testing with
+    | `Not_testing -> ()
+    | `Testing _ ->
+      let module Ppx_expect_test_block =
+        Ppx_expect_runtime.Make_test_block (Expect_test_config)
+      in
+      Ppx_expect_test_block.run_suite
+        ~filename_rel_to_project_root:"byte_units.ml.before-ppx"
+        ~line_number:300
+        ~location:{ start_bol = 9241; start_pos = 9243; end_pos = 10226 }
+        ~trailing_loc:{ start_bol = 10220; start_pos = 10226; end_pos = 10226 }
+        ~body_loc:{ start_bol = 9241; start_pos = 9243; end_pos = 10226 }
+        ~formatting_flexibility:
+          (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+             Ppx_expect_runtime.Expect_node_formatting.default)
+        ~expected_exn:None
+        ~trailing_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 24)
+        ~exn_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 25)
+        ~description:None
+        ~tags:[]
+        ~inline_test_config:(module Inline_test_config)
+        ~expectations:
+          ([ ( Ppx_expect_runtime.Expectation_id.of_int_exn 23
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 2.60E "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 10193; start_pos = 10206; end_pos = 10217 } ))
+                 ~node_loc:{ start_bol = 10193; start_pos = 10197; end_pos = 10218 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 22
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 88.8P "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 10105; start_pos = 10118; end_pos = 10129 } ))
+                 ~node_loc:{ start_bol = 10105; start_pos = 10109; end_pos = 10130 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 21
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 90.9T "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 10018; start_pos = 10031; end_pos = 10042 } ))
+                 ~node_loc:{ start_bol = 10018; start_pos = 10022; end_pos = 10043 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 20
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 931G "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9935; start_pos = 9948; end_pos = 9958 } ))
+                 ~node_loc:{ start_bol = 9935; start_pos = 9939; end_pos = 9959 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 19
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 9.31G "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9853; start_pos = 9866; end_pos = 9877 } ))
+                 ~node_loc:{ start_bol = 9853; start_pos = 9857; end_pos = 9878 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 18
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 9.54M "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9773; start_pos = 9786; end_pos = 9797 } ))
+                 ~node_loc:{ start_bol = 9773; start_pos = 9777; end_pos = 9798 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 17
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 977K "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9704; start_pos = 9717; end_pos = 9727 } ))
+                 ~node_loc:{ start_bol = 9704; start_pos = 9708; end_pos = 9728 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 16
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 97.7K "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9635; start_pos = 9648; end_pos = 9659 } ))
+                 ~node_loc:{ start_bol = 9635; start_pos = 9639; end_pos = 9660 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 15
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 9.77K "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9567; start_pos = 9580; end_pos = 9591 } ))
+                 ~node_loc:{ start_bol = 9567; start_pos = 9571; end_pos = 9592 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 14
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 1.00K "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9500; start_pos = 9513; end_pos = 9524 } ))
+                 ~node_loc:{ start_bol = 9500; start_pos = 9504; end_pos = 9525 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 13
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 1.00K "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9434; start_pos = 9447; end_pos = 9458 } ))
+                 ~node_loc:{ start_bol = 9434; start_pos = 9438; end_pos = 9459 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 12
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 1023B "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9368; start_pos = 9381; end_pos = 9392 } ))
+                 ~node_loc:{ start_bol = 9368; start_pos = 9372; end_pos = 9393 } )
+           ; ( Ppx_expect_runtime.Expectation_id.of_int_exn 11
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " 1000B "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 9302; start_pos = 9315; end_pos = 9326 } ))
+                 ~node_loc:{ start_bol = 9302; start_pos = 9306; end_pos = 9327 } )
+           ]
+          [@merlin.hide])
+        (fun () ->
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__016_ -> to_string _custom_printf__016_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 1000);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 11) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__017_ -> to_string _custom_printf__017_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 1023);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 12) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__018_ -> to_string _custom_printf__018_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 1024);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 13) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__019_ -> to_string _custom_printf__019_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 1025);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 14) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__020_ -> to_string _custom_printf__020_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 10000);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 15) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__021_ -> to_string _custom_printf__021_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 100000);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 16) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__022_ -> to_string _custom_printf__022_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 1000000);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 17) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__023_ -> to_string _custom_printf__023_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_int 10000000);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 18) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__024_ -> to_string _custom_printf__024_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_float_exn 10000000000.);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 19) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__025_ -> to_string _custom_printf__025_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_float_exn 1000000000000.);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 20) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__026_ -> to_string _custom_printf__026_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_float_exn 100000000000000.);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 21) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__027_ -> to_string _custom_printf__027_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_float_exn 100000000000000000.);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 22) [@merlin.hide];
+           printf
+             ((Format
+                 ( Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__028_ -> to_string _custom_printf__028_)
+                     , End_of_format )
+                 , "%{}" )
+              : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+              [@merlin.hide])
+             (of_bytes_float_exn 3000000000000000000.);
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 23) [@merlin.hide];
+           ())
   ;;
 end
 
 let to_string_short = Short.to_string
 
-let (create [@deprecated
-              "[since 2019-01] Use [of_bytes], [of_kilobytes], [of_megabytes], etc as \
-               appropriate."])
+let (create
+     [@deprecated
+       "[since 2019-01] Use [of_bytes], [of_kilobytes], [of_megabytes], etc as \
+        appropriate."])
   =
   fun units value ->
   match units with
@@ -352,3 +1011,7 @@ include
       let of_quickcheckable = of_repr
       let to_quickcheckable = to_repr
     end)
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

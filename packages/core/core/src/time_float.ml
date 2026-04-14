@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"time_float.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "time_float.ml.before-ppx"
+;;
+
 open! Import
 open! Std_internal
 
@@ -24,7 +37,71 @@ module Stable = struct
     module V2 = struct
       type nonrec t = t [@@deriving bin_io, compare, hash]
 
-      let sexp_of_t t = [%sexp (to_string_abs_parts t ~zone:Zone.utc : string list)]
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "time_float.ml.before-ppx:25:6")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let compare =
+          (fun a__001_ b__002_ -> compare a__001_ b__002_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg -> hash_fold_t hsv arg
+
+        and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func = hash in
+          fun x -> func x
+        ;;
+
+        let _ = hash_fold_t
+        and _ = hash
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let sexp_of_t t =
+        ((fun x__003_ -> sexp_of_list sexp_of_string x__003_) [@merlin.hide])
+          (to_string_abs_parts t ~zone:Zone.utc)
+      ;;
+
       let stable_witness = Stable_witness.assert_stable
 
       let t_of_sexp sexp =
@@ -152,3 +229,6 @@ let t_of_sexp_abs = `Use_Time_unix
 let to_date_ofday_zoned = `Use_Time_unix
 let to_ofday_zoned = `Use_Time_unix
 let to_string_fix_proto = `Use_Time_unix
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

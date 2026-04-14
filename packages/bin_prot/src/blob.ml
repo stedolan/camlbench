@@ -3,8 +3,27 @@ open Common
 module T = struct
   type 'a t = 'a [@@deriving compare, sexp_of]
 
+  include struct
+    let _ = fun (_ : 'a t) -> ()
+
+    let compare
+      : 'a. ('a -> ('a[@merlin.hide]) -> int) -> 'a t -> ('a t[@merlin.hide]) -> int
+      =
+      fun _cmp__a a__001_ b__002_ -> _cmp__a a__001_ b__002_
+    ;;
+
+    let _ = compare
+
+    let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+      fun _of_a__003_ -> _of_a__003_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let bin_shape_t t =
-    Shape.(basetype (Uuid.of_string "85a2557e-490a-11e6-98ac-4b8953d525fe") [ t ])
+    let open Shape in
+    basetype (Uuid.of_string "85a2557e-490a-11e6-98ac-4b8953d525fe") [ t ]
   ;;
 
   let bin_size_t bin_size_a a = Utils.size_header_length + bin_size_a a
@@ -41,26 +60,21 @@ type 'a id = 'a
 include T
 
 include Utils.Make_binable1_without_uuid [@alert "-legacy"] (struct
-  module Binable = T
+    module Binable = T
 
-  type 'a t = 'a T.t
+    type 'a t = 'a T.t
 
-  let of_binable t = t
-  let to_binable t = t
-end)
+    let of_binable t = t
+    let to_binable t = t
+  end)
 
 module Opaque = struct
-  (* [Bigstring] and [String] share [bin_shape_t] because they have exactly the same
-     serialization format and they denote the same values.
-
-     In fact almost certainly [Blob.t] itself should have the same bin_shape_t as well. *)
   let bin_shape_t =
-    Shape.(basetype (Uuid.of_string "85a1f76e-490a-11e6-86a9-5bef585f2602") [])
+    let open Shape in
+    basetype (Uuid.of_string "85a1f76e-490a-11e6-86a9-5bef585f2602") []
   ;;
 
   module Bigstring = struct
-    (* [buf] is the bin-io data excluding the size header. When (de-)serialized, the size
-       header is included. *)
     module T = struct
       type t = buf
 
@@ -92,8 +106,6 @@ module Opaque = struct
 
     let to_opaque blob bin_writer = Utils.bin_dump bin_writer blob
     let of_opaque_exn (t : t) bin_reader = bin_reader.Type_class.read t ~pos_ref:(ref 0)
-
-    (* Bigstrings are a primitive type that polymorphic compare handles well. *)
     let compare = (Stdlib.compare : buf -> buf -> int)
 
     let sexp_of_t t =
@@ -161,16 +173,12 @@ module Opaque = struct
       else res
     ;;
 
-    (* Strings are a primitive type that polymorphic compare handles well. *)
     let compare = (Stdlib.compare : string -> string -> int)
     let sexp_of_t = Ppx_sexp_conv_lib.Conv.sexp_of_string
   end
 end
 
 module Ignored = struct
-  (* The representation of an ignored value is just the size of the value it was created
-     from (i.e., the number of bytes that were ignored from the buffer we were reading
-     -- we exclude the 8 byte size header from which the size was read). *)
   type t = int
 
   let bin_size_t size = Utils.size_header_length + size

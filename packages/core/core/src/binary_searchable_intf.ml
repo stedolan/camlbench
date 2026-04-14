@@ -1,4 +1,17 @@
-(** This module extends {!Base.Binary_searchable}. *)
+[@@@ocaml.text " This module extends {!Base.Binary_searchable}. "]
+
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"binary_searchable_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "binary_searchable_intf.ml.before-ppx"
+;;
 
 open Base.Binary_searchable
 
@@ -29,3 +42,7 @@ module type Binary_searchable = sig
   module type S0_permissions = S0_permissions
   module type S1_permissions = S1_permissions
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

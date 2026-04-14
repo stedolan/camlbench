@@ -3,9 +3,9 @@ open! Base
 module Bigstring0 = struct
   type t =
     ( char
-    , Stdlib.Bigarray.int8_unsigned_elt
-    , Stdlib.Bigarray.c_layout )
-    Stdlib.Bigarray.Array1.t
+      , Stdlib.Bigarray.int8_unsigned_elt
+      , Stdlib.Bigarray.c_layout )
+      Stdlib.Bigarray.Array1.t
 end
 
 module Array1 = struct
@@ -30,15 +30,11 @@ include Bigstring0
 external aux_create : size:int -> t = "bigstring_alloc_v2"
 
 let sprintf = Printf.sprintf
-
-(* One needs to use [Caml.Sys.word_size] so that its value is known at compile-time. *)
 let arch_sixtyfour = Stdlib.Sys.word_size = 64
 let arch_big_endian = Stdlib.Sys.big_endian
 let not_on_32bit = Stdlib.Sys.word_size > 32
 
 let create size =
-  (* This check is important because [aux_create ~size:(-1)] raises [Out_of_memory], which
-     could be confusing during debugging. *)
   if size < 0 then invalid_arg (sprintf "create: size = %d < 0" size);
   aux_create ~size
 ;;
@@ -55,28 +51,26 @@ let init n ~f =
   t
 ;;
 
-let[@inline never] check_args_slow ~loc ~pos ~len (bstr : t) =
+let check_args_slow ~loc ~pos ~len (bstr : t) =
   if pos < 0 then invalid_arg (loc ^ ": pos < 0");
   if len < 0 then invalid_arg (loc ^ ": len < 0");
   let bstr_len = length bstr in
-  (* Be careful with overflow!  We could have bogons like [pos = Int.max_value] or [len =
-     Int.max_value] passed by the user. *)
   if bstr_len - pos < len
   then invalid_arg (sprintf "Bigstring.%s: length(bstr) < pos + len" loc)
+[@@inline never]
 ;;
 
-let[@inline always] check_args ~loc ~pos ~len (bstr : t) =
+let check_args ~loc ~pos ~len (bstr : t) =
   let open Bool.Non_short_circuiting in
   let bstr_len = length bstr in
   if pos < 0 || len < 0 || bstr_len - pos < len then check_args_slow ~loc ~pos ~len bstr
+[@@inline always]
 ;;
 
 let get_opt_len bstr ~pos = function
   | Some len -> len
   | None -> length bstr - pos
 ;;
-
-(* Blitting *)
 
 external unsafe_blit
   :  src:(t[@local_opt])
@@ -86,9 +80,8 @@ external unsafe_blit
   -> len:int
   -> unit
   = "bigstring_blit_stub"
-  [@@noalloc]
+[@@noalloc]
 
-(* Exposing the external version of get/set supports better inlining. *)
 external get : t -> int -> char = "%caml_ba_ref_1"
 external unsafe_get : t -> int -> char = "%caml_ba_unsafe_ref_1"
 external set : t -> int -> char -> unit = "%caml_ba_set_1"
@@ -109,10 +102,10 @@ module Bytes_sequence = struct
 end
 
 include Blit.Make (struct
-  include Bigstring_sequence
+    include Bigstring_sequence
 
-  let unsafe_blit = unsafe_blit
-end)
+    let unsafe_blit = unsafe_blit
+  end)
 
 module From_bytes =
   Blit.Make_distinct
@@ -126,7 +119,7 @@ module From_bytes =
         -> len:int
         -> unit
         = "bigstring_blit_bytes_bigstring_stub"
-        [@@noalloc]
+      [@@noalloc]
 
       include Bigstring_sequence
     end)
@@ -143,7 +136,7 @@ module To_bytes =
         -> len:int
         -> unit
         = "bigstring_blit_bigstring_bytes_stub"
-        [@@noalloc]
+      [@@noalloc]
 
       include Bytes_sequence
     end)
@@ -164,7 +157,7 @@ module From_string =
         -> len:int
         -> unit
         = "bigstring_blit_string_bigstring_stub"
-        [@@noalloc]
+      [@@noalloc]
 
       include Bigstring_sequence
     end)
@@ -221,14 +214,12 @@ let concat =
 ;;
 
 external unsafe_memset : t -> pos:int -> len:int -> char -> unit = "bigstring_memset_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let memset t ~pos ~len c =
   Ordered_collection_common.check_pos_len_exn ~pos ~len ~total_length:(length t);
   unsafe_memset t ~pos ~len c
 ;;
-
-(* Comparison *)
 
 external unsafe_memcmp
   :  t
@@ -238,7 +229,7 @@ external unsafe_memcmp
   -> len:int
   -> int
   = "bigstring_memcmp_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let memcmp t1 ~pos1 t2 ~pos2 ~len =
   Ordered_collection_common.check_pos_len_exn ~pos:pos1 ~len ~total_length:(length t1);
@@ -254,7 +245,7 @@ external unsafe_memcmp_bytes
   -> len:int
   -> int
   = "bigstring_memcmp_bytes_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let memcmp_bytes t ~pos1 bytes ~pos2 ~len =
   Ordered_collection_common.check_pos_len_exn ~pos:pos1 ~len ~total_length:(length t);
@@ -291,13 +282,42 @@ external internalhash_fold_bigstring
   -> t
   -> Hash.state
   = "internalhash_fold_bigstring"
-  [@@noalloc]
+[@@noalloc]
 
 let _making_sure_the_C_binding_takes_an_int (x : Hash.state) = (x :> int)
 let hash_fold_t = internalhash_fold_bigstring
 let hash = Ppx_hash_lib.Std.Hash.of_fold hash_fold_t
 
 type t_frozen = t [@@deriving compare, hash, sexp]
+
+include struct
+  let _ = fun (_ : t_frozen) -> ()
+
+  let compare_t_frozen =
+    (fun a__001_ b__002_ -> compare a__001_ b__002_
+     : t_frozen -> (t_frozen[@merlin.hide]) -> int)
+  ;;
+
+  let _ = compare_t_frozen
+
+  let hash_fold_t_frozen
+    : Ppx_hash_lib.Std.Hash.state -> t_frozen -> Ppx_hash_lib.Std.Hash.state
+    =
+    fun hsv arg -> hash_fold_t hsv arg
+
+  and hash_t_frozen : t_frozen -> Ppx_hash_lib.Std.Hash.hash_value =
+    let func = hash in
+    fun x -> func x
+  ;;
+
+  let _ = hash_fold_t_frozen
+  and _ = hash_t_frozen
+
+  let t_frozen_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t_frozen)
+  let _ = t_frozen_of_sexp
+  let sexp_of_t_frozen = (sexp_of_t : t_frozen -> Sexplib0.Sexp.t)
+  let _ = sexp_of_t_frozen
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 let equal t1 t2 =
   if phys_equal t1 t2
@@ -308,10 +328,8 @@ let equal t1 t2 =
     Int.equal len1 len2 && Int.equal (unsafe_memcmp t1 ~pos1:0 t2 ~pos2:0 ~len:len1) 0)
 ;;
 
-(* Search *)
-
 external unsafe_find : t -> char -> pos:int -> len:int -> int = "bigstring_find"
-  [@@noalloc]
+[@@noalloc]
 
 external unsafe_memmem
   :  haystack:t
@@ -322,7 +340,7 @@ external unsafe_memmem
   -> needle_len:int
   -> int
   = "bigstring_memmem_bytecode" "bigstring_memmem"
-  [@@noalloc]
+[@@noalloc]
 
 let find ?(pos = 0) ?len chr bstr =
   let len = get_opt_len bstr ~pos len in
@@ -332,13 +350,13 @@ let find ?(pos = 0) ?len chr bstr =
 ;;
 
 let memmem
-  ~haystack
-  ~needle
-  ?(haystack_pos = 0)
-  ?haystack_len
-  ?(needle_pos = 0)
-  ?needle_len
-  ()
+      ~haystack
+      ~needle
+      ?(haystack_pos = 0)
+      ?haystack_len
+      ?(needle_pos = 0)
+      ?needle_len
+      ()
   =
   let haystack_len = get_opt_len haystack ~pos:haystack_pos haystack_len in
   let needle_len = get_opt_len needle ~pos:needle_pos needle_len in
@@ -347,10 +365,6 @@ let memmem
   in
   if res < 0 then None else Some res
 ;;
-
-(* vim: set filetype=ocaml : *)
-
-(* Binary-packing like accessors *)
 
 external int32_of_int : int -> int32 = "%int32_of_int"
 external int32_to_int : int32 -> int = "%int32_to_int"
@@ -373,34 +387,40 @@ external unsafe_set_32
 
 external unsafe_set_64 : t -> int -> int64 -> unit = "%caml_bigstring_set64u"
 
-let[@inline always] get_16 (t : t) (pos : int) : int =
+let get_16 (t : t) (pos : int) : int =
   check_args ~loc:"get_16" ~pos ~len:2 t;
   unsafe_get_16 t pos
+[@@inline always]
 ;;
 
-let[@inline always] get_32 (t : t) (pos : int) : int32 =
+let get_32 (t : t) (pos : int) : int32 =
   check_args ~loc:"get_32" ~pos ~len:4 t;
   unsafe_get_32 t pos
+[@@inline always]
 ;;
 
-let[@inline always] get_64 (t : t) (pos : int) : int64 =
+let get_64 (t : t) (pos : int) : int64 =
   check_args ~loc:"get_64" ~pos ~len:8 t;
   unsafe_get_64 t pos
+[@@inline always]
 ;;
 
-let[@inline always] set_16_trunc (t : t) (pos : int) (v : int) : unit =
+let set_16_trunc (t : t) (pos : int) (v : int) : unit =
   check_args ~loc:"set_16" ~pos ~len:2 t;
   unsafe_set_16 t pos v
+[@@inline always]
 ;;
 
-let[@inline always] set_32 (t : t) (pos : int) (v : int32) : unit =
+let set_32 (t : t) (pos : int) (v : int32) : unit =
   check_args ~loc:"set_32" ~pos ~len:4 t;
   unsafe_set_32 t pos v
+[@@inline always]
 ;;
 
-let[@inline always] set_64 (t : t) (pos : int) (v : int64) : unit =
+let set_64 (t : t) (pos : int) (v : int64) : unit =
   check_args ~loc:"set_64" ~pos ~len:8 t;
   unsafe_set_64 t pos v
+[@@inline always]
 ;;
 
 let sign_extend_16 u = (u lsl (Int.num_bits - 16)) asr (Int.num_bits - 16)
@@ -430,23 +450,23 @@ let check_valid_int32 =
   then fun _ ~loc:_ -> ()
   else
     fun x ~loc ->
-    if x >= -1 lsl 31 && x < 1 lsl 31
-    then ()
-    else invalid_arg (sprintf "%s: %d is not a valid (signed) 32-bit integer" loc x)
+      if x >= -1 lsl 31 && x < 1 lsl 31
+      then ()
+      else invalid_arg (sprintf "%s: %d is not a valid (signed) 32-bit integer" loc x)
 ;;
 
 let check_valid_uint32 =
   if not arch_sixtyfour
   then
     fun x ~loc ->
-    if x >= 0
-    then ()
-    else invalid_arg (sprintf "%s: %d is not a valid unsigned 32-bit integer" loc x)
+      if x >= 0
+      then ()
+      else invalid_arg (sprintf "%s: %d is not a valid unsigned 32-bit integer" loc x)
   else
     fun x ~loc ->
-    if x >= 0 && x < 1 lsl 32
-    then ()
-    else invalid_arg (sprintf "%s: %d is not a valid unsigned 32-bit integer" loc x)
+      if x >= 0 && x < 1 lsl 32
+      then ()
+      else invalid_arg (sprintf "%s: %d is not a valid unsigned 32-bit integer" loc x)
 ;;
 
 let check_valid_uint64 x ~loc =
@@ -468,7 +488,6 @@ let write_int16_exn t ~pos x =
 ;;
 
 let write_int16_swap_exn t ~pos x =
-  (* Omit "_swap" from the error message it's bi-endian. *)
   check_valid_int16 x ~loc:"Bigstring.write_int16";
   set_16_trunc t pos (swap16 x)
 ;;
@@ -486,7 +505,6 @@ let write_uint16_exn t ~pos x =
 ;;
 
 let write_uint16_swap_exn t ~pos x =
-  (* Omit "_swap" from the error message it's bi-endian. *)
   check_valid_uint16 x ~loc:"Bigstring.write_uint16";
   set_16_trunc t pos (swap16 x)
 ;;
@@ -512,31 +530,33 @@ let write_int32_int_exn t ~pos x =
 ;;
 
 let write_int32_int_swap_exn t ~pos x =
-  (* Omit "_swap" from the error message it's bi-endian. *)
   check_valid_int32 x ~loc:"Bigstring.write_int32_int";
   set_32 t pos (swap32 (int32_of_int x))
 ;;
 
-let[@inline always] unsafe_read_int64_int t ~pos = int64_to_int (unsafe_get_64 t pos)
+let unsafe_read_int64_int t ~pos = int64_to_int (unsafe_get_64 t pos) [@@inline always]
 
-let[@inline always] unsafe_read_int64_int_swap t ~pos =
-  int64_to_int (swap64 (unsafe_get_64 t pos))
+let unsafe_read_int64_int_swap t ~pos = int64_to_int (swap64 (unsafe_get_64 t pos))
+[@@inline always]
 ;;
 
-let[@inline always] unsafe_read_int64 t ~pos = unsafe_get_64 t pos
-let[@inline always] unsafe_read_int64_swap t ~pos = swap64 (unsafe_get_64 t pos)
-let[@inline always] unsafe_write_int64 t ~pos x = unsafe_set_64 t pos x
-let[@inline always] unsafe_write_int64_swap t ~pos x = unsafe_set_64 t pos (swap64 x)
-let[@inline always] unsafe_write_int64_int t ~pos x = unsafe_set_64 t pos (int64_of_int x)
+let unsafe_read_int64 t ~pos = unsafe_get_64 t pos [@@inline always]
+let unsafe_read_int64_swap t ~pos = swap64 (unsafe_get_64 t pos) [@@inline always]
+let unsafe_write_int64 t ~pos x = unsafe_set_64 t pos x [@@inline always]
+let unsafe_write_int64_swap t ~pos x = unsafe_set_64 t pos (swap64 x) [@@inline always]
 
-let[@inline always] unsafe_write_int64_int_swap t ~pos x =
-  unsafe_set_64 t pos (swap64 (int64_of_int x))
+let unsafe_write_int64_int t ~pos x = unsafe_set_64 t pos (int64_of_int x)
+[@@inline always]
 ;;
 
-let[@inline always] read_int64_int t ~pos = int64_to_int (get_64 t pos)
-let[@inline always] read_int64_int_swap t ~pos = int64_to_int (swap64 (get_64 t pos))
-let[@inline always] read_int64 t ~pos = get_64 t pos
-let[@inline always] read_int64_swap t ~pos = swap64 (get_64 t pos)
+let unsafe_write_int64_int_swap t ~pos x = unsafe_set_64 t pos (swap64 (int64_of_int x))
+[@@inline always]
+;;
+
+let read_int64_int t ~pos = int64_to_int (get_64 t pos) [@@inline always]
+let read_int64_int_swap t ~pos = int64_to_int (swap64 (get_64 t pos)) [@@inline always]
+let read_int64 t ~pos = get_64 t pos [@@inline always]
+let read_int64_swap t ~pos = swap64 (get_64 t pos) [@@inline always]
 let write_int64 t ~pos x = set_64 t pos x
 let write_int64_swap t ~pos x = set_64 t pos (swap64 x)
 let write_int64_int t ~pos x = set_64 t pos (int64_of_int x)
@@ -688,18 +708,18 @@ let unsafe_get_string t ~pos ~len =
 ;;
 
 module Local = struct
-  let[@inline always] unsafe_read_int64_local t ~pos =
-    Int64.( + ) 0L (unsafe_read_int64 t ~pos)
+  let unsafe_read_int64_local t ~pos = Int64.( + ) 0L (unsafe_read_int64 t ~pos)
+  [@@inline always]
   ;;
 
-  let[@inline always] unsafe_read_int64_swap_local t ~pos =
-    Int64.( + ) 0L (unsafe_read_int64_swap t ~pos)
+  let unsafe_read_int64_swap_local t ~pos = Int64.( + ) 0L (unsafe_read_int64_swap t ~pos)
+  [@@inline always]
   ;;
 
-  let[@inline always] read_int64_local t ~pos = Int64.( + ) 0L (read_int64 t ~pos)
+  let read_int64_local t ~pos = Int64.( + ) 0L (read_int64 t ~pos) [@@inline always]
 
-  let[@inline always] read_int64_swap_local t ~pos =
-    Int64.( + ) 0L (read_int64_swap t ~pos)
+  let read_int64_swap_local t ~pos = Int64.( + ) 0L (read_int64_swap t ~pos)
+  [@@inline always]
   ;;
 
   let unsafe_get_int64_t_be =
@@ -739,40 +759,45 @@ let uint64_conv_error () =
   failwith "unsafe_read_uint64: value cannot be represented unboxed!"
 ;;
 
-let[@inline always] int64_to_int_exn n =
+let int64_to_int_exn n =
   let n' = int64_to_int n in
-  (* The compiler will eliminate any boxing here. *)
   if Int64.( = ) (Int64.of_int n') n then n' else int64_conv_error ()
+[@@inline always]
 ;;
 
-let[@inline always] uint64_to_int_exn n =
+let uint64_to_int_exn n =
   if arch_sixtyfour
   then
-    if Int64.(n >= 0L && n < 0x4000_0000_0000_0000L)
+    if
+      let open Int64 in
+      n >= 0L && n < 0x4000_0000_0000_0000L
     then int64_to_int n
     else uint64_conv_error ()
-  else if Int64.(n >= 0L && n < 0x0000_0000_4000_0000L)
+  else if
+    let open Int64 in
+    n >= 0L && n < 0x0000_0000_4000_0000L
   then int64_to_int n
   else uint64_conv_error ()
+[@@inline always]
 ;;
 
-let[@inline] unsafe_get_int64_be_exn t ~pos =
-  int64_to_int_exn (unsafe_get_int64_t_be t ~pos)
+let unsafe_get_int64_be_exn t ~pos = int64_to_int_exn (unsafe_get_int64_t_be t ~pos)
+[@@inline]
 ;;
 
-let[@inline] unsafe_get_int64_le_exn t ~pos =
-  int64_to_int_exn (unsafe_get_int64_t_le t ~pos)
+let unsafe_get_int64_le_exn t ~pos = int64_to_int_exn (unsafe_get_int64_t_le t ~pos)
+[@@inline]
 ;;
 
 let get_int64_be_exn t ~pos = int64_to_int_exn (get_int64_t_be t ~pos)
 let get_int64_le_exn t ~pos = int64_to_int_exn (get_int64_t_le t ~pos)
 
-let[@inline] unsafe_get_uint64_be_exn t ~pos =
-  uint64_to_int_exn (unsafe_get_int64_t_be t ~pos)
+let unsafe_get_uint64_be_exn t ~pos = uint64_to_int_exn (unsafe_get_int64_t_be t ~pos)
+[@@inline]
 ;;
 
-let[@inline] unsafe_get_uint64_le_exn t ~pos =
-  uint64_to_int_exn (unsafe_get_int64_t_le t ~pos)
+let unsafe_get_uint64_le_exn t ~pos = uint64_to_int_exn (unsafe_get_int64_t_le t ~pos)
+[@@inline]
 ;;
 
 let get_uint64_be_exn t ~pos = uint64_to_int_exn (get_int64_t_be t ~pos)
@@ -790,17 +815,9 @@ let set_uint64_le_exn t ~pos n =
   set_int64_le t ~pos n
 ;;
 
-(* Type annotations on the [t]s are important here: in order for the compiler to generate
-   optimized code, it needs to know the fully instantiated type of the bigarray. This is
-   because the type of the bigarray encodes the element kind and the layout of the
-   bigarray. Without the annotation the compiler generates a C call to the generic access
-   functions. *)
 let unsafe_set_uint8 (t : t) ~pos n = Array1.unsafe_set t pos (Char.unsafe_of_int n)
 
 let unsafe_set_int8 (t : t) ~pos n =
-  (* In all the set functions where there are these tests, it looks like the test could be
-     removed, since they are only changing the values of the bytes that are not
-     written. *)
   let n = if n < 0 then n + 256 else n in
   Array1.unsafe_set t pos (Char.unsafe_of_int n)
 ;;
@@ -830,25 +847,34 @@ let get_int8 (t : t) ~pos =
   if n >= 128 then n - 256 else n
 ;;
 
-let mask32_n = Stdlib.Nativeint.(sub (shift_left 1n 32) 1n)
+let mask32_n =
+  let open Stdlib.Nativeint in
+  sub (shift_left 1n 32) 1n
+;;
 
-let[@inline always] uint32_of_int32_t n =
+let uint32_of_int32_t n =
   if not_on_32bit
   then
-    (* use Caml.Nativeint to ensure inlining even without x-library-inlining *)
-    Stdlib.Nativeint.(to_int (logand (of_int32 n) mask32_n))
+    let open Stdlib.Nativeint in
+    to_int (logand (of_int32 n) mask32_n)
   else int32_to_int n
+[@@inline always]
 ;;
 
-let[@inline] unsafe_set_uint32_le t ~pos n = unsafe_set_int32_t_le t ~pos (int32_of_int n)
-let[@inline] unsafe_set_uint32_be t ~pos n = unsafe_set_int32_t_be t ~pos (int32_of_int n)
-
-let[@inline] unsafe_get_uint32_le t ~pos =
-  uint32_of_int32_t (unsafe_get_int32_t_le t ~pos)
+let unsafe_set_uint32_le t ~pos n = unsafe_set_int32_t_le t ~pos (int32_of_int n)
+[@@inline]
 ;;
 
-let[@inline] unsafe_get_uint32_be t ~pos =
-  uint32_of_int32_t (unsafe_get_int32_t_be t ~pos)
+let unsafe_set_uint32_be t ~pos n = unsafe_set_int32_t_be t ~pos (int32_of_int n)
+[@@inline]
+;;
+
+let unsafe_get_uint32_le t ~pos = uint32_of_int32_t (unsafe_get_int32_t_le t ~pos)
+[@@inline]
+;;
+
+let unsafe_get_uint32_be t ~pos = uint32_of_int32_t (unsafe_get_int32_t_be t ~pos)
+[@@inline]
 ;;
 
 let set_uint32_le_exn t ~pos n =

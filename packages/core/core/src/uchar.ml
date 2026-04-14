@@ -1,16 +1,38 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"uchar.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "uchar.ml.before-ppx"
+;;
+
 module Stable = struct
   module V1 = struct
     module T = struct
       include (
         Base.Uchar :
-          sig
-            type t = Base.Uchar.t [@@deriving compare, equal, hash, sexp, sexp_grammar]
+        sig
+          type t = Base.Uchar.t [@@deriving compare, equal, hash, sexp, sexp_grammar]
 
-            include
-              Base.Comparator.S
-                with type t := t
-                 and type comparator_witness = Base.Uchar.comparator_witness
-          end)
+          include sig
+            [@@@ocaml.warning "-32"]
+
+            include Ppx_compare_lib.Comparable.S with type t := t
+            include Ppx_compare_lib.Equal.S with type t := t
+            include Ppx_hash_lib.Hashable.S with type t := t
+            include Sexplib0.Sexpable.S with type t := t
+
+            val t_sexp_grammar : t Sexplib0.Sexp_grammar.t
+          end
+          [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+          include
+            Base.Comparator.S
+            with type t := t
+             and type comparator_witness = Base.Uchar.comparator_witness
+        end)
 
       let stable_witness : t Stable_witness.t = Stable_witness.assert_stable
 
@@ -39,10 +61,10 @@ open! Import
 include Stable.V1
 
 include Hashable.Make_binable_with_hashable (struct
-  module Key = Stable.V1
+    module Key = Stable.V1
 
-  let hashable = Key.hashable
-end)
+    let hashable = Key.hashable
+  end)
 
 include Comparable.Extend_binable (Base.Uchar) (Stable.V1)
 include Base.Uchar
@@ -53,14 +75,8 @@ let quickcheck_generator =
   let two_bytes_utf8 = 0x0080, 0x07FF in
   let three_bytes_utf8_part1 = 0x0800, 0xD7FF in
   let three_bytes_utf8_part2 = 0xE000, 0xFFFF in
-  let four_bytes_utf8 (* also, 4-byte surrogate pair in utf-16 *) = 0x10000, 0x10FFFF in
+  let four_bytes_utf8 = 0x10000, 0x10FFFF in
   let range (start, until) = map (int_uniform_inclusive start until) ~f:of_scalar_exn in
-  (* The most common characters we expect in a unicode string are ASCII, so we weight
-     those most. We then bucket unicode scalar values by the different length
-     representations they have and make sure to draw somewhat from each of the buckets.
-     We give extra weight to [four_bytes_utf8] as it's interesting for both UTF-8 and
-     UTF-16. Finally, we give special attention to the start and end of the Unicode range,
-     as is often done in Quickcheck generators. *)
   weighted_union
     [ 20., range one_byte_utf8
     ; 5., range two_bytes_utf8
@@ -74,3 +90,6 @@ let quickcheck_generator =
 
 let quickcheck_observer = Base_quickcheck.Observer.of_hash_fold hash_fold_t
 let quickcheck_shrinker = Base_quickcheck.Shrinker.atomic
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

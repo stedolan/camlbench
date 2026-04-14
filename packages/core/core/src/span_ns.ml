@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"span_ns.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "span_ns.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open! Int63.O
@@ -9,11 +22,88 @@ type underlying = Int63.t
 
 let arch_sixtyfour = Int.equal Sys.word_size_in_bits 64
 let round_nearest_ns = Float.int63_round_nearest_exn
-let[@inline] float x = Int63.to_float x
+let float x = Int63.to_float x [@@inline]
 
-(* [Span] is basically a [Int63].  It even silently ignores overflow. *)
 module T = struct
-  type t = Int63.t (* nanoseconds *) [@@deriving hash, bin_io, quickcheck, typerep]
+  type t = Int63.t [@@deriving hash, bin_io, quickcheck, typerep]
+
+  include struct
+    [@@@ocaml.warning "-60"]
+
+    let _ = fun (_ : t) -> ()
+
+    let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+      fun hsv arg -> Int63.hash_fold_t hsv arg
+
+    and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+      let func = Int63.hash in
+      fun x -> func x
+    ;;
+
+    let _ = hash_fold_t
+    and _ = hash
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:16:2")
+          [ Bin_prot.Shape.Tid.of_string "t", [], Int63.bin_shape_t ]
+      in
+      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+    ;;
+
+    let _ = bin_shape_t
+    let bin_size_t : t Bin_prot.Size.sizer = Int63.bin_size_t
+    let _ = bin_size_t
+    let bin_write_t : t Bin_prot.Write.writer = Int63.bin_write_t
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = Int63.__bin_read_t__
+    let _ = __bin_read_t__
+    let bin_read_t : t Bin_prot.Read.reader = Int63.bin_read_t
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+       : _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+    let quickcheck_generator = Int63.quickcheck_generator
+    let _ = quickcheck_generator
+    let quickcheck_observer = Int63.quickcheck_observer
+    let _ = quickcheck_observer
+    let quickcheck_shrinker = Int63.quickcheck_shrinker
+    let _ = quickcheck_shrinker
+
+    module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+        type nonrec t = t
+
+        let name = "span_ns.ml.before-ppx.T.t"
+        let _ = name
+      end)
+
+    let typename_of_t = Typename_of_t.typename_of_t
+    let _ = typename_of_t
+
+    let typerep_of_t =
+      let name_of_t = Typename_of_t.named in
+      Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy Int63.typerep_of_t))
+    ;;
+
+    let _ = typerep_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   module Replace_polymorphic_compare = Int63.Replace_polymorphic_compare
 
@@ -34,17 +124,241 @@ module Parts = struct
     ; ns : int
     }
   [@@deriving compare, sexp, sexp_grammar]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let compare =
+      (fun a__001_ b__002_ ->
+         if Stdlib.( == ) a__001_ b__002_
+         then 0
+         else (
+           match Sign.compare a__001_.sign b__002_.sign with
+           | 0 ->
+             (match compare_int a__001_.hr b__002_.hr with
+              | 0 ->
+                (match compare_int a__001_.min b__002_.min with
+                 | 0 ->
+                   (match compare_int a__001_.sec b__002_.sec with
+                    | 0 ->
+                      (match compare_int a__001_.ms b__002_.ms with
+                       | 0 ->
+                         (match compare_int a__001_.us b__002_.us with
+                          | 0 -> compare_int a__001_.ns b__002_.ns
+                          | n -> n)
+                       | n -> n)
+                    | n -> n)
+                 | n -> n)
+              | n -> n)
+           | n -> n)
+       : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+
+    let t_of_sexp =
+      (let error_source__004_ = "span_ns.ml.before-ppx.Parts.t" in
+       fun x__005_ ->
+         Sexplib0.Sexp_conv_record.record_of_sexp
+           ~caller:error_source__004_
+           ~fields:
+             (Field
+                { name = "sign"
+                ; kind = Required
+                ; conv = Sign.t_of_sexp
+                ; rest =
+                    Field
+                      { name = "hr"
+                      ; kind = Required
+                      ; conv = int_of_sexp
+                      ; rest =
+                          Field
+                            { name = "min"
+                            ; kind = Required
+                            ; conv = int_of_sexp
+                            ; rest =
+                                Field
+                                  { name = "sec"
+                                  ; kind = Required
+                                  ; conv = int_of_sexp
+                                  ; rest =
+                                      Field
+                                        { name = "ms"
+                                        ; kind = Required
+                                        ; conv = int_of_sexp
+                                        ; rest =
+                                            Field
+                                              { name = "us"
+                                              ; kind = Required
+                                              ; conv = int_of_sexp
+                                              ; rest =
+                                                  Field
+                                                    { name = "ns"
+                                                    ; kind = Required
+                                                    ; conv = int_of_sexp
+                                                    ; rest = Empty
+                                                    }
+                                              }
+                                        }
+                                  }
+                            }
+                      }
+                })
+           ~index_of_field:(function
+             | "sign" -> 0
+             | "hr" -> 1
+             | "min" -> 2
+             | "sec" -> 3
+             | "ms" -> 4
+             | "us" -> 5
+             | "ns" -> 6
+             | _ -> -1)
+           ~allow_extra_fields:false
+           ~create:(fun (sign, (hr, (min, (sec, (ms, (us, (ns, ()))))))) ->
+             ({ sign; hr; min; sec; ms; us; ns } : t))
+           x__005_
+       : Sexplib0.Sexp.t -> t)
+    ;;
+
+    let _ = t_of_sexp
+
+    let sexp_of_t =
+      (fun { sign = sign__007_
+           ; hr = hr__009_
+           ; min = min__011_
+           ; sec = sec__013_
+           ; ms = ms__015_
+           ; us = us__017_
+           ; ns = ns__019_
+           } ->
+         let bnds__006_ = ([] : _ Stdlib.List.t) in
+         let bnds__006_ =
+           let arg__020_ = sexp_of_int ns__019_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "ns"; arg__020_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         let bnds__006_ =
+           let arg__018_ = sexp_of_int us__017_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "us"; arg__018_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         let bnds__006_ =
+           let arg__016_ = sexp_of_int ms__015_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "ms"; arg__016_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         let bnds__006_ =
+           let arg__014_ = sexp_of_int sec__013_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "sec"; arg__014_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         let bnds__006_ =
+           let arg__012_ = sexp_of_int min__011_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "min"; arg__012_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         let bnds__006_ =
+           let arg__010_ = sexp_of_int hr__009_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "hr"; arg__010_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         let bnds__006_ =
+           let arg__008_ = Sign.sexp_of_t sign__007_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "sign"; arg__008_ ] :: bnds__006_
+            : _ Stdlib.List.t)
+         in
+         Sexplib0.Sexp.List bnds__006_
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+
+    let t_sexp_grammar : t Sexplib0.Sexp_grammar.t =
+      { untyped =
+          Lazy
+            (lazy
+              (List
+                 (Fields
+                    { allow_extra_fields = false
+                    ; fields =
+                        [ No_tag
+                            { name = "sign"
+                            ; required = true
+                            ; args = Cons (Sign.t_sexp_grammar.untyped, Empty)
+                            }
+                        ; No_tag
+                            { name = "hr"
+                            ; required = true
+                            ; args = Cons (int_sexp_grammar.untyped, Empty)
+                            }
+                        ; No_tag
+                            { name = "min"
+                            ; required = true
+                            ; args = Cons (int_sexp_grammar.untyped, Empty)
+                            }
+                        ; No_tag
+                            { name = "sec"
+                            ; required = true
+                            ; args = Cons (int_sexp_grammar.untyped, Empty)
+                            }
+                        ; No_tag
+                            { name = "ms"
+                            ; required = true
+                            ; args = Cons (int_sexp_grammar.untyped, Empty)
+                            }
+                        ; No_tag
+                            { name = "us"
+                            ; required = true
+                            ; args = Cons (int_sexp_grammar.untyped, Empty)
+                            }
+                        ; No_tag
+                            { name = "ns"
+                            ; required = true
+                            ; args = Cons (int_sexp_grammar.untyped, Empty)
+                            }
+                        ]
+                    })))
+      }
+    ;;
+
+    let _ = t_sexp_grammar
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 let next t = Int63.succ t
 let prev t = Int63.pred t
 let nanosecond = Int63.of_int 1
-let microsecond = Int63.(of_int 1000 * nanosecond)
-let millisecond = Int63.(of_int 1000 * microsecond)
-let second = Int63.(of_int 1000 * millisecond)
-let minute = Int63.(of_int 60 * second)
-let hour = Int63.(of_int 60 * minute)
-let day = Int63.(of_int 24 * hour)
+
+let microsecond =
+  let open Int63 in
+  of_int 1000 * nanosecond
+;;
+
+let millisecond =
+  let open Int63 in
+  of_int 1000 * microsecond
+;;
+
+let second =
+  let open Int63 in
+  of_int 1000 * millisecond
+;;
+
+let minute =
+  let open Int63 in
+  of_int 60 * second
+;;
+
+let hour =
+  let open Int63 in
+  of_int 60 * minute
+;;
+
+let day =
+  let open Int63 in
+  of_int 24 * hour
+;;
+
 let float_microsecond = float microsecond
 let float_millisecond = float millisecond
 let float_second = float second
@@ -58,25 +372,23 @@ let ns_per_min = 1. /. float_minute
 let ns_per_hr = 1. /. float_hour
 let ns_per_day = 1. /. float_day
 
-(* Beyond [min_value_for_1us_rounding..max_value_for_1us_rounding], not every microsecond
-   can be represented as a [float] number of seconds. (In fact, it is around 135y, but we
-   leave a small margin.)
+let max_value_for_1us_rounding =
+  let open Int63 in
+  of_int 135 * of_int 365 * day
+;;
 
-   In the presence of silently ignored overflow, note that [t] is not actually bound to
-   stay between these limits. *)
-let max_value_for_1us_rounding = Int63.(of_int 135 * of_int 365 * day)
 let min_value_for_1us_rounding = Int63.neg max_value_for_1us_rounding
 
 let create
-  ?sign:(sign_ = Sign.Pos (* rebind so not shadowed by [open Int63] below *))
-  ?day:(days = 0)
-  ?(hr = 0)
-  ?min:(minutes = 0)
-  ?(sec = 0)
-  ?(ms = 0)
-  ?(us = 0)
-  ?(ns = 0)
-  ()
+      ?sign:(sign_ = Sign.Pos)
+      ?day:(days = 0)
+      ?(hr = 0)
+      ?min:(minutes = 0)
+      ?(sec = 0)
+      ?(ms = 0)
+      ?(us = 0)
+      ?(ns = 0)
+      ()
   =
   let open Int63 in
   let t =
@@ -112,43 +424,83 @@ let of_parts { Parts.sign; hr; min; sec; ms; us; ns } =
 
 let of_ns f = round_nearest_ns f
 let of_int63_ns i = i
-let of_int_us i = Int63.(of_int i * microsecond)
-let of_int_ms i = Int63.(of_int i * millisecond)
-let of_int_sec i = Int63.(of_int i * second)
-let of_int_min i = Int63.(of_int i * minute)
-let of_int_hr i = Int63.(of_int i * hour)
-let of_int_day i = Int63.(of_int i * day)
+
+let of_int_us i =
+  let open Int63 in
+  of_int i * microsecond
+;;
+
+let of_int_ms i =
+  let open Int63 in
+  of_int i * millisecond
+;;
+
+let of_int_sec i =
+  let open Int63 in
+  of_int i * second
+;;
+
+let of_int_min i =
+  let open Int63 in
+  of_int i * minute
+;;
+
+let of_int_hr i =
+  let open Int63 in
+  of_int i * hour
+;;
+
+let of_int_day i =
+  let open Int63 in
+  of_int i * day
+;;
+
 let of_us f = round_nearest_ns (f *. float_microsecond)
 let of_ms f = round_nearest_ns (f *. float_millisecond)
-let[@inline] of_sec f = round_nearest_ns (f *. float_second)
+let of_sec f = round_nearest_ns (f *. float_second) [@@inline]
 let of_min f = round_nearest_ns (f *. float_minute)
 let of_hr f = round_nearest_ns (f *. float_hour)
 let of_day f = round_nearest_ns (f *. float_day)
 
 let of_sec_with_microsecond_precision sec =
   let us = round_nearest_ns (sec *. 1e6) in
-  of_int63_ns Int63.(us * of_int 1000)
+  of_int63_ns
+    (let open Int63 in
+     us * of_int 1000)
 ;;
 
 let of_int63_seconds x = x * second
 let of_int32_seconds x = of_int63_seconds (Int63.of_int32 x)
 let to_ns t = float t
 let to_int63_ns t = t
-let[@inline] to_us t = float t /. float_microsecond
-let[@inline] to_ms t = float t /. float_millisecond
-let[@inline] to_sec t = float t /. float_second
-let[@inline] to_min t = float t /. float_minute
-let[@inline] to_hr t = float t /. float_hour
-let[@inline] to_day t = float t /. float_day
-let[@inline] to_us_approx t = float t *. ns_per_us
-let[@inline] to_ms_approx t = float t *. ns_per_ms
-let[@inline] to_sec_approx t = float t *. ns_per_sec
-let[@inline] to_min_approx t = float t *. ns_per_min
-let[@inline] to_hr_approx t = float t *. ns_per_hr
-let[@inline] to_day_approx t = float t *. ns_per_day
-let to_int_us t = Int63.(to_int_exn (t / microsecond))
-let to_int_ms t = Int63.(to_int_exn (t / millisecond))
-let to_int_sec t = Int63.(to_int_exn (t / second))
+let to_us t = float t /. float_microsecond [@@inline]
+let to_ms t = float t /. float_millisecond [@@inline]
+let to_sec t = float t /. float_second [@@inline]
+let to_min t = float t /. float_minute [@@inline]
+let to_hr t = float t /. float_hour [@@inline]
+let to_day t = float t /. float_day [@@inline]
+let to_us_approx t = float t *. ns_per_us [@@inline]
+let to_ms_approx t = float t *. ns_per_ms [@@inline]
+let to_sec_approx t = float t *. ns_per_sec [@@inline]
+let to_min_approx t = float t *. ns_per_min [@@inline]
+let to_hr_approx t = float t *. ns_per_hr [@@inline]
+let to_day_approx t = float t *. ns_per_day [@@inline]
+
+let to_int_us t =
+  let open Int63 in
+  to_int_exn (t / microsecond)
+;;
+
+let to_int_ms t =
+  let open Int63 in
+  to_int_exn (t / millisecond)
+;;
+
+let to_int_sec t =
+  let open Int63 in
+  to_int_exn (t / second)
+;;
+
 let to_int63_seconds_round_down_exn t = t /% second
 let of_int_ns i = of_int63_ns (Int63.of_int i)
 
@@ -199,7 +551,7 @@ let to_unit_of_time t : Unit_of_time.t =
 ;;
 
 let to_span_float_round_nearest t = Span_float.of_sec (to_sec t)
-let[@inline] of_span_float_round_nearest s = of_sec (Span_float.to_sec s)
+let of_span_float_round_nearest s = of_sec (Span_float.to_sec s) [@@inline]
 let round_up t ~to_multiple_of = Int63.round_up ~to_multiple_of t
 let round_down t ~to_multiple_of = Int63.round_down ~to_multiple_of t
 let round_nearest t ~to_multiple_of = Int63.round_nearest ~to_multiple_of t
@@ -217,6 +569,72 @@ module Stable0 = struct
   module V1 = struct
     module T = struct
       type nonrec t = t [@@deriving bin_io, compare, hash, equal]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:219:6")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let compare =
+          (fun a__021_ b__022_ -> compare a__021_ b__022_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg -> hash_fold_t hsv arg
+
+        and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func = hash in
+          fun x -> func x
+        ;;
+
+        let _ = hash_fold_t
+        and _ = hash
+
+        let equal =
+          (fun a__023_ b__024_ -> equal a__023_ b__024_ : t -> (t[@merlin.hide]) -> bool)
+        ;;
+
+        let _ = equal
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
       let stable_witness : t Stable_witness.t = Stable_witness.assert_stable
 
@@ -246,6 +664,76 @@ module Stable0 = struct
       module T0 = struct
         type nonrec t = t [@@deriving bin_io, compare, hash, equal]
 
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:247:8")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let compare =
+            (fun a__025_ b__026_ -> compare a__025_ b__026_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let hash_fold_t
+            : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+            =
+            fun hsv arg -> hash_fold_t hsv arg
+
+          and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+            let func = hash in
+            fun x -> func x
+          ;;
+
+          let _ = hash_fold_t
+          and _ = hash
+
+          let equal =
+            (fun a__027_ b__028_ -> equal a__027_ b__028_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
         let stable_witness : t Stable_witness.t = Int63.Stable.V1.stable_witness
         let of_int63_exn t = of_int63_ns t
         let to_int63 t = to_int63_ns t
@@ -267,8 +755,6 @@ module Stable0 = struct
             then 5
             else assert false
           ;;
-
-          (* span part magnitudes are always < 100_000 *)
 
           let number_of_decimal_places_to_write ~billionths =
             let open Int.O in
@@ -333,13 +819,11 @@ module Stable0 = struct
               pos)
           ;;
 
-          let nanos_of_millisecond = to_int63_ns millisecond |> Int63.to_int_exn
-          let nanos_of_microsecond = to_int63_ns microsecond |> Int63.to_int_exn
+          let nanos_of_millisecond = Int63.to_int_exn (to_int63_ns millisecond)
+          let nanos_of_microsecond = Int63.to_int_exn (to_int63_ns microsecond)
           let int63_60 = Int63.of_int 60
           let int63_24 = Int63.of_int 24
 
-          (* Units of seconds and smaller can be written in decimal notation without
-             worrying about non-power-of-ten factors. *)
           module Decimal_unit = struct
             type t =
               | Second
@@ -348,6 +832,29 @@ module Stable0 = struct
               | Nanosecond
               | None
             [@@deriving compare, sexp_of]
+
+            include struct
+              let _ = fun (_ : t) -> ()
+
+              let compare =
+                (fun a__029_ b__030_ -> Stdlib.compare a__029_ b__030_
+                 : t -> (t[@merlin.hide]) -> int)
+              ;;
+
+              let _ = compare
+
+              let sexp_of_t =
+                (function
+                 | Second -> Sexplib0.Sexp.Atom "Second"
+                 | Millisecond -> Sexplib0.Sexp.Atom "Millisecond"
+                 | Microsecond -> Sexplib0.Sexp.Atom "Microsecond"
+                 | Nanosecond -> Sexplib0.Sexp.Atom "Nanosecond"
+                 | None -> Sexplib0.Sexp.Atom "None"
+                 : t -> Sexplib0.Sexp.t)
+              ;;
+
+              let _ = sexp_of_t
+            end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
             let create ~s ~ns =
               let open Int.O in
@@ -427,16 +934,16 @@ module Stable0 = struct
               let is_negative = t < zero in
               let seconds = Int63.( / ) (to_int63_ns t) (to_int63_ns second) in
               let ns =
-                Int63.rem (to_int63_ns t) (to_int63_ns second) |> Int63.to_int_exn
+                Int63.to_int_exn (Int63.rem (to_int63_ns t) (to_int63_ns second))
               in
               let seconds = Int63.abs seconds in
               let ns = Int.abs ns in
-              let s = Int63.rem seconds int63_60 |> Int63.to_int_exn in
+              let s = Int63.to_int_exn (Int63.rem seconds int63_60) in
               let minutes = Int63.( / ) seconds int63_60 in
-              let m = Int63.rem minutes int63_60 |> Int63.to_int_exn in
+              let m = Int63.to_int_exn (Int63.rem minutes int63_60) in
               let hours = Int63.( / ) minutes int63_60 in
-              let h = Int63.rem hours int63_24 |> Int63.to_int_exn in
-              let d = Int63.( / ) hours int63_24 |> Int63.to_int_exn in
+              let h = Int63.to_int_exn (Int63.rem hours int63_24) in
+              let d = Int63.to_int_exn (Int63.( / ) hours int63_24) in
               let open Int.O in
               let digits_of_d = number_of_digits_to_write ~span_part_magnitude:d in
               let digits_of_h = number_of_digits_to_write ~span_part_magnitude:h in
@@ -488,25 +995,34 @@ module Stable0 = struct
         let to_string = To_string.to_string
 
         module Of_string = struct
-          (* We do computations using negative numbers everywhere and test against
-             things related to [Int63.min_value] rather than using positive numbers
-             and testing against things related to [Int63.max_value] because the
-             negative integer range is one wider than the positive integer range
-             (-2**63 vs 2**63-1), and we need that to be able to handle Int63.min_value
-             nicely. *)
-
           let int63_10 = Int63.of_int 10
-          let min_mult10_without_underflow = Int63.(min_value / int63_10)
 
-          let[@cold] invalid_string string ~reason =
-            raise_s
-              [%message
-                "Time_ns.Span.of_string: invalid string"
-                  (string : string)
-                  (reason : string)]
+          let min_mult10_without_underflow =
+            let open Int63 in
+            min_value / int63_10
           ;;
 
-          (* Assumes x and y are both nonpositive *)
+          let invalid_string string ~reason =
+            raise_s
+              (let ppx_sexp_message () =
+                 Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                       "Time_ns.Span.of_string: invalid string"
+                   ; Ppx_sexp_conv_lib.Sexp.List
+                       [ Ppx_sexp_conv_lib.Sexp.Atom "string"
+                       ; (sexp_of_string [@merlin.hide]) string
+                       ]
+                   ; Ppx_sexp_conv_lib.Sexp.List
+                       [ Ppx_sexp_conv_lib.Sexp.Atom "reason"
+                       ; (sexp_of_string [@merlin.hide]) reason
+                       ]
+                   ]
+                   [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+               in
+               (ppx_sexp_message () [@nontail]))
+          [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+          ;;
+
           let add_without_underflow ~string x y =
             let open Int63.O in
             let sum = x + y in
@@ -544,12 +1060,12 @@ module Stable0 = struct
           ;;
 
           let negative_part
-            string
-            ~neg_integer
-            ~decimal_pos
-            ~end_pos
-            ~unit_of_time
-            ~round_ties_before_negating
+                string
+                ~neg_integer
+                ~decimal_pos
+                ~end_pos
+                ~unit_of_time
+                ~round_ties_before_negating
             =
             let open Int.O in
             let scale = to_int63_ns (of_unit_of_time unit_of_time) in
@@ -592,16 +1108,10 @@ module Stable0 = struct
               | _ -> false
             in
             let round_ties_before_negating : Digit_string_helpers.Round.t =
-              (* Ultimately, we always round parsed spans towards positive infinity when
-                 the nearest round ns are equidistant. For example, "1.5ns" is read as
-                 2.0ns, and "-1.5ns" is read as -1ns. Since we read absolute values before
-                 applying the sign, we must choose our rounding direction based on the
-                 sign. Rounding decimal values happens before negating their magnitude. *)
               match is_negative with
               | false -> Toward_positive_infinity
               | true -> Toward_negative_infinity
             in
-            (* Loop over parts, like "5m" in "1h5m30s" *)
             while !pos < len do
               let has_digit = ref false in
               let neg_integer =
@@ -726,36 +1236,84 @@ let t_sexp_grammar = Stable.V2.t_sexp_grammar
 
 module Alternate_sexp = struct
   type nonrec t = t [@@deriving sexp, sexp_grammar]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+    let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+    let _ = t_of_sexp
+    let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+    let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = t_sexp_grammar
+    let _ = t_sexp_grammar
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 include Comparable.With_zero (struct
-  type nonrec t = t [@@deriving compare, sexp]
+    type nonrec t = t [@@deriving compare, sexp]
 
-  let zero = zero
-end)
+    include struct
+      let _ = fun (_ : t) -> ()
 
-(* Functions required by [Robustly_comparable]: allows for [robust_comparison_tolerance]
-   granularity.
+      let compare =
+        (fun a__032_ b__033_ -> compare a__032_ b__033_ : t -> (t[@merlin.hide]) -> int)
+      ;;
 
-   A microsecond is a reasonable granularity because there is very little network
-   activity that can be measured to sub-microsecond resolution. *)
+      let _ = compare
+      let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    let zero = zero
+  end)
+
 let robust_comparison_tolerance = microsecond
-let ( >=. ) t u = t >= Int63.(u - robust_comparison_tolerance)
-let ( <=. ) t u = t <= Int63.(u + robust_comparison_tolerance)
-let ( =. ) t u = Int63.(abs (t - u)) <= robust_comparison_tolerance
-let ( >. ) t u = t > Int63.(u + robust_comparison_tolerance)
-let ( <. ) t u = t < Int63.(u - robust_comparison_tolerance)
-let ( <>. ) t u = Int63.(abs (t - u)) > robust_comparison_tolerance
+
+let ( >=. ) t u =
+  t
+  >= let open Int63 in
+     u - robust_comparison_tolerance
+;;
+
+let ( <=. ) t u =
+  t
+  <= let open Int63 in
+     u + robust_comparison_tolerance
+;;
+
+let ( =. ) t u =
+  (let open Int63 in
+   abs (t - u))
+  <= robust_comparison_tolerance
+;;
+
+let ( >. ) t u =
+  t
+  > let open Int63 in
+    u + robust_comparison_tolerance
+;;
+
+let ( <. ) t u =
+  t
+  < let open Int63 in
+    u - robust_comparison_tolerance
+;;
+
+let ( <>. ) t u =
+  (let open Int63 in
+   abs (t - u))
+  > robust_comparison_tolerance
+;;
+
 let robustly_compare t u = if t <. u then -1 else if t >. u then 1 else 0
 
-(* We don't just convert to [Time.Span.t] and use the conversion there because our
-   [to_span] conversion is limited to microsecond precision. *)
 let to_string_hum
-  ?(delimiter = '_')
-  ?(decimals = 3)
-  ?(align_decimal = false)
-  ?unit_of_time
-  t
+      ?(delimiter = '_')
+      ?(decimals = 3)
+      ?(align_decimal = false)
+      ?unit_of_time
+      t
   =
   let float, suffix =
     match Option.value unit_of_time ~default:(to_unit_of_time t) with
@@ -776,7 +1334,7 @@ let to_string_hum
   prefix ^ suffix
 ;;
 
-let since_unix_epoch () = Time_now.nanoseconds_since_unix_epoch () |> of_int63_ns
+let since_unix_epoch () = of_int63_ns (Time_now.nanoseconds_since_unix_epoch ())
 
 let random ?state () =
   Int63.random ?state (max_value_for_1us_rounding + Int63.one)
@@ -796,44 +1354,228 @@ let gen_incl = Int63.gen_incl
 let gen_uniform_incl = Int63.gen_uniform_incl
 
 include Pretty_printer.Register (struct
-  type nonrec t = t
+    type nonrec t = t
 
-  let to_string = to_string
-  let module_name = module_name
-end)
+    let to_string = to_string
+    let module_name = module_name
+  end)
 
 include Hashable.Make_binable (struct
-  type nonrec t = t [@@deriving bin_io, compare, hash, sexp]
-end)
+    type nonrec t = t [@@deriving bin_io, compare, hash, sexp]
+
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:806:2")
+            [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+      ;;
+
+      let _ = bin_shape_t
+      let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+      let _ = bin_size_t
+      let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+      let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+      let _ = __bin_read_t__
+      let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+
+      let compare =
+        (fun a__035_ b__036_ -> compare a__035_ b__036_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        fun hsv arg -> hash_fold_t hsv arg
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+        let func = hash in
+        fun x -> func x
+      ;;
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+  end)
 
 type comparator_witness = Stable.V2.comparator_witness
 
 include Comparable.Make_binable_using_comparator (struct
-  type nonrec t = t [@@deriving bin_io, compare, sexp]
-  type nonrec comparator_witness = comparator_witness
+    type nonrec t = t [@@deriving bin_io, compare, sexp]
 
-  let comparator = Stable.V2.comparator
-end)
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:812:2")
+            [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+      ;;
+
+      let _ = bin_shape_t
+      let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+      let _ = bin_size_t
+      let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+      let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+      let _ = __bin_read_t__
+      let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+
+      let compare =
+        (fun a__038_ b__039_ -> compare a__038_ b__039_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+      let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    type nonrec comparator_witness = comparator_witness
+
+    let comparator = Stable.V2.comparator
+  end)
 
 include Diffable.Atomic.Make (struct
-  type nonrec t = t [@@deriving bin_io, sexp, equal]
-end)
+    type nonrec t = t [@@deriving bin_io, sexp, equal]
 
-(* re-include [Replace_polymorphic_compare] and its comparisons to shadow the
-   un-inlineable ones from [Comparable] *)
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:819:2")
+            [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+      ;;
+
+      let _ = bin_shape_t
+      let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+      let _ = bin_size_t
+      let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+      let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+      let _ = __bin_read_t__
+      let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+      let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+
+      let equal =
+        (fun a__042_ b__043_ -> equal a__042_ b__043_ : t -> (t[@merlin.hide]) -> bool)
+      ;;
+
+      let _ = equal
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+  end)
+
 module Replace_polymorphic_compare = T.Replace_polymorphic_compare
 include Replace_polymorphic_compare
 
 let half_microsecond = Int63.of_int 500
-let nearest_microsecond t = Int63.((to_int63_ns t + half_microsecond) /% of_int 1000)
 
-let[@cold] invalid_range_for_1us_rounding t =
+let nearest_microsecond t =
+  let open Int63 in
+  (to_int63_ns t + half_microsecond) /% of_int 1000
+;;
+
+let invalid_range_for_1us_rounding t =
   raise_s
-    [%message
-      "Span.t exceeds limits"
-        (t : t)
-        (min_value_for_1us_rounding : t)
-        (max_value_for_1us_rounding : t)]
+    (let ppx_sexp_message () =
+       Ppx_sexp_conv_lib.Sexp.List
+         [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Span.t exceeds limits"
+         ; Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Sexp.Atom "t"; (sexp_of_t [@merlin.hide]) t ]
+         ; Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Sexp.Atom "min_value_for_1us_rounding"
+             ; (sexp_of_t [@merlin.hide]) min_value_for_1us_rounding
+             ]
+         ; Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Sexp.Atom "max_value_for_1us_rounding"
+             ; (sexp_of_t [@merlin.hide]) max_value_for_1us_rounding
+             ]
+         ]
+         [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+     in
+     (ppx_sexp_message () [@nontail]))
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
 let check_range_for_1us_rounding t =
@@ -855,18 +1597,20 @@ let max_span_float_value_for_1us_rounding =
 ;;
 
 let of_span_float_round_nearest_microsecond s =
-  if Span_float.( > ) s max_span_float_value_for_1us_rounding
-     || Span_float.( < ) s min_span_float_value_for_1us_rounding
+  if
+    Span_float.( > ) s max_span_float_value_for_1us_rounding
+    || Span_float.( < ) s min_span_float_value_for_1us_rounding
   then
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "span_ns.ml.before-ppx"
+        ; pos_lnum = 862
+        ; pos_cnum = 30080
+        ; pos_bol = 30068
+        }
       "Time_ns.Span does not support this span"
       s
-      [%sexp_of: Span_float.t];
-  (* Using [Time.Span.to_sec] (being the identity) so that
-     we make don't apply too many conversion
-     - Too many : `[Span.t] -> [a] -> [t]`
-     - Only One : `[Span.t]==[a] -> [t]`. *)
+      (Span_float.sexp_of_t [@merlin.hide]);
   of_sec_with_microsecond_precision (Span_float.to_sec s)
 ;;
 
@@ -894,7 +1638,6 @@ module Private = struct
   let to_parts = to_parts
 end
 
-(* Legacy definitions based on rounding to the nearest microsecond. *)
 let min_value = min_value_for_1us_rounding
 let max_value = max_value_for_1us_rounding
 let of_span = of_span_float_round_nearest_microsecond
@@ -902,16 +1645,131 @@ let to_span = to_span_float_round_nearest_microsecond
 
 module Option = struct
   type span = t [@@deriving sexp]
+
+  include struct
+    let _ = fun (_ : span) -> ()
+    let span_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> span)
+    let _ = span_of_sexp
+    let sexp_of_span = (sexp_of_t : span -> Sexplib0.Sexp.t)
+    let _ = sexp_of_span
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   type t = Int63.t [@@deriving bin_io, compare, equal, hash, typerep]
-  (* nanoseconds or none *)
+
+  include struct
+    [@@@ocaml.warning "-60"]
+
+    let _ = fun (_ : t) -> ()
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:905:2")
+          [ Bin_prot.Shape.Tid.of_string "t", [], Int63.bin_shape_t ]
+      in
+      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+    ;;
+
+    let _ = bin_shape_t
+    let bin_size_t : t Bin_prot.Size.sizer = Int63.bin_size_t
+    let _ = bin_size_t
+    let bin_write_t : t Bin_prot.Write.writer = Int63.bin_write_t
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = Int63.__bin_read_t__
+    let _ = __bin_read_t__
+    let bin_read_t : t Bin_prot.Read.reader = Int63.bin_read_t
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+       : _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+
+    let compare =
+      (fun a__045_ b__046_ -> Int63.compare a__045_ b__046_
+       : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+
+    let equal =
+      (fun a__047_ b__048_ -> Int63.equal a__047_ b__048_
+       : t -> (t[@merlin.hide]) -> bool)
+    ;;
+
+    let _ = equal
+
+    let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+      fun hsv arg -> Int63.hash_fold_t hsv arg
+
+    and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+      let func = Int63.hash in
+      fun x -> func x
+    ;;
+
+    let _ = hash_fold_t
+    and _ = hash
+
+    module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+        type nonrec t = t
+
+        let name = "span_ns.ml.before-ppx.Option.t"
+        let _ = name
+      end)
+
+    let typename_of_t = Typename_of_t.typename_of_t
+    let _ = typename_of_t
+
+    let typerep_of_t =
+      let name_of_t = Typename_of_t.named in
+      Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy Int63.typerep_of_t))
+    ;;
+
+    let _ = typerep_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let none = Int63.min_value
-  let is_none t = Int63.(t = none)
-  let is_some t = Int63.(t <> none)
+
+  let is_none t =
+    let open Int63 in
+    t = none
+  ;;
+
+  let is_some t =
+    let open Int63 in
+    t <> none
+  ;;
+
   let some_is_representable span = is_some (to_int63_ns span)
 
-  let[@cold] raise_some_error span =
-    raise_s [%message [%here] "Span.Option.some value not representable" (span : span)]
+  let raise_some_error span =
+    raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string "span_ns.ml.before-ppx:914:22"
+           ; Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Span.Option.some value not representable"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "span"; (sexp_of_span [@merlin.hide]) span ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]))
+  [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
   ;;
 
   let some span =
@@ -924,7 +1782,16 @@ module Option = struct
   let value_exn t =
     if is_some t
     then unchecked_value t
-    else raise_s [%message [%here] "Span.Option.value_exn none"]
+    else
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "span_ns.ml.before-ppx:927:27"
+             ; Ppx_sexp_conv_lib.Conv.sexp_of_string "Span.Option.value_exn none"
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
   ;;
 
   let of_option = function
@@ -950,6 +1817,16 @@ module Option = struct
     end
 
     type t = Some.t option [@@deriving quickcheck]
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let quickcheck_generator = quickcheck_generator_option Some.quickcheck_generator
+      let _ = quickcheck_generator
+      let quickcheck_observer = quickcheck_observer_option Some.quickcheck_observer
+      let _ = quickcheck_observer
+      let quickcheck_shrinker = quickcheck_shrinker_option Some.quickcheck_shrinker
+      let _ = quickcheck_shrinker
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   let quickcheck_generator =
@@ -979,13 +1856,79 @@ module Option = struct
       module T = struct
         type nonrec t = t [@@deriving bin_io, compare, equal]
 
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:980:8")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let compare =
+            (fun a__049_ b__050_ -> compare a__049_ b__050_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let equal =
+            (fun a__051_ b__052_ -> equal a__051_ b__052_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
         let v1_some span =
           assert (some_is_representable span);
           to_int63_ns span
         ;;
 
-        let sexp_of_t t = [%sexp_of: Stable.V1.t option] (to_option t)
-        let t_of_sexp s = of_option ([%of_sexp: Stable.V1.t option] s)
+        let sexp_of_t t =
+          ((fun x__053_ -> sexp_of_option Stable.V1.sexp_of_t x__053_) [@merlin.hide])
+            (to_option t)
+        ;;
+
+        let t_of_sexp s =
+          of_option
+            (((fun x__054_ -> option_of_sexp Stable.V1.t_of_sexp x__054_) [@merlin.hide])
+               s)
+        ;;
+
         let of_int63_exn i = if is_none i then none else v1_some (of_int63_ns i)
         let to_int63 t = t
 
@@ -1006,6 +1949,63 @@ module Option = struct
       module T = struct
         type nonrec t = t [@@deriving bin_io, compare, equal]
 
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:1007:8")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let compare =
+            (fun a__055_ b__056_ -> compare a__055_ b__056_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let equal =
+            (fun a__057_ b__058_ -> equal a__057_ b__058_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
         let sexp_of_t t =
           Sexp.List
             (if is_none t then [] else [ Stable.V2.sexp_of_t (unchecked_value t) ])
@@ -1022,7 +2022,7 @@ module Option = struct
           | Sexp.List list ->
             (match list with
              | [] -> none
-             | [ Sexp.Atom x ] ->
+             | Sexp.Atom x :: [] ->
                some
                  (try of_string x with
                   | exn -> of_sexp_error (Exn.to_string exn) sexp)
@@ -1050,18 +2050,143 @@ module Option = struct
   let t_of_sexp = Stable.V2.t_of_sexp
 
   include Identifiable.Make (struct
-    type nonrec t = t [@@deriving sexp, compare, bin_io, hash]
+      type nonrec t = t [@@deriving sexp, compare, bin_io, hash]
 
-    let module_name = "Core.Time_ns.Span.Option"
+      include struct
+        let _ = fun (_ : t) -> ()
+        let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+        let _ = t_of_sexp
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
 
-    include Sexpable.To_stringable (struct
-      type nonrec t = t [@@deriving sexp]
+        let compare =
+          (fun a__060_ b__061_ -> compare a__060_ b__061_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:1053:4")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg -> hash_fold_t hsv arg
+
+        and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func = hash in
+          fun x -> func x
+        ;;
+
+        let _ = hash_fold_t
+        and _ = hash
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let module_name = "Core.Time_ns.Span.Option"
+
+      include Sexpable.To_stringable (struct
+          type nonrec t = t [@@deriving sexp]
+
+          include struct
+            let _ = fun (_ : t) -> ()
+            let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+            let _ = t_of_sexp
+            let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+            let _ = sexp_of_t
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
+        end)
     end)
-  end)
 
   include Diffable.Atomic.Make (struct
-    type nonrec t = t [@@deriving bin_io, sexp, equal]
-  end)
+      type nonrec t = t [@@deriving bin_io, sexp, equal]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "span_ns.ml.before-ppx:1063:4")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+        let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+        let _ = t_of_sexp
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+
+        let equal =
+          (fun a__064_ b__065_ -> equal a__064_ b__065_ : t -> (t[@merlin.hide]) -> bool)
+        ;;
+
+        let _ = equal
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end)
 
   include (Int63 : Comparisons.S with type t := t)
 end
@@ -1076,3 +2201,6 @@ module Stable = struct
 end
 
 let arg_type = Command.Arg_type.create of_string
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

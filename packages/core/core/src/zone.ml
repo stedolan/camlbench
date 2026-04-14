@@ -1,12 +1,12 @@
-(* Functions for parsing time zone database files (zic files).
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
 
-   A time zone file consists (conceptually - the representation is more
-   compact) of an ordered list of (Time.t * [local_time_type]) that mark
-   the boundaries (marked from the epoch) at which various time adjustment
-   regimes are in effect.  This can also be thought of as breaking down all
-   time past the epoch into ranges with a [local_time_type] that describes the
-   offset from GMT to apply to each range to get local time.
-*)
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"zone.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "zone.ml.before-ppx"
+;;
 
 open Import
 open Std_internal
@@ -14,6 +14,19 @@ open! Int.Replace_polymorphic_compare
 include Zone_intf
 
 exception Invalid_file_format of string [@@deriving sexp]
+
+include struct
+  let () =
+    Sexplib0.Sexp_conv.Exn_converter.add
+      [%extension_constructor Invalid_file_format]
+      (function
+      | Invalid_file_format arg0__001_ ->
+        let res0__002_ = sexp_of_string arg0__001_ in
+        Sexplib0.Sexp.List
+          [ Sexplib0.Sexp.Atom "zone.ml.before-ppx.Invalid_file_format"; res0__002_ ]
+      | _ -> assert false)
+  ;;
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 module Stable = struct
   module Full_data = struct
@@ -24,19 +37,7 @@ module Stable = struct
         let next = Int.succ
         let prev = Int.pred
         let before_first_transition = -1
-
-        (* Some existing clients expect [index >= 0], so we never serialize a negative
-           index. This conversion can be removed if new stable versions are minted. *)
         let to_external t = max 0 t
-
-        (* When the index of a time zone with no transitions is converted via to_external,
-           its value becomes 0 even though its transition array is empty (and it should
-           have been -1). When the converted value is changed back to a Zone.t through
-           of_external, returning this value for its index could result in unsafe array
-           accesses to the transition array of the zone (since there is no transition at
-           index 0). Also, it does not make sense to keep the converted index because it
-           is intended to be a mutable value used for caching. So of_external always sets
-           the index to -1, which is a safe value. *)
         let of_external (_ : t) = -1
 
         include
@@ -74,17 +75,338 @@ module Stable = struct
           ; abbrv : string
           }
         [@@deriving bin_io, sexp, stable_witness]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "zone.ml.before-ppx:71:8")
+                [ ( Bin_prot.Shape.Tid.of_string "t"
+                  , []
+                  , Bin_prot.Shape.record
+                      [ "utc_offset_in_seconds", Int63.Stable.V1.bin_shape_t
+                      ; "is_dst", bin_shape_bool
+                      ; "abbrv", bin_shape_string
+                      ] )
+                ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+
+          let bin_size_t : t Bin_prot.Size.sizer = function
+            | { utc_offset_in_seconds = v1; is_dst = v2; abbrv = v3 } ->
+              let size = 0 in
+              let size = Bin_prot.Common.( + ) size (Int63.Stable.V1.bin_size_t v1) in
+              let size = Bin_prot.Common.( + ) size (bin_size_bool v2) in
+              Bin_prot.Common.( + ) size (bin_size_string v3)
+          ;;
+
+          let _ = bin_size_t
+
+          let bin_write_t : t Bin_prot.Write.writer =
+            fun buf ~pos -> function
+            | { utc_offset_in_seconds = v1; is_dst = v2; abbrv = v3 } ->
+              let pos = Int63.Stable.V1.bin_write_t buf ~pos v1 in
+              let pos = bin_write_bool buf ~pos v2 in
+              bin_write_string buf ~pos v3
+          ;;
+
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader =
+            fun _buf ~pos_ref _vint ->
+            Bin_prot.Common.raise_variant_wrong_type
+              "zone.ml.before-ppx.Stable.Full_data.V1.Regime.t"
+              !pos_ref
+          ;;
+
+          let _ = __bin_read_t__
+
+          let bin_read_t : t Bin_prot.Read.reader =
+            fun buf ~pos_ref ->
+            let v_utc_offset_in_seconds = Int63.Stable.V1.bin_read_t buf ~pos_ref in
+            let v_is_dst = bin_read_bool buf ~pos_ref in
+            let v_abbrv = bin_read_string buf ~pos_ref in
+            { utc_offset_in_seconds = v_utc_offset_in_seconds
+            ; is_dst = v_is_dst
+            ; abbrv = v_abbrv
+            }
+          ;;
+
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let t_of_sexp =
+            (let error_source__004_ = "zone.ml.before-ppx.Stable.Full_data.V1.Regime.t" in
+             fun x__005_ ->
+               Sexplib0.Sexp_conv_record.record_of_sexp
+                 ~caller:error_source__004_
+                 ~fields:
+                   (Field
+                      { name = "utc_offset_in_seconds"
+                      ; kind = Required
+                      ; conv = Int63.Stable.V1.t_of_sexp
+                      ; rest =
+                          Field
+                            { name = "is_dst"
+                            ; kind = Required
+                            ; conv = bool_of_sexp
+                            ; rest =
+                                Field
+                                  { name = "abbrv"
+                                  ; kind = Required
+                                  ; conv = string_of_sexp
+                                  ; rest = Empty
+                                  }
+                            }
+                      })
+                 ~index_of_field:(function
+                   | "utc_offset_in_seconds" -> 0
+                   | "is_dst" -> 1
+                   | "abbrv" -> 2
+                   | _ -> -1)
+                 ~allow_extra_fields:false
+                 ~create:(fun (utc_offset_in_seconds, (is_dst, (abbrv, ()))) ->
+                   ({ utc_offset_in_seconds; is_dst; abbrv } : t))
+                 x__005_
+             : Sexplib0.Sexp.t -> t)
+          ;;
+
+          let _ = t_of_sexp
+
+          let sexp_of_t =
+            (fun { utc_offset_in_seconds = utc_offset_in_seconds__007_
+                 ; is_dst = is_dst__009_
+                 ; abbrv = abbrv__011_
+                 } ->
+               let bnds__006_ = ([] : _ Stdlib.List.t) in
+               let bnds__006_ =
+                 let arg__012_ = sexp_of_string abbrv__011_ in
+                 (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "abbrv"; arg__012_ ]
+                  :: bnds__006_
+                  : _ Stdlib.List.t)
+               in
+               let bnds__006_ =
+                 let arg__010_ = sexp_of_bool is_dst__009_ in
+                 (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "is_dst"; arg__010_ ]
+                  :: bnds__006_
+                  : _ Stdlib.List.t)
+               in
+               let bnds__006_ =
+                 let arg__008_ = Int63.Stable.V1.sexp_of_t utc_offset_in_seconds__007_ in
+                 (Sexplib0.Sexp.List
+                    [ Sexplib0.Sexp.Atom "utc_offset_in_seconds"; arg__008_ ]
+                  :: bnds__006_
+                  : _ Stdlib.List.t)
+               in
+               Sexplib0.Sexp.List bnds__006_
+             : t -> Sexplib0.Sexp.t)
+          ;;
+
+          let _ = sexp_of_t
+
+          let stable_witness =
+            (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+             : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+          and __stable_witness_checks_for_t__ () =
+            let _ : Int63.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t =
+              Int63.Stable.V1.stable_witness
+            and _ : bool Ppx_stable_witness_runtime.Stable_witness.t = stable_witness_bool
+            and _ : string Ppx_stable_witness_runtime.Stable_witness.t =
+              stable_witness_string
+            in
+            ()
+          ;;
+
+          let _ = stable_witness
+          and _ = __stable_witness_checks_for_t__
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
       end
 
-      (* holds information about when leap seconds should be applied - unused
-         because we are translating based on a epoch system clock (see the Core_zone
-         documentation). *)
       module Leap_second = struct
         type t =
           { time_in_seconds_since_epoch : Int63.Stable.V1.t
           ; seconds : int
           }
         [@@deriving bin_io, sexp, stable_witness]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "zone.ml.before-ppx:83:8")
+                [ ( Bin_prot.Shape.Tid.of_string "t"
+                  , []
+                  , Bin_prot.Shape.record
+                      [ "time_in_seconds_since_epoch", Int63.Stable.V1.bin_shape_t
+                      ; "seconds", bin_shape_int
+                      ] )
+                ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+
+          let bin_size_t : t Bin_prot.Size.sizer = function
+            | { time_in_seconds_since_epoch = v1; seconds = v2 } ->
+              let size = 0 in
+              let size = Bin_prot.Common.( + ) size (Int63.Stable.V1.bin_size_t v1) in
+              Bin_prot.Common.( + ) size (bin_size_int v2)
+          ;;
+
+          let _ = bin_size_t
+
+          let bin_write_t : t Bin_prot.Write.writer =
+            fun buf ~pos -> function
+            | { time_in_seconds_since_epoch = v1; seconds = v2 } ->
+              let pos = Int63.Stable.V1.bin_write_t buf ~pos v1 in
+              bin_write_int buf ~pos v2
+          ;;
+
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader =
+            fun _buf ~pos_ref _vint ->
+            Bin_prot.Common.raise_variant_wrong_type
+              "zone.ml.before-ppx.Stable.Full_data.V1.Leap_second.t"
+              !pos_ref
+          ;;
+
+          let _ = __bin_read_t__
+
+          let bin_read_t : t Bin_prot.Read.reader =
+            fun buf ~pos_ref ->
+            let v_time_in_seconds_since_epoch = Int63.Stable.V1.bin_read_t buf ~pos_ref in
+            let v_seconds = bin_read_int buf ~pos_ref in
+            { time_in_seconds_since_epoch = v_time_in_seconds_since_epoch
+            ; seconds = v_seconds
+            }
+          ;;
+
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let t_of_sexp =
+            (let error_source__014_ =
+               "zone.ml.before-ppx.Stable.Full_data.V1.Leap_second.t"
+             in
+             fun x__015_ ->
+               Sexplib0.Sexp_conv_record.record_of_sexp
+                 ~caller:error_source__014_
+                 ~fields:
+                   (Field
+                      { name = "time_in_seconds_since_epoch"
+                      ; kind = Required
+                      ; conv = Int63.Stable.V1.t_of_sexp
+                      ; rest =
+                          Field
+                            { name = "seconds"
+                            ; kind = Required
+                            ; conv = int_of_sexp
+                            ; rest = Empty
+                            }
+                      })
+                 ~index_of_field:(function
+                   | "time_in_seconds_since_epoch" -> 0
+                   | "seconds" -> 1
+                   | _ -> -1)
+                 ~allow_extra_fields:false
+                 ~create:(fun (time_in_seconds_since_epoch, (seconds, ())) ->
+                   ({ time_in_seconds_since_epoch; seconds } : t))
+                 x__015_
+             : Sexplib0.Sexp.t -> t)
+          ;;
+
+          let _ = t_of_sexp
+
+          let sexp_of_t =
+            (fun { time_in_seconds_since_epoch = time_in_seconds_since_epoch__017_
+                 ; seconds = seconds__019_
+                 } ->
+               let bnds__016_ = ([] : _ Stdlib.List.t) in
+               let bnds__016_ =
+                 let arg__020_ = sexp_of_int seconds__019_ in
+                 (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "seconds"; arg__020_ ]
+                  :: bnds__016_
+                  : _ Stdlib.List.t)
+               in
+               let bnds__016_ =
+                 let arg__018_ =
+                   Int63.Stable.V1.sexp_of_t time_in_seconds_since_epoch__017_
+                 in
+                 (Sexplib0.Sexp.List
+                    [ Sexplib0.Sexp.Atom "time_in_seconds_since_epoch"; arg__018_ ]
+                  :: bnds__016_
+                  : _ Stdlib.List.t)
+               in
+               Sexplib0.Sexp.List bnds__016_
+             : t -> Sexplib0.Sexp.t)
+          ;;
+
+          let _ = sexp_of_t
+
+          let stable_witness =
+            (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+             : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+          and __stable_witness_checks_for_t__ () =
+            let _ : Int63.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t =
+              Int63.Stable.V1.stable_witness
+            and _ : int Ppx_stable_witness_runtime.Stable_witness.t =
+              stable_witness_int
+            in
+            ()
+          ;;
+
+          let _ = stable_witness
+          and _ = __stable_witness_checks_for_t__
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
       end
 
       module Transition = struct
@@ -93,6 +415,163 @@ module Stable = struct
           ; new_regime : Regime.t
           }
         [@@deriving bin_io, sexp, stable_witness]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "zone.ml.before-ppx:91:8")
+                [ ( Bin_prot.Shape.Tid.of_string "t"
+                  , []
+                  , Bin_prot.Shape.record
+                      [ "start_time_in_seconds_since_epoch", Int63.Stable.V1.bin_shape_t
+                      ; "new_regime", Regime.bin_shape_t
+                      ] )
+                ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+
+          let bin_size_t : t Bin_prot.Size.sizer = function
+            | { start_time_in_seconds_since_epoch = v1; new_regime = v2 } ->
+              let size = 0 in
+              let size = Bin_prot.Common.( + ) size (Int63.Stable.V1.bin_size_t v1) in
+              Bin_prot.Common.( + ) size (Regime.bin_size_t v2)
+          ;;
+
+          let _ = bin_size_t
+
+          let bin_write_t : t Bin_prot.Write.writer =
+            fun buf ~pos -> function
+            | { start_time_in_seconds_since_epoch = v1; new_regime = v2 } ->
+              let pos = Int63.Stable.V1.bin_write_t buf ~pos v1 in
+              Regime.bin_write_t buf ~pos v2
+          ;;
+
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader =
+            fun _buf ~pos_ref _vint ->
+            Bin_prot.Common.raise_variant_wrong_type
+              "zone.ml.before-ppx.Stable.Full_data.V1.Transition.t"
+              !pos_ref
+          ;;
+
+          let _ = __bin_read_t__
+
+          let bin_read_t : t Bin_prot.Read.reader =
+            fun buf ~pos_ref ->
+            let v_start_time_in_seconds_since_epoch =
+              Int63.Stable.V1.bin_read_t buf ~pos_ref
+            in
+            let v_new_regime = Regime.bin_read_t buf ~pos_ref in
+            { start_time_in_seconds_since_epoch = v_start_time_in_seconds_since_epoch
+            ; new_regime = v_new_regime
+            }
+          ;;
+
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let t_of_sexp =
+            (let error_source__022_ =
+               "zone.ml.before-ppx.Stable.Full_data.V1.Transition.t"
+             in
+             fun x__023_ ->
+               Sexplib0.Sexp_conv_record.record_of_sexp
+                 ~caller:error_source__022_
+                 ~fields:
+                   (Field
+                      { name = "start_time_in_seconds_since_epoch"
+                      ; kind = Required
+                      ; conv = Int63.Stable.V1.t_of_sexp
+                      ; rest =
+                          Field
+                            { name = "new_regime"
+                            ; kind = Required
+                            ; conv = Regime.t_of_sexp
+                            ; rest = Empty
+                            }
+                      })
+                 ~index_of_field:(function
+                   | "start_time_in_seconds_since_epoch" -> 0
+                   | "new_regime" -> 1
+                   | _ -> -1)
+                 ~allow_extra_fields:false
+                 ~create:(fun (start_time_in_seconds_since_epoch, (new_regime, ())) ->
+                   ({ start_time_in_seconds_since_epoch; new_regime } : t))
+                 x__023_
+             : Sexplib0.Sexp.t -> t)
+          ;;
+
+          let _ = t_of_sexp
+
+          let sexp_of_t =
+            (fun { start_time_in_seconds_since_epoch =
+                     start_time_in_seconds_since_epoch__025_
+                 ; new_regime = new_regime__027_
+                 } ->
+               let bnds__024_ = ([] : _ Stdlib.List.t) in
+               let bnds__024_ =
+                 let arg__028_ = Regime.sexp_of_t new_regime__027_ in
+                 (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "new_regime"; arg__028_ ]
+                  :: bnds__024_
+                  : _ Stdlib.List.t)
+               in
+               let bnds__024_ =
+                 let arg__026_ =
+                   Int63.Stable.V1.sexp_of_t start_time_in_seconds_since_epoch__025_
+                 in
+                 (Sexplib0.Sexp.List
+                    [ Sexplib0.Sexp.Atom "start_time_in_seconds_since_epoch"; arg__026_ ]
+                  :: bnds__024_
+                  : _ Stdlib.List.t)
+               in
+               Sexplib0.Sexp.List bnds__024_
+             : t -> Sexplib0.Sexp.t)
+          ;;
+
+          let _ = sexp_of_t
+
+          let stable_witness =
+            (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+             : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+          and __stable_witness_checks_for_t__ () =
+            let _ : Int63.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t =
+              Int63.Stable.V1.stable_witness
+            and _ : Regime.t Ppx_stable_witness_runtime.Stable_witness.t =
+              Regime.stable_witness
+            in
+            ()
+          ;;
+
+          let _ = stable_witness
+          and _ = __stable_witness_checks_for_t__
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
       end
 
       type t =
@@ -100,14 +579,333 @@ module Stable = struct
         ; original_filename : string option
         ; digest : Md5.As_binary_string.Stable.V1.t option
         ; transitions : Transition.t array
-        ; (* caches the index of the last transition we used to make lookups faster *)
-          mutable last_regime_index : Index.t
+        ; mutable last_regime_index : Index.t
         ; default_local_time_type : Regime.t
         ; leap_seconds : Leap_second.t list
         }
       [@@deriving bin_io, sexp, stable_witness]
 
-      (* this relies on zones with the same name having the same transitions *)
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "zone.ml.before-ppx:98:6")
+              [ ( Bin_prot.Shape.Tid.of_string "t"
+                , []
+                , Bin_prot.Shape.record
+                    [ "name", bin_shape_string
+                    ; "original_filename", bin_shape_option bin_shape_string
+                    ; ( "digest"
+                      , bin_shape_option Md5.As_binary_string.Stable.V1.bin_shape_t )
+                    ; "transitions", bin_shape_array Transition.bin_shape_t
+                    ; "last_regime_index", Index.bin_shape_t
+                    ; "default_local_time_type", Regime.bin_shape_t
+                    ; "leap_seconds", bin_shape_list Leap_second.bin_shape_t
+                    ] )
+              ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+
+        let bin_size_t : t Bin_prot.Size.sizer = function
+          | { name = v1
+            ; original_filename = v2
+            ; digest = v3
+            ; transitions = v4
+            ; last_regime_index = v5
+            ; default_local_time_type = v6
+            ; leap_seconds = v7
+            } ->
+            let size = 0 in
+            let size = Bin_prot.Common.( + ) size (bin_size_string v1) in
+            let size = Bin_prot.Common.( + ) size (bin_size_option bin_size_string v2) in
+            let size =
+              Bin_prot.Common.( + )
+                size
+                (bin_size_option Md5.As_binary_string.Stable.V1.bin_size_t v3)
+            in
+            let size =
+              Bin_prot.Common.( + ) size (bin_size_array Transition.bin_size_t v4)
+            in
+            let size = Bin_prot.Common.( + ) size (Index.bin_size_t v5) in
+            let size = Bin_prot.Common.( + ) size (Regime.bin_size_t v6) in
+            Bin_prot.Common.( + ) size (bin_size_list Leap_second.bin_size_t v7)
+        ;;
+
+        let _ = bin_size_t
+
+        let bin_write_t : t Bin_prot.Write.writer =
+          fun buf ~pos -> function
+          | { name = v1
+            ; original_filename = v2
+            ; digest = v3
+            ; transitions = v4
+            ; last_regime_index = v5
+            ; default_local_time_type = v6
+            ; leap_seconds = v7
+            } ->
+            let pos = bin_write_string buf ~pos v1 in
+            let pos = bin_write_option bin_write_string buf ~pos v2 in
+            let pos =
+              bin_write_option Md5.As_binary_string.Stable.V1.bin_write_t buf ~pos v3
+            in
+            let pos = bin_write_array Transition.bin_write_t buf ~pos v4 in
+            let pos = Index.bin_write_t buf ~pos v5 in
+            let pos = Regime.bin_write_t buf ~pos v6 in
+            bin_write_list Leap_second.bin_write_t buf ~pos v7
+        ;;
+
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader =
+          fun _buf ~pos_ref _vint ->
+          Bin_prot.Common.raise_variant_wrong_type
+            "zone.ml.before-ppx.Stable.Full_data.V1.t"
+            !pos_ref
+        ;;
+
+        let _ = __bin_read_t__
+
+        let bin_read_t : t Bin_prot.Read.reader =
+          fun buf ~pos_ref ->
+          let v_name = bin_read_string buf ~pos_ref in
+          let v_original_filename = (bin_read_option bin_read_string) buf ~pos_ref in
+          let v_digest =
+            (bin_read_option Md5.As_binary_string.Stable.V1.bin_read_t) buf ~pos_ref
+          in
+          let v_transitions = (bin_read_array Transition.bin_read_t) buf ~pos_ref in
+          let v_last_regime_index = Index.bin_read_t buf ~pos_ref in
+          let v_default_local_time_type = Regime.bin_read_t buf ~pos_ref in
+          let v_leap_seconds = (bin_read_list Leap_second.bin_read_t) buf ~pos_ref in
+          { name = v_name
+          ; original_filename = v_original_filename
+          ; digest = v_digest
+          ; transitions = v_transitions
+          ; last_regime_index = v_last_regime_index
+          ; default_local_time_type = v_default_local_time_type
+          ; leap_seconds = v_leap_seconds
+          }
+        ;;
+
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let t_of_sexp =
+          (let error_source__030_ = "zone.ml.before-ppx.Stable.Full_data.V1.t" in
+           fun x__031_ ->
+             Sexplib0.Sexp_conv_record.record_of_sexp
+               ~caller:error_source__030_
+               ~fields:
+                 (Field
+                    { name = "name"
+                    ; kind = Required
+                    ; conv = string_of_sexp
+                    ; rest =
+                        Field
+                          { name = "original_filename"
+                          ; kind = Required
+                          ; conv = option_of_sexp string_of_sexp
+                          ; rest =
+                              Field
+                                { name = "digest"
+                                ; kind = Required
+                                ; conv =
+                                    option_of_sexp
+                                      Md5.As_binary_string.Stable.V1.t_of_sexp
+                                ; rest =
+                                    Field
+                                      { name = "transitions"
+                                      ; kind = Required
+                                      ; conv = array_of_sexp Transition.t_of_sexp
+                                      ; rest =
+                                          Field
+                                            { name = "last_regime_index"
+                                            ; kind = Required
+                                            ; conv = Index.t_of_sexp
+                                            ; rest =
+                                                Field
+                                                  { name = "default_local_time_type"
+                                                  ; kind = Required
+                                                  ; conv = Regime.t_of_sexp
+                                                  ; rest =
+                                                      Field
+                                                        { name = "leap_seconds"
+                                                        ; kind = Required
+                                                        ; conv =
+                                                            list_of_sexp
+                                                              Leap_second.t_of_sexp
+                                                        ; rest = Empty
+                                                        }
+                                                  }
+                                            }
+                                      }
+                                }
+                          }
+                    })
+               ~index_of_field:(function
+                 | "name" -> 0
+                 | "original_filename" -> 1
+                 | "digest" -> 2
+                 | "transitions" -> 3
+                 | "last_regime_index" -> 4
+                 | "default_local_time_type" -> 5
+                 | "leap_seconds" -> 6
+                 | _ -> -1)
+               ~allow_extra_fields:false
+               ~create:
+                 (fun
+                   ( name
+                   , ( original_filename
+                     , ( digest
+                       , ( transitions
+                         , ( last_regime_index
+                           , (default_local_time_type, (leap_seconds, ())) ) ) ) ) ) ->
+                 ({ name
+                  ; original_filename
+                  ; digest
+                  ; transitions
+                  ; last_regime_index
+                  ; default_local_time_type
+                  ; leap_seconds
+                  }
+                  : t))
+               x__031_
+           : Sexplib0.Sexp.t -> t)
+        ;;
+
+        let _ = t_of_sexp
+
+        let sexp_of_t =
+          (fun { name = name__033_
+               ; original_filename = original_filename__035_
+               ; digest = digest__037_
+               ; transitions = transitions__039_
+               ; last_regime_index = last_regime_index__041_
+               ; default_local_time_type = default_local_time_type__043_
+               ; leap_seconds = leap_seconds__045_
+               } ->
+             let bnds__032_ = ([] : _ Stdlib.List.t) in
+             let bnds__032_ =
+               let arg__046_ = sexp_of_list Leap_second.sexp_of_t leap_seconds__045_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "leap_seconds"; arg__046_ ]
+                :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             let bnds__032_ =
+               let arg__044_ = Regime.sexp_of_t default_local_time_type__043_ in
+               (Sexplib0.Sexp.List
+                  [ Sexplib0.Sexp.Atom "default_local_time_type"; arg__044_ ]
+                :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             let bnds__032_ =
+               let arg__042_ = Index.sexp_of_t last_regime_index__041_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "last_regime_index"; arg__042_ ]
+                :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             let bnds__032_ =
+               let arg__040_ = sexp_of_array Transition.sexp_of_t transitions__039_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "transitions"; arg__040_ ]
+                :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             let bnds__032_ =
+               let arg__038_ =
+                 sexp_of_option Md5.As_binary_string.Stable.V1.sexp_of_t digest__037_
+               in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "digest"; arg__038_ ]
+                :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             let bnds__032_ =
+               let arg__036_ = sexp_of_option sexp_of_string original_filename__035_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "original_filename"; arg__036_ ]
+                :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             let bnds__032_ =
+               let arg__034_ = sexp_of_string name__033_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "name"; arg__034_ ] :: bnds__032_
+                : _ Stdlib.List.t)
+             in
+             Sexplib0.Sexp.List bnds__032_
+           : t -> Sexplib0.Sexp.t)
+        ;;
+
+        let _ = sexp_of_t
+
+        let stable_witness =
+          (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+           : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+        and __stable_witness_checks_for_t__ () =
+          let _ : string Ppx_stable_witness_runtime.Stable_witness.t =
+            stable_witness_string
+          and _
+            :  string Ppx_stable_witness_runtime.Stable_witness.t
+            -> string option Ppx_stable_witness_runtime.Stable_witness.t
+            =
+            stable_witness_option
+          and _
+            :  Md5.As_binary_string.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t
+            -> Md5.As_binary_string.Stable.V1.t option
+                 Ppx_stable_witness_runtime.Stable_witness.t
+            =
+            stable_witness_option
+          and _
+            : Md5.As_binary_string.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t
+            =
+            Md5.As_binary_string.Stable.V1.stable_witness
+          and _
+            :  Transition.t Ppx_stable_witness_runtime.Stable_witness.t
+            -> Transition.t array Ppx_stable_witness_runtime.Stable_witness.t
+            =
+            stable_witness_array
+          and _ : Transition.t Ppx_stable_witness_runtime.Stable_witness.t =
+            Transition.stable_witness
+          and _ : Index.t Ppx_stable_witness_runtime.Stable_witness.t =
+            Index.stable_witness
+          and _ : Regime.t Ppx_stable_witness_runtime.Stable_witness.t =
+            Regime.stable_witness
+          and _
+            :  Leap_second.t Ppx_stable_witness_runtime.Stable_witness.t
+            -> Leap_second.t list Ppx_stable_witness_runtime.Stable_witness.t
+            =
+            stable_witness_list
+          and _ : Leap_second.t Ppx_stable_witness_runtime.Stable_witness.t =
+            Leap_second.stable_witness
+          in
+          ()
+        ;;
+
+        let _ = stable_witness
+        and _ = __stable_witness_checks_for_t__
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       let compare t1 t2 = String.compare t1.name t2.name
       let original_filename zone = zone.original_filename
       let digest zone = zone.digest
@@ -129,9 +927,6 @@ module Stable = struct
             Int32.bit_or (Int32.bit_or sb1 sb2) (Int32.bit_or sb3 sb4)
         ;;
 
-        (* Note that this is only safe to use on numbers that will fit into a 31-bit
-           int. UNIX timestamps won't, for example.  In our case this is only used
-           to hold small numbers that are never interpreted as timestamps. *)
         let input_long_as_int ic = Int32.to_int_exn (input_long_as_int32 ic)
         let input_long_as_int63 ic = Int63.of_int32 (input_long_as_int32 ic)
 
@@ -213,20 +1008,6 @@ module Stable = struct
           let regimes = input_list ic ~f:input_regime ~len:type_count in
           let abbreviations = input_abbreviations ic ~len:abbrv_char_count in
           let leap_seconds = input_list ic ~f:input_leap_second ~len:leap_count in
-          (* The following two arrays indicate two boolean values per regime that
-             represent a three-value type that would translate to:
-
-             type transition_type = UTC | Standard | Wall_clock
-
-             However, these are only used by the system library when handling the case where the
-             TZ variable is set, not to a time zone name, but instead is of the form:
-
-             TZ = "std offset dst offset, rule"
-
-             Which is deeply obscure, and almost certainly a mistake to use.  This library makes
-             no pretense about handling this case.  We continue to read them in for
-             completeness, and because it's possible that we will later discover a case where
-             they are used. *)
           let _std_wall_indicators =
             input_array ic ~len:std_wall_count ~f:(fun ic ->
               bool_of_int (Option.value_exn (In_channel.input_byte ic)))
@@ -296,7 +1077,6 @@ module Stable = struct
             | Some bad_version ->
               raise (Invalid_file_format (sprintf "version (%c) is invalid" bad_version))
           in
-          (* space reserved for future use in the format *)
           In_channel.really_input_exn ic ~buf:(Bytes.create 15) ~pos:0 ~len:15;
           version
         ;;
@@ -308,40 +1088,32 @@ module Stable = struct
           input_tz_file_gen ~input_transition:input_long_as_int63 ~input_leap_second ic
         ;;
 
-        (*
-           version 2 timezone files have the format:
-
-           part 1 - exactly the same as v1
-
-           part 2 - same format as v1, except that 8 bytes are used to store
-           transition times and leap seconds
-
-           part 3 - a newline-encloded, POSIX-TZ-environment-variable-style
-           string for use in handling instants after the last transition time
-           stored in the file (with nothing between the newlines if there is no
-           POSIX representation for such instants)
-
-           We handle files in this format by parsing the first part exactly as a v1
-           timezone file and then continuing to parse with 64bit reading functions in the
-           right places.
-
-           Version 3 timezone files are the same as version 2, except the
-           POSIX-TZ-environment-variable-style string in part 3 may use two minor
-           extensions to the POSIX TZ format (the hours part of its transition
-           times may be signed and range from -167 through 167 instead of the
-           POSIX-required unsigned values from 0 through 24; and DST is in effect all
-           year if it starts January 1 at 00:00 and ends December 31 at 24:00 plus the
-           difference between daylight saving and standard time).
-
-           As we don't actually do anything with part 3 anyway, we can just read v3
-           files as v2.
-        *)
         let input_tz_file_v2_or_v3 ~version ic =
           let (_ : string -> original_filename:string -> digest:Md5_lib.t -> t) =
             input_tz_file_v1 ic
           in
-          (* the header is fully repeated *)
-          assert ([%compare.equal: [ `V1 | `V2 | `V3 ]] (read_header ic) version);
+          assert (
+            (fun (_x__047_ : [ `V1 | `V2 | `V3 ]) _x__048_ ->
+               (match
+                  (fun (a__049_ : [ `V1 | `V2 | `V3 ])
+                    ((b__050_ : [ `V1 | `V2 | `V3 ]) [@merlin.hide]) ->
+                     (if Stdlib.( == ) a__049_ b__050_
+                      then 0
+                      else (
+                        match a__049_, b__050_ with
+                        | `V1, `V1 -> 0
+                        | `V2, `V2 -> 0
+                        | `V3, `V3 -> 0
+                        | x, y -> Stdlib.compare x y))
+                     [@merlin.hide])
+                    _x__047_
+                    _x__048_
+                with
+                | 0 -> true
+                | _ -> false)
+               [@merlin.hide])
+              (read_header ic)
+              version);
           let input_leap_second =
             input_leap_second_gen ~input_leap_second:input_long_long_as_int63
           in
@@ -430,32 +1202,10 @@ let utc = of_utc_offset ~hours:0
 let name zone = zone.name
 let reset_transition_cache t = t.last_regime_index <- Index.before_first_transition
 
-(* Raises if [index >= Array.length t.transitions] *)
 let get_regime_exn t index =
   if index < 0 then t.default_local_time_type else t.transitions.(index).new_regime
 ;;
 
-(* In "absolute mode", a number of seconds is interpreted as an offset of that many
-   seconds from the UNIX epoch, ignoring leap seconds.
-
-   In "date and ofday mode", you interpret the number of seconds as a number of days in
-   combination with a number of seconds since midnight, which gives you a calendar day and
-   a clock face time. Then you take the time that those represent in some relevant
-   timezone.
-
-   Of course, if the timezone in question has DST shifts, the date and ofday might
-   represent two or zero times. These times will be interpreted according to either the
-   previous UTC offset or the next one, in a way whose precise details you probably
-   shouldn't depend on.
-
-   (For the curious, what we do is: compute the "relative time" of the shift according to
-   the new regime, and assign relative times to the old regime or new regime depending on
-   which side of the shift time they occur. Since this amounts to using the old regime
-   when the clocks move forward and the new regime when the clocks move back, it's
-   equivalent to calculating the corresponding Time.t's relative to both the old and the
-   new regime and picking the one that occurs later. Yes, later. I had to draw a diagram
-   to persuade myself that it's that way round, but it is.)
-*)
 module Mode = struct
   type t =
     | Absolute
@@ -480,34 +1230,32 @@ let index_upper_bound_contains_seconds_since_epoch t index ~mode seconds =
 ;;
 
 let binary_search_index_of_seconds_since_epoch t ~mode seconds : Index.t =
-  Array.binary_search_segmented t.transitions `Last_on_left ~segment_of:(fun transition ->
-    if Int63.( <= ) (effective_start_time transition ~mode) seconds then `Left else `Right)
-  |> Option.value ~default:Index.before_first_transition
+  Option.value
+    ~default:Index.before_first_transition
+    (Array.binary_search_segmented
+       t.transitions
+       `Last_on_left
+       ~segment_of:(fun transition ->
+         if Int63.( <= ) (effective_start_time transition ~mode) seconds
+         then `Left
+         else `Right))
 ;;
 
 let index_of_seconds_since_epoch t ~mode seconds =
   let index =
     let index = t.last_regime_index in
     if not (index_lower_bound_contains_seconds_since_epoch t index ~mode seconds)
-       (* time is before cached index; try previous index *)
     then (
       let index = index - 1 in
       if not (index_lower_bound_contains_seconds_since_epoch t index ~mode seconds)
-         (* time is before previous index; fall back on binary search *)
-      then
-        binary_search_index_of_seconds_since_epoch t ~mode seconds
-        (* time is before cached index and not before previous, so within previous *)
+      then binary_search_index_of_seconds_since_epoch t ~mode seconds
       else index)
     else if not (index_upper_bound_contains_seconds_since_epoch t index ~mode seconds)
-            (* time is after cached index; try next index *)
     then (
       let index = index + 1 in
       if not (index_upper_bound_contains_seconds_since_epoch t index ~mode seconds)
-         (* time is after next index; fall back on binary search *)
-      then
-        binary_search_index_of_seconds_since_epoch t ~mode seconds
-        (* time is after cached index and not after next, so within next *)
-      else index (* time is within cached index *))
+      then binary_search_index_of_seconds_since_epoch t ~mode seconds
+      else index)
     else index
   in
   t.last_regime_index <- index;
@@ -542,15 +1290,19 @@ end = struct
 end
 
 let index t time =
-  Time_in_seconds.to_span_since_epoch time
-  |> Time_in_seconds.Span.to_int63_seconds_round_down_exn
-  |> index_of_seconds_since_epoch t ~mode:Absolute
+  index_of_seconds_since_epoch
+    t
+    ~mode:Absolute
+    (Time_in_seconds.Span.to_int63_seconds_round_down_exn
+       (Time_in_seconds.to_span_since_epoch time))
 ;;
 
 let index_of_date_and_ofday t time =
-  Time_in_seconds.Date_and_ofday.to_synthetic_span_since_epoch time
-  |> Time_in_seconds.Span.to_int63_seconds_round_down_exn
-  |> index_of_seconds_since_epoch t ~mode:Date_and_ofday
+  index_of_seconds_since_epoch
+    t
+    ~mode:Date_and_ofday
+    (Time_in_seconds.Span.to_int63_seconds_round_down_exn
+       (Time_in_seconds.Date_and_ofday.to_synthetic_span_since_epoch time))
 ;;
 
 let index_has_prev_clock_shift t index = index >= 0 && index < Array.length t.transitions
@@ -558,9 +1310,8 @@ let index_has_next_clock_shift t index = index_has_prev_clock_shift t (index + 1
 
 let index_prev_clock_shift_time_exn t index =
   let transition = t.transitions.(index) in
-  transition.start_time_in_seconds_since_epoch
-  |> Time_in_seconds.Span.of_int63_seconds
-  |> Time_in_seconds.of_span_since_epoch
+  Time_in_seconds.of_span_since_epoch
+    (Time_in_seconds.Span.of_int63_seconds transition.start_time_in_seconds_since_epoch)
 ;;
 
 let index_next_clock_shift_time_exn t index = index_prev_clock_shift_time_exn t (index + 1)
@@ -571,8 +1322,8 @@ let index_prev_clock_shift_amount_exn t index =
   let before =
     if index = 0 then t.default_local_time_type else t.transitions.(index - 1).new_regime
   in
-  Int63.( - ) after.utc_offset_in_seconds before.utc_offset_in_seconds
-  |> Time_in_seconds.Span.of_int63_seconds
+  Time_in_seconds.Span.of_int63_seconds
+    (Int63.( - ) after.utc_offset_in_seconds before.utc_offset_in_seconds)
 ;;
 
 let index_next_clock_shift_amount_exn t index =
@@ -588,3 +1339,7 @@ let index_offset_from_utc_exn t index =
   let regime = get_regime_exn t index in
   Time_in_seconds.Span.of_int63_seconds regime.utc_offset_in_seconds
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

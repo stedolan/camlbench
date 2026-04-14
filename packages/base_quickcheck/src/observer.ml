@@ -59,8 +59,10 @@ let list elt_t =
     let random = Splittable_random.of_int (Hash.get_hash_value hash) in
     let length = List.length list in
     let sizes =
-      Generator.sizes ~min_length:length ~max_length:length ()
-      |> Generator.generate ~size ~random
+      Generator.generate
+        ~size
+        ~random
+        (Generator.sizes ~min_length:length ~max_length:length ())
     in
     List.fold2_exn list sizes ~init:(hash_fold_int hash 0) ~f:(fun hash elt size ->
       observe elt_t elt ~size ~hash:(hash_fold_int hash 1)))
@@ -73,11 +75,7 @@ let lazy_t t = unmap t ~f:Lazy.force
 let fn dom rng =
   create (fun f ~size ~hash ->
     let random = Splittable_random.of_int (Hash.get_hash_value hash) in
-    let sizes =
-      (* Empirically, doubling the size when generating the list of inputs gives us much
-         better coverage of the space of functions. *)
-      Generator.generate (Generator.sizes ()) ~size:(size * 2) ~random
-    in
+    let sizes = Generator.generate (Generator.sizes ()) ~size:(size * 2) ~random in
     List.fold sizes ~init:hash ~f:(fun hash size ->
       let x = Generator.generate dom ~size ~random in
       observe rng (f x) ~size ~hash))

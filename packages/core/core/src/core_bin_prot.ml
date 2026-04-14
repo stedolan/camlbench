@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"core_bin_prot.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "core_bin_prot.ml.before-ppx"
+;;
+
 open! Import
 include Bin_prot
 
@@ -49,6 +62,10 @@ module Reader = struct
     v
   ;;
 
-  let of_string t string = Bigstring.of_string string |> of_bigstring_unsafe_destroy t
-  let of_bytes t bytes = Bigstring.of_bytes bytes |> of_bigstring_unsafe_destroy t
+  let of_string t string = of_bigstring_unsafe_destroy t (Bigstring.of_string string)
+  let of_bytes t bytes = of_bigstring_unsafe_destroy t (Bigstring.of_bytes bytes)
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

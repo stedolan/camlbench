@@ -10,18 +10,28 @@ module Stable : sig
 
     type 'a t = 'a Change.t list [@@deriving sexp, bin_io]
 
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Sexplib0.Sexpable.S1 with type 'a t := 'a t
+      include Bin_prot.Binable.S1 with type 'a t := 'a t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     val get : from:('a, 'cmp) Set.t -> to_:('a, 'cmp) Set.t -> 'a t Optional_diff.t
     val apply_exn : ('a, 'cmp) Set.t -> 'a t -> ('a, 'cmp) Set.t
     val of_list_exn : 'a t list -> 'a t Optional_diff.t
 
-    module Make (S : sig
-      module Elt : sig
-        type t
-        type comparator_witness
-      end
+    module Make : functor
+        (S : sig
+           module Elt : sig
+             type t
+             type comparator_witness
+           end
 
-      type t = (Elt.t, Elt.comparator_witness) Set.t
-    end) : Diff_intf.S_plain with type derived_on := S.t and type t := S.Elt.t t
+           type t = (Elt.t, Elt.comparator_witness) Set.t
+         end)
+        -> Diff_intf.S_plain with type derived_on := S.t and type t := S.Elt.t t
   end
 end
 

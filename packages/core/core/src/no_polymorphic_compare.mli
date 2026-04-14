@@ -1,5 +1,6 @@
-(** Open this in modules where you don't want to accidentally use polymorphic comparison.
-    Then, use [Poly.(<)], for example, where needed. *)
+[@@@ocaml.text
+  " Open this in modules where you don't want to accidentally use polymorphic comparison.\n\
+  \    Then, use [Poly.(<)], for example, where needed. "]
 
 open! Import
 

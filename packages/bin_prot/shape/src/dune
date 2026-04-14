@@ -1,7 +1,8 @@
 (library
  (name bin_shape)
  (public_name bin_prot.shape)
- (libraries base.md5)
- (preprocess
-  (pps ppx_compare ppx_sexp_conv ppx_fields_conv ppx_variants_conv
-    ppx_custom_printf)))
+ (libraries base.md5 base sexplib0 ppx_compare.runtime-lib ppx_sexp_conv.runtime-lib fieldslib variantslib)
+;; (preprocess
+;;  (pps ppx_compare ppx_sexp_conv ppx_fields_conv ppx_variants_conv
+;;    ppx_custom_printf))
+ )

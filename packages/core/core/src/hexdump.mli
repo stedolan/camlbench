@@ -1,1 +1,1 @@
-include Hexdump_intf.Hexdump (** @inline *)
+include Hexdump_intf.Hexdump [@@ocaml.doc " @inline "]

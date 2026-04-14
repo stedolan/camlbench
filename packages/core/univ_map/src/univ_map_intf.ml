@@ -1,34 +1,80 @@
-(** Universal/heterogeneous maps, useful for storing values of arbitrary type in a single
-    map.
+[@@@ocaml.text
+  " Universal/heterogeneous maps, useful for storing values of arbitrary type in a single\n\
+  \    map.\n\n\
+  \    In order to recover a value, it must be looked up with exactly the [Key.t] it was\n\
+  \    stored in. In other words, given different [Key.t]s from the same [string], one \
+   will\n\
+  \    not be able to recover the key stored in the other one.\n\n\
+  \    This is similar to [Univ] in spirit.\n"]
 
-    In order to recover a value, it must be looked up with exactly the [Key.t] it was
-    stored in. In other words, given different [Key.t]s from the same [string], one will
-    not be able to recover the key stored in the other one.
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
 
-    This is similar to [Univ] in spirit.
-*)
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"univ_map_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "univ_map_intf.ml.before-ppx"
+;;
 
 open! Base
 
 module type Key = sig
   type 'a t [@@deriving sexp_of]
 
-  (** For correct behavior of the map, [type_id] must return the same [Type_equal.Id] on
-      different calls on the same input. *)
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val type_id : 'a t -> 'a Type_equal.Id.t
+  [@@ocaml.doc
+    " For correct behavior of the map, [type_id] must return the same [Type_equal.Id] on\n\
+    \      different calls on the same input. "]
 end
 
 module type Data = sig
   type 'a t [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type Data1 = sig
   type ('s, 'a) t [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t
+      :  ('s -> Sexplib0.Sexp.t)
+      -> ('a -> Sexplib0.Sexp.t)
+      -> ('s, 'a) t
+      -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type S1 = sig
-  (** The ['s] parameter is shared across all values stored in the map. *)
-  type 's t [@@deriving sexp_of]
+  type 's t
+  [@@ocaml.doc " The ['s] parameter is shared across all values stored in the map. "]
+  [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : ('s -> Sexplib0.Sexp.t) -> 's t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   module Key : Key
 
@@ -72,6 +118,13 @@ end
 module type S = sig
   type t [@@deriving sexp_of]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   module Key : Key
 
   type 'a data
@@ -101,8 +154,9 @@ module type S = sig
 
   val key_id_set : t -> Set.M(Type_equal.Id.Uid).t
 
-  (** [to_alist t] returns all values in [t], in increasing order of key type-id name. *)
   val to_alist : t -> Packed.t list
+  [@@ocaml.doc
+    " [to_alist t] returns all values in [t], in increasing order of key type-id name. "]
 
   val of_alist_exn : Packed.t list -> t
   val find_packed_by_id : t -> Type_equal.Id.Uid.t -> Packed.t option
@@ -119,18 +173,27 @@ module type Univ_map = sig
   module Type_id_key : Key with type 'a t = 'a Type_equal.Id.t
   include S with type 'a data = 'a and module Key := Type_id_key
 
-  (** This binding is convenient because existing call sites often refer to
-      [Univ_map.Key.create].
-  *)
   module Key = Type_equal.Id
+  [@@ocaml.doc
+    " This binding is convenient because existing call sites often refer to\n\
+    \      [Univ_map.Key.create].\n\
+    \  "]
 
-  module Make (Key : Key) (Data : Data) :
+  module Make : functor (Key : Key) -> functor (Data : Data) ->
     S with type 'a data = 'a Data.t and module Key = Key
 
-  module Make1 (Key : Key) (Data : Data1) :
+  module Make1 : functor (Key : Key) -> functor (Data : Data1) ->
     S1 with type ('s, 'a) data = ('s, 'a) Data.t and module Key = Key
 
-  module Merge (Key : Key) (Input1_data : Data) (Input2_data : Data) (Output_data : Data) : sig
+  module Merge : functor
+      (Key : Key)
+      -> functor
+      (Input1_data : Data)
+      -> functor
+      (Input2_data : Data)
+      -> functor
+      (Output_data : Data)
+      -> sig
     type f =
       { f :
           'a.
@@ -142,19 +205,23 @@ module type Univ_map = sig
           -> 'a Output_data.t option
       }
 
-    (** The analogue of the normal [Map.merge] function.  *)
     val merge
       :  Make(Key)(Input1_data).t
       -> Make(Key)(Input2_data).t
       -> f:f
       -> Make(Key)(Output_data).t
+    [@@ocaml.doc " The analogue of the normal [Map.merge] function.  "]
   end
 
-  module Merge1
-    (Key : Key)
-    (Input1_data : Data1)
-    (Input2_data : Data1)
-    (Output_data : Data1) : sig
+  module Merge1 : functor
+      (Key : Key)
+      -> functor
+      (Input1_data : Data1)
+      -> functor
+      (Input2_data : Data1)
+      -> functor
+      (Output_data : Data1)
+      -> sig
     type ('s1, 's2, 's3) f =
       { f :
           'a.
@@ -166,15 +233,14 @@ module type Univ_map = sig
           -> ('s3, 'a) Output_data.t option
       }
 
-    (** The analogue of the normal [Map.merge] function.  *)
     val merge
       :  's1 Make1(Key)(Input1_data).t
       -> 's2 Make1(Key)(Input2_data).t
       -> f:('s1, 's2, 's3) f
       -> 's3 Make1(Key)(Output_data).t
+    [@@ocaml.doc " The analogue of the normal [Map.merge] function.  "]
   end
 
-  (** keys with associated default values, so that [find] is no longer partial *)
   module With_default : sig
     module Key : sig
       type 'a t
@@ -187,8 +253,9 @@ module type Univ_map = sig
     val find : t -> 'a Key.t -> 'a
     val change : t -> 'a Key.t -> f:('a -> 'a) -> t
   end
+  [@@ocaml.doc
+    " keys with associated default values, so that [find] is no longer partial "]
 
-  (** keys that map to an accumulator value with an associated fold operation *)
   module With_fold : sig
     module Key : sig
       type ('a, 'b) t
@@ -203,20 +270,20 @@ module type Univ_map = sig
       val id : ('a, 'b) t -> 'b Type_equal.Id.t
     end
 
-    (** reset the accumulator *)
     val set : t -> key:('a, 'b) Key.t -> data:'b -> t
+    [@@ocaml.doc " reset the accumulator "]
 
-    (** the current accumulator *)
-    val find : t -> ('a, 'b) Key.t -> 'b
+    val find : t -> ('a, 'b) Key.t -> 'b [@@ocaml.doc " the current accumulator "]
 
-    (** fold value into accumulator *)
     val add : t -> key:('a, 'b) Key.t -> data:'a -> t
+    [@@ocaml.doc " fold value into accumulator "]
 
-    (** accumulator update *)
     val change : t -> ('a, 'b) Key.t -> f:('b -> 'b) -> t
+    [@@ocaml.doc " accumulator update "]
   end
+  [@@ocaml.doc
+    " keys that map to an accumulator value with an associated fold operation "]
 
-  (** list-accumulating keys with a default value of the empty list *)
   module Multi : sig
     module Key : sig
       type 'a t
@@ -230,4 +297,9 @@ module type Univ_map = sig
     val add : t -> key:'a Key.t -> data:'a -> t
     val change : t -> 'a Key.t -> f:('a list -> 'a list) -> t
   end
+  [@@ocaml.doc " list-accumulating keys with a default value of the empty list "]
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

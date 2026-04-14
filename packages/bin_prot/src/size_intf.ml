@@ -10,7 +10,7 @@ module Definitions = struct
 end
 
 module type Size = sig
-  (** Compute size of values in the binary protocol. *)
+  [@@@ocaml.text " Compute size of values in the binary protocol. "]
 
   open Common
 
@@ -58,9 +58,6 @@ module type Size = sig
   val bin_size_network64_int : int sizer
   val bin_size_network64_int64 : int64 sizer
   val bin_size_md5 : Md5_lib.t sizer
-
-  (* Local versions *)
-
   val bin_size_unit__local : unit sizer_local
   val bin_size_bool__local : bool sizer_local
   val bin_size_string__local : string sizer_local
@@ -101,9 +98,6 @@ module type Size = sig
   val bin_size_network64_int64__local : int64 sizer_local
   val bin_size_md5__local : Md5_lib.t sizer_local
 
-  (* Provide the maximum sizes for fields which do not depend upon an array/vector/matrix
-     length, choosing the size required for the largest architecture.  This allows for the
-     most conservative estimation of space required. *)
   module Maximum : sig
     val bin_size_unit : int
     val bin_size_bool : int
@@ -128,8 +122,6 @@ module type Size = sig
     val bin_size_network64_int64 : int
   end
 
-  (* Provide absolute minimum sizes for fields, choosing [0] for the lengths of any
-     arrays/vectors/matrices. *)
   module Minimum : sig
     val bin_size_unit : int
     val bin_size_bool : int

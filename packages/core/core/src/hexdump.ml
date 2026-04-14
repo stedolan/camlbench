@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"hexdump.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "hexdump.ml.before-ppx"
+;;
+
 open! Import
 module Char = Base.Char
 module Int = Base.Int
@@ -5,10 +18,6 @@ module String = Base.String
 include Hexdump_intf
 
 let bytes_per_line = 16
-
-(* Initialize to enough lines to display 4096 bytes -- large enough that, for example, a
-   complete Ethernet packet can always be displayed -- including the line containing the
-   final index. *)
 let default_max_lines = ref ((4096 / bytes_per_line) + 1)
 
 module Of_indexable2 (T : Indexable2) = struct
@@ -68,16 +77,10 @@ module Of_indexable2 (T : Indexable2) = struct
         | Some max_lines -> max_lines
         | None -> !default_max_lines
       in
-      (* always produce at least 3 lines: first line of hex, ellipsis, last line of hex *)
       let max_lines = max max_lines 3 in
-      (* unabridged lines = lines of hex + line with final index *)
       let unabridged_lines =
         Int.round_up len ~to_multiple_of:bytes_per_line / bytes_per_line
       in
-      (* Figure out where we need to skip from and to if [max_lines < unabridged_lines].
-         Skip after half the actual hex lines (subtracting one line for the ellipsis).
-         Skip to near the end, less the number of lines remaining to produce, plus the
-         ellipsis line. *)
       let skip_from = (max_lines - 1) / 2 in
       let skip_to = unabridged_lines - (max_lines - skip_from) + 1 in
       Sequence.unfold_step ~init:0 ~f:(fun line_index ->
@@ -89,10 +92,13 @@ module Of_indexable2 (T : Indexable2) = struct
     ;;
 
     let to_string_hum ?max_lines ?pos ?len t =
-      to_sequence ?max_lines ?pos ?len t |> Sequence.to_list |> String.concat ~sep:"\n"
+      String.concat ~sep:"\n" (Sequence.to_list (to_sequence ?max_lines ?pos ?len t))
     ;;
 
-    let sexp_of_t _ _ t = to_sequence t |> Sequence.to_list |> [%sexp_of: string list]
+    let sexp_of_t _ _ t =
+      ((fun x__001_ -> sexp_of_list sexp_of_string x__001_) [@merlin.hide])
+        (Sequence.to_list (to_sequence t))
+    ;;
 
     module Pretty = struct
       include T
@@ -108,7 +114,9 @@ module Of_indexable2 (T : Indexable2) = struct
       let to_string t = String.init (length t) ~f:(fun pos -> get t pos)
 
       let sexp_of_t sexp_of_a sexp_of_b t =
-        if printable t then [%sexp (to_string t : string)] else [%sexp (t : (a, b) t)]
+        if printable t
+        then (sexp_of_string [@merlin.hide]) (to_string t)
+        else ((fun x__002_ -> sexp_of_t sexp_of_a sexp_of_b x__002_) [@merlin.hide]) t
       ;;
     end
   end
@@ -116,46 +124,66 @@ end
 
 module Of_indexable1 (T : Indexable1) = struct
   module M = Of_indexable2 (struct
-    type ('a, _) t = 'a T.t
+      type ('a, _) t = 'a T.t
 
-    let length = T.length
-    let get = T.get
-  end)
+      let length = T.length
+      let get = T.get
+    end)
 
   module Hexdump = struct
     include T
 
-    let sexp_of_t x t = M.Hexdump.sexp_of_t x [%sexp_of: _] t
+    let sexp_of_t x t =
+      M.Hexdump.sexp_of_t x ((fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide]) t
+    ;;
+
     let to_sequence = M.Hexdump.to_sequence
     let to_string_hum = M.Hexdump.to_string_hum
 
     module Pretty = struct
       include T
 
-      let sexp_of_t sexp_of_a t = [%sexp (t : (a, _) M.Hexdump.Pretty.t)]
+      let sexp_of_t sexp_of_a t =
+        ((fun x__003_ ->
+           M.Hexdump.Pretty.sexp_of_t sexp_of_a (fun _ -> Sexplib0.Sexp.Atom "_") x__003_)
+           [@merlin.hide])
+          t
+      ;;
     end
   end
 end
 
 module Of_indexable (T : Indexable) = struct
   module M = Of_indexable1 (struct
-    type _ t = T.t
+      type _ t = T.t
 
-    let length = T.length
-    let get = T.get
-  end)
+      let length = T.length
+      let get = T.get
+    end)
 
   module Hexdump = struct
     include T
 
-    let sexp_of_t t = M.Hexdump.sexp_of_t [%sexp_of: _] t
+    let sexp_of_t t =
+      M.Hexdump.sexp_of_t ((fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide]) t
+    ;;
+
     let to_sequence = M.Hexdump.to_sequence
     let to_string_hum = M.Hexdump.to_string_hum
 
     module Pretty = struct
       include T
 
-      let sexp_of_t t = [%sexp (t : _ M.Hexdump.Pretty.t)]
+      let sexp_of_t t =
+        ((fun x__004_ ->
+           M.Hexdump.Pretty.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__004_)
+           [@merlin.hide])
+          t
+      ;;
     end
   end
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

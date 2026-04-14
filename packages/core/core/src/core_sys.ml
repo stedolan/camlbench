@@ -1,19 +1,29 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"core_sys.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "core_sys.ml.before-ppx"
+;;
+
 open! Import
 include Base.Sys
 
 let unix_quote x =
-  if (not (String.is_empty x))
-     && String.for_all x ~f:(function
-          | 'a' .. 'z'
-          | 'A' .. 'Z'
-          | '0' .. '9'
-          | '_' | '-' | ':' | '.' | '/' | ',' | '+' | '=' | '%' | '@' -> true
-          | _ -> false)
+  if
+    (not (String.is_empty x))
+    && String.for_all x ~f:(function
+      | 'a' .. 'z'
+      | 'A' .. 'Z'
+      | '0' .. '9'
+      | '_' | '-' | ':' | '.' | '/' | ',' | '+' | '=' | '%' | '@' -> true
+      | _ -> false)
   then (
-    (* Shell keywords, as output by [compgen -k] for bash, [man dash] for dash, and [PATH=
-       type -m '*' | grep reserved] for zsh, except for keywords that have special
-       characters like [[. Note that builtins don't matter because 'alias' and alias
-       behave the same, unlike 'if' and if. *)
     match x with
     | "if"
     | "then"
@@ -45,10 +55,7 @@ let quote =
   | _ -> Filename.quote
 ;;
 
-let concat_quoted split_command =
-  List.map ~f:quote split_command |> String.concat ~sep:" "
-;;
-
+let concat_quoted split_command = String.concat ~sep:" " (List.map ~f:quote split_command)
 let c_int_size = `Use_Sys_unix
 let catch_break = `Use_Sys_unix
 let chdir = `Use_Sys_unix
@@ -78,3 +85,7 @@ exception Break = Stdlib.Sys.Break
 module Private = struct
   let unix_quote = unix_quote
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

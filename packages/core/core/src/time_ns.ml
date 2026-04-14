@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"time_ns.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "time_ns.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 
@@ -6,8 +19,85 @@ let arch_sixtyfour = Sys.word_size_in_bits = 64
 module Span = Span_ns
 module Ofday = Ofday_ns
 
-type t = Span.t (* since the Unix epoch (1970-01-01 00:00:00 UTC) *)
-[@@deriving bin_io, compare, hash, typerep]
+type t = Span.t [@@deriving bin_io, compare, hash, typerep]
+
+include struct
+  [@@@ocaml.warning "-60"]
+
+  let _ = fun (_ : t) -> ()
+
+  let bin_shape_t =
+    let _group =
+      Bin_prot.Shape.group
+        (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:9:0")
+        [ Bin_prot.Shape.Tid.of_string "t", [], Span.bin_shape_t ]
+    in
+    (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+  ;;
+
+  let _ = bin_shape_t
+  let bin_size_t : t Bin_prot.Size.sizer = Span.bin_size_t
+  let _ = bin_size_t
+  let bin_write_t : t Bin_prot.Write.writer = Span.bin_write_t
+  let _ = bin_write_t
+
+  let bin_writer_t =
+    ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+  ;;
+
+  let _ = bin_writer_t
+  let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = Span.__bin_read_t__
+  let _ = __bin_read_t__
+  let bin_read_t : t Bin_prot.Read.reader = Span.bin_read_t
+  let _ = bin_read_t
+
+  let bin_reader_t =
+    ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+  ;;
+
+  let _ = bin_reader_t
+
+  let bin_t =
+    ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+     : _ Bin_prot.Type_class.t)
+  ;;
+
+  let _ = bin_t
+
+  let compare =
+    (fun a__001_ b__002_ -> Span.compare a__001_ b__002_ : t -> (t[@merlin.hide]) -> int)
+  ;;
+
+  let _ = compare
+
+  let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+    fun hsv arg -> Span.hash_fold_t hsv arg
+
+  and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+    let func = Span.hash in
+    fun x -> func x
+  ;;
+
+  let _ = hash_fold_t
+  and _ = hash
+
+  module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+      type nonrec t = t
+
+      let name = "time_ns.ml.before-ppx.t"
+      let _ = name
+    end)
+
+  let typename_of_t = Typename_of_t.typename_of_t
+  let _ = typename_of_t
+
+  let typerep_of_t =
+    let name_of_t = Typename_of_t.named in
+    Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy Span.typerep_of_t))
+  ;;
+
+  let _ = typerep_of_t
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 module Replace_polymorphic_compare_efficient = Span.Replace_polymorphic_compare
 module Replace_polymorphic_compare = Replace_polymorphic_compare_efficient
@@ -30,8 +120,18 @@ let prev = Span.prev
 let to_span_since_epoch t = t
 let of_span_since_epoch s = s
 let to_int63_ns_since_epoch t : Int63.t = Span.to_int63_ns (to_span_since_epoch t)
-let[@inline] of_int63_ns_since_epoch i = of_span_since_epoch (Span.of_int63_ns i)
-let[@cold] overflow () = raise_s [%message "Time_ns: overflow"]
+let of_int63_ns_since_epoch i = of_span_since_epoch (Span.of_int63_ns i) [@@inline]
+
+let overflow () =
+  raise_s
+    (let ppx_sexp_message () =
+       Ppx_sexp_conv_lib.Conv.sexp_of_string "Time_ns: overflow"
+         [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+     in
+     (ppx_sexp_message () [@nontail]))
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+;;
+
 let is_earlier t1 ~than:t2 = t1 < t2
 let is_later t1 ~than:t2 = t1 > t2
 
@@ -57,7 +157,11 @@ let add_saturating x y =
   let sum = add x y in
   if add_overflowed x y ~sum
   then
-    if Span.(y > zero) then Span.max_value_representable else Span.min_value_representable
+    if
+      let open Span in
+      y > zero
+    then Span.max_value_representable
+    else Span.min_value_representable
   else sum
 ;;
 
@@ -65,7 +169,11 @@ let sub_saturating x y =
   let diff = sub x y in
   if sub_overflowed x y ~diff
   then
-    if Span.(y > zero) then Span.min_value_representable else Span.max_value_representable
+    if
+      let open Span in
+      y > zero
+    then Span.min_value_representable
+    else Span.max_value_representable
   else diff
 ;;
 
@@ -96,19 +204,26 @@ let max_time_value_for_1us_rounding =
 ;;
 
 let check_before_conversion_for_1us_rounding time =
-  if Time_float.( < ) time min_time_value_for_1us_rounding
-     || Time_float.( > ) time max_time_value_for_1us_rounding
+  if
+    Time_float.( < ) time min_time_value_for_1us_rounding
+    || Time_float.( > ) time max_time_value_for_1us_rounding
   then
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "time_ns.ml.before-ppx"
+        ; pos_lnum = 103
+        ; pos_cnum = 3023
+        ; pos_bol = 3011
+        }
       "Time_ns does not support this time"
       time
-      [%sexp_of: Time_float.Stable.With_utc_sexp.V2.t]
+      (Time_float.Stable.With_utc_sexp.V2.sexp_of_t [@merlin.hide])
 ;;
 
-let[@inline] of_time_float_round_nearest time =
+let of_time_float_round_nearest time =
   of_span_since_epoch
     (Span.of_span_float_round_nearest (Time_float.to_span_since_epoch time))
+[@@inline]
 ;;
 
 let of_time_float_round_nearest_microsecond time =
@@ -117,12 +232,18 @@ let of_time_float_round_nearest_microsecond time =
     (Span.of_span_float_round_nearest_microsecond (Time_float.to_span_since_epoch time))
 ;;
 
-let[@cold] raise_next_multiple_got_nonpositive_interval ~calling_function_name interval =
+let raise_next_multiple_got_nonpositive_interval ~calling_function_name interval =
   failwiths
-    ~here:[%here]
+    ~here:
+      { Ppx_here_lib.pos_fname = "time_ns.ml.before-ppx"
+      ; pos_lnum = 122
+      ; pos_cnum = 3622
+      ; pos_bol = 3612
+      }
     ("Time_ns." ^ calling_function_name ^ " got nonpositive interval")
     interval
-    [%sexp_of: Span.t]
+    (Span.sexp_of_t [@merlin.hide])
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
 let next_multiple_internal ~calling_function_name ~can_equal_after ~base ~after ~interval =
@@ -130,18 +251,18 @@ let next_multiple_internal ~calling_function_name ~can_equal_after ~base ~after 
   then raise_next_multiple_got_nonpositive_interval ~calling_function_name interval;
   let base_to_after = diff after base in
   if Span.( < ) base_to_after Span.zero
-  then base (* [after < base], choose [k = 0]. *)
+  then base
   else (
     let next = add base (Span.scale_int63 interval (Span.div base_to_after interval)) in
     if next > after || (can_equal_after && next = after) then next else add next interval)
 ;;
 
 let prev_multiple_internal
-  ~calling_function_name
-  ~can_equal_before
-  ~base
-  ~before
-  ~interval
+      ~calling_function_name
+      ~can_equal_before
+      ~base
+      ~before
+      ~interval
   =
   next_multiple_internal
     ~calling_function_name
@@ -217,8 +338,6 @@ module Utc : sig
   val to_date_and_span_since_start_of_day : t -> Date0.t * Span.t
   val of_date_and_span_since_start_of_day : Date0.t -> Span.t -> t
 end = struct
-  (* a recreation of the system call gmtime specialized to the fields we need that also
-     doesn't rely on Unix. *)
   let to_date_and_span_since_start_of_day t =
     let open Int63.O in
     let ( !< ) i = Int63.of_int_exn i in
@@ -233,7 +352,7 @@ end = struct
     in
     let ns_since_start_of_day = ns_since_epoch - (ns_per_day * days_from_epoch) in
     let date =
-      Date0.Days.add_days Date0.Days.unix_epoch !>days_from_epoch |> Date0.Days.to_date
+      Date0.Days.to_date (Date0.Days.add_days Date0.Days.unix_epoch !>days_from_epoch)
     in
     let span_since_start_of_day = Span.of_int63_ns ns_since_start_of_day in
     date, span_since_start_of_day
@@ -255,6 +374,65 @@ end
 module Alternate_sexp = struct
   module T = struct
     type nonrec t = t [@@deriving bin_io, compare, hash]
+
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:257:4")
+            [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+        in
+        (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+      ;;
+
+      let _ = bin_shape_t
+      let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+      let _ = bin_size_t
+      let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+      let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+      let _ = __bin_read_t__
+      let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+         : _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+
+      let compare =
+        (fun a__003_ b__004_ -> compare a__003_ b__004_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        fun hsv arg -> hash_fold_t hsv arg
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+        let func = hash in
+        fun x -> func x
+      ;;
+
+      let _ = hash_fold_t
+      and _ = hash
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     module Ofday_as_span = struct
       open Int.O
@@ -294,7 +472,7 @@ module Alternate_sexp = struct
 
       let sub_second_to_string sub_second_span =
         let open Int.O in
-        let ns = Span.to_int63_ns sub_second_span |> Int63.to_int_exn in
+        let ns = Int63.to_int_exn (Span.to_int63_ns sub_second_span) in
         if ns = 0
         then ""
         else if ns % ns_of_100_ms = 0
@@ -340,7 +518,7 @@ module Alternate_sexp = struct
 
       let to_string span =
         assert (Span.( >= ) span Span.zero && Span.( < ) span Span.day);
-        let seconds_span = span |> Span.to_int_sec |> Span.of_int_sec in
+        let seconds_span = Span.of_int_sec (Span.to_int_sec span) in
         let sub_second_span = Span.( - ) span seconds_span in
         seconds_to_string seconds_span ^ sub_second_to_string sub_second_span
       ;;
@@ -348,7 +526,6 @@ module Alternate_sexp = struct
       let of_string string =
         let len = String.length string in
         let prefix_len = 8 in
-        (* "HH:MM:DD" *)
         let suffix_len = len - prefix_len in
         let seconds_string = String.sub string ~pos:0 ~len:prefix_len in
         let sub_second_string = String.sub string ~pos:prefix_len ~len:suffix_len in
@@ -372,11 +549,11 @@ module Alternate_sexp = struct
     ;;
 
     include Sexpable.Of_stringable (struct
-      type nonrec t = t
+        type nonrec t = t
 
-      let to_string = to_string
-      let of_string = of_string
-    end)
+        let to_string = to_string
+        let of_string = of_string
+      end)
 
     let t_sexp_grammar =
       let open Sexplib in
@@ -392,15 +569,143 @@ module Alternate_sexp = struct
   include Replace_polymorphic_compare_efficient
 
   include Diffable.Atomic.Make (struct
-    type nonrec t = t [@@deriving bin_io, equal, sexp]
-  end)
+      type nonrec t = t [@@deriving bin_io, equal, sexp]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:395:4")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let equal =
+          (fun a__005_ b__006_ -> equal a__005_ b__006_ : t -> (t[@merlin.hide]) -> bool)
+        ;;
+
+        let _ = equal
+        let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+        let _ = t_of_sexp
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end)
 
   module Stable = struct
     module V1 = struct
       module T = struct
-        (* see tests in lib/core/test/src/test_time_ns that ensure stability of this
-           representation *)
         type nonrec t = t [@@deriving bin_io, compare, equal, hash, sexp, sexp_grammar]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:403:8")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let compare =
+            (fun a__008_ b__009_ -> compare a__008_ b__009_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let equal =
+            (fun a__010_ b__011_ -> equal a__010_ b__011_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+
+          let hash_fold_t
+            : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+            =
+            fun hsv arg -> hash_fold_t hsv arg
+
+          and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+            let func = hash in
+            fun x -> func x
+          ;;
+
+          let _ = hash_fold_t
+          and _ = hash
+
+          let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+          let _ = t_of_sexp
+          let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+          let _ = sexp_of_t
+          let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = t_sexp_grammar
+          let _ = t_sexp_grammar
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
         let stable_witness : t Stable_witness.t = Stable_witness.assert_stable
 
@@ -418,7 +723,104 @@ end
 
 module Option0 = struct
   type time = t [@@deriving compare]
+
+  include struct
+    let _ = fun (_ : time) -> ()
+
+    let compare_time =
+      (fun a__013_ b__014_ -> compare a__013_ b__014_
+       : time -> (time[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare_time
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   type t = Span.Option.t [@@deriving bin_io, compare, hash, typerep, quickcheck]
+
+  include struct
+    [@@@ocaml.warning "-60"]
+
+    let _ = fun (_ : t) -> ()
+
+    let bin_shape_t =
+      let _group =
+        Bin_prot.Shape.group
+          (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:421:2")
+          [ Bin_prot.Shape.Tid.of_string "t", [], Span.Option.bin_shape_t ]
+      in
+      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+    ;;
+
+    let _ = bin_shape_t
+    let bin_size_t : t Bin_prot.Size.sizer = Span.Option.bin_size_t
+    let _ = bin_size_t
+    let bin_write_t : t Bin_prot.Write.writer = Span.Option.bin_write_t
+    let _ = bin_write_t
+
+    let bin_writer_t =
+      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+    ;;
+
+    let _ = bin_writer_t
+    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = Span.Option.__bin_read_t__
+    let _ = __bin_read_t__
+    let bin_read_t : t Bin_prot.Read.reader = Span.Option.bin_read_t
+    let _ = bin_read_t
+
+    let bin_reader_t =
+      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
+    ;;
+
+    let _ = bin_reader_t
+
+    let bin_t =
+      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+       : _ Bin_prot.Type_class.t)
+    ;;
+
+    let _ = bin_t
+
+    let compare =
+      (fun a__015_ b__016_ -> Span.Option.compare a__015_ b__016_
+       : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+
+    let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+      fun hsv arg -> Span.Option.hash_fold_t hsv arg
+
+    and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+      let func = Span.Option.hash in
+      fun x -> func x
+    ;;
+
+    let _ = hash_fold_t
+    and _ = hash
+
+    module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+        type nonrec t = t
+
+        let name = "time_ns.ml.before-ppx.Option0.t"
+        let _ = name
+      end)
+
+    let typename_of_t = Typename_of_t.typename_of_t
+    let _ = typename_of_t
+
+    let typerep_of_t =
+      let name_of_t = Typename_of_t.named in
+      Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy Span.Option.typerep_of_t))
+    ;;
+
+    let _ = typerep_of_t
+    let quickcheck_generator = Span.Option.quickcheck_generator
+    let _ = quickcheck_generator
+    let quickcheck_observer = Span.Option.quickcheck_observer
+    let _ = quickcheck_observer
+    let quickcheck_shrinker = Span.Option.quickcheck_shrinker
+    let _ = quickcheck_shrinker
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let none = Span.Option.none
   let some time = Span.Option.some (to_span_since_epoch time)
@@ -436,7 +838,16 @@ module Option0 = struct
   let value_exn t =
     if is_some t
     then of_span_since_epoch (Span.Option.unchecked_value t)
-    else raise_s [%message [%here] "Time_ns.Option.value_exn none"]
+    else
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "time_ns.ml.before-ppx:439:27"
+             ; Ppx_sexp_conv_lib.Conv.sexp_of_string "Time_ns.Option.value_exn none"
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
   ;;
 
   let unchecked_value t = of_span_since_epoch (Span.Option.unchecked_value t)
@@ -459,11 +870,83 @@ module Option0 = struct
     module T = struct
       type nonrec t = t [@@deriving bin_io, compare, hash]
 
-      let sexp_of_t t = [%sexp_of: Alternate_sexp.t option] (to_option t)
-      let t_of_sexp s = of_option ([%of_sexp: Alternate_sexp.t option] s)
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:460:6")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let compare =
+          (fun a__017_ b__018_ -> compare a__017_ b__018_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg -> hash_fold_t hsv arg
+
+        and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func = hash in
+          fun x -> func x
+        ;;
+
+        let _ = hash_fold_t
+        and _ = hash
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let sexp_of_t t =
+        ((fun x__019_ -> sexp_of_option Alternate_sexp.sexp_of_t x__019_) [@merlin.hide])
+          (to_option t)
+      ;;
+
+      let t_of_sexp s =
+        of_option
+          (((fun x__020_ -> option_of_sexp Alternate_sexp.t_of_sexp x__020_)
+              [@merlin.hide])
+             s)
+      ;;
 
       let t_sexp_grammar =
-        Sexplib.Sexp_grammar.coerce [%sexp_grammar: Alternate_sexp.t option]
+        Sexplib.Sexp_grammar.coerce
+          ((option_sexp_grammar Alternate_sexp.t_sexp_grammar
+           : Alternate_sexp.t option Sexplib0.Sexp_grammar.t)
+           [@merlin.hide])
       ;;
     end
 
@@ -471,19 +954,112 @@ module Option0 = struct
     include Comparable.Make (T)
 
     include Diffable.Atomic.Make (struct
-      include T
+        include T
 
-      let equal = [%compare.equal: t]
-    end)
+        let equal (_x__021_ : t) _x__022_ =
+          (match
+             (fun (a__023_ : t) ((b__024_ : t) [@merlin.hide]) ->
+                (compare a__023_ b__024_ [@merlin.hide]))
+               _x__021_
+               _x__022_
+           with
+           | 0 -> true
+           | _ -> false)
+          [@merlin.hide]
+        ;;
+      end)
 
     module Stable = struct
       module V1 = struct
         module T = struct
           type nonrec t = t [@@deriving bin_io, compare, hash, sexp, sexp_grammar]
 
+          include struct
+            let _ = fun (_ : t) -> ()
+
+            let bin_shape_t =
+              let _group =
+                Bin_prot.Shape.group
+                  (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:482:10")
+                  [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+              in
+              (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+            ;;
+
+            let _ = bin_shape_t
+            let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+            let _ = bin_size_t
+            let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+            let _ = bin_write_t
+
+            let bin_writer_t =
+              ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+            ;;
+
+            let _ = bin_writer_t
+            let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+            let _ = __bin_read_t__
+            let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+            let _ = bin_read_t
+
+            let bin_reader_t =
+              ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+               : _ Bin_prot.Type_class.reader)
+            ;;
+
+            let _ = bin_reader_t
+
+            let bin_t =
+              ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+               : _ Bin_prot.Type_class.t)
+            ;;
+
+            let _ = bin_t
+
+            let compare =
+              (fun a__025_ b__026_ -> compare a__025_ b__026_
+               : t -> (t[@merlin.hide]) -> int)
+            ;;
+
+            let _ = compare
+
+            let hash_fold_t
+              : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+              =
+              fun hsv arg -> hash_fold_t hsv arg
+
+            and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+              let func = hash in
+              fun x -> func x
+            ;;
+
+            let _ = hash_fold_t
+            and _ = hash
+
+            let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+            let _ = t_of_sexp
+            let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+            let _ = sexp_of_t
+            let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = t_sexp_grammar
+            let _ = t_sexp_grammar
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
           let stable_witness : t Stable_witness.t =
             Stable_witness.of_serializable
-              [%stable_witness: Alternate_sexp.Stable.V1.t option]
+              (let _
+                 :  Alternate_sexp.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t
+                 -> Alternate_sexp.Stable.V1.t option
+                      Ppx_stable_witness_runtime.Stable_witness.t
+                 =
+                 stable_witness_option
+               and _
+                 : Alternate_sexp.Stable.V1.t Ppx_stable_witness_runtime.Stable_witness.t
+                 =
+                 Alternate_sexp.Stable.V1.stable_witness
+               in
+               (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+                : Alternate_sexp.Stable.V1.t option
+                    Ppx_stable_witness_runtime.Stable_witness.t))
               of_option
               to_option
           ;;
@@ -497,10 +1073,20 @@ module Option0 = struct
         include Comparable.Stable.V1.With_stable_witness.Make (T)
 
         include Diffable.Atomic.Make (struct
-          include T
+            include T
 
-          let equal = [%compare.equal: t]
-        end)
+            let equal (_x__028_ : t) _x__029_ =
+              (match
+                 (fun (a__030_ : t) ((b__031_ : t) [@merlin.hide]) ->
+                    (compare a__030_ b__031_ [@merlin.hide]))
+                   _x__028_
+                   _x__029_
+               with
+               | 0 -> true
+               | _ -> false)
+              [@merlin.hide]
+            ;;
+          end)
       end
     end
   end
@@ -508,6 +1094,55 @@ module Option0 = struct
   module Stable = struct
     module V1 = struct
       type nonrec t = t [@@deriving compare, bin_io]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let compare =
+          (fun a__032_ b__033_ -> compare a__032_ b__033_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "time_ns.ml.before-ppx:510:6")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
       let stable_witness : t Stable_witness.t = Stable_witness.assert_stable
       let to_int63 t = Span.Option.Stable.V1.to_int63 t
@@ -519,7 +1154,6 @@ module Option0 = struct
 
   let sexp_of_t = `Use_Time_ns_unix
 
-  (* bring back the efficient implementation of comparison operators *)
   include (Span.Option : Comparisons.S with type t := t)
 end
 
@@ -531,8 +1165,6 @@ module Stable = struct
   module Ofday = Ofday.Stable
 end
 
-(* this code is directly duplicated from Time.ml functor, converted enough to get Time_ns
-   to/of_string working *)
 module To_and_of_string : sig
   val of_date_ofday : zone:Zone.t -> Date.t -> Ofday.t -> t
 
@@ -556,7 +1188,7 @@ module To_and_of_string : sig
   val utc_offset : t -> zone:Zone.t -> Span.t
 
   val of_string : string -> t
-    [@@deprecated "[since 2021-04] Use [of_string_with_utc_offset]"]
+  [@@deprecated "[since 2021-04] Use [of_string_with_utc_offset]"]
 
   val of_string_with_utc_offset : string -> t
   val to_string : t -> string [@@deprecated "[since 2021-04] Use [to_string_utc]"]
@@ -586,8 +1218,6 @@ module To_and_of_string : sig
     -> zone:Zone.t
     -> t
 end = struct
-  (* this code is directly duplicated from Time_float0.ml, converted enough to get
-     Time_ns to/of_string working *)
   module Date_and_ofday = struct
     type t = Int63.t
 
@@ -595,7 +1225,7 @@ end = struct
 
     let of_date_ofday date ofday =
       let days =
-        Date0.Days.diff (Date0.Days.of_date date) Date0.Days.unix_epoch |> Int63.of_int
+        Int63.of_int (Date0.Days.diff (Date0.Days.of_date date) Date0.Days.unix_epoch)
       in
       let open Int63.O in
       (days * Span.to_int63_ns Span.day)
@@ -613,13 +1243,8 @@ end = struct
     let ns_per_day = Span.to_int63_ns Span.day
 
     let to_days_from_epoch t =
-      (* note Time_ns represents about 146 years, not enough for [Date.create_exn] to ever
-         raise *)
       let open Int63.O in
       let days_from_epoch_approx = t / ns_per_day in
-      (* when [t] is negative the integer division that calculated days_from_epoch_approx
-         will leave us one day short because it truncates (e.g. -100 / 86_400 = 0 and we
-         want -1) -- adjust for that here. *)
       if t < days_from_epoch_approx * ns_per_day
       then Int63.pred days_from_epoch_approx
       else days_from_epoch_approx
@@ -629,13 +1254,12 @@ end = struct
       let open Int63.O in
       let days_from_epoch_in_ns = days_from_epoch * ns_per_day in
       let remainder = t - days_from_epoch_in_ns in
-      Span.of_int63_ns remainder |> Ofday.of_span_since_start_of_day_exn
+      Ofday.of_span_since_start_of_day_exn (Span.of_int63_ns remainder)
     ;;
 
     let date_of_days_from_epoch ~days_from_epoch =
-      Int63.to_int_exn days_from_epoch
-      |> Date0.Days.add_days Date0.Days.unix_epoch
-      |> Date0.Days.to_date
+      Date0.Days.to_date
+        (Date0.Days.add_days Date0.Days.unix_epoch (Int63.to_int_exn days_from_epoch))
     ;;
 
     let to_date t =
@@ -650,25 +1274,21 @@ end = struct
   end
 
   module Zone : sig
-    (* This interface is directly duplicated from Time_intf.Zone, converted enough to get
-       this to work.
-
-       The problem is has references to Time0_intf.S, which is the functor input interface
-       that Time_ns currently does not satisfy. *)
-
     type time = t
     type t = Zone.t [@@deriving sexp_of]
 
-    module Index = Zone.Index
+    include sig
+      [@@@ocaml.warning "-32"]
 
-    (* copied functions reexported from Zone *)
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    module Index = Zone.Index
 
     val utc : t
     val index_has_prev_clock_shift : t -> Index.t -> bool
     val index_has_next_clock_shift : t -> Index.t -> bool
-
-    (* new functions defined below *)
-
     val index : t -> time -> Index.t
     val index_offset_from_utc_exn : t -> Index.t -> time
     val index_prev_clock_shift_time_exn : t -> Index.t -> time
@@ -683,31 +1303,28 @@ end = struct
     include Zone
 
     let of_span_in_seconds span_in_seconds =
-      (* NB. no actual rounding or exns can occur here *)
-      Time_in_seconds.Span.to_int63_seconds_round_down_exn span_in_seconds
-      |> Span.of_int63_seconds
+      Span.of_int63_seconds
+        (Time_in_seconds.Span.to_int63_seconds_round_down_exn span_in_seconds)
     ;;
 
     let of_time_in_seconds time_in_seconds =
-      Time_in_seconds.to_span_since_epoch time_in_seconds
-      (* NB. no actual rounding or exns can occur here *)
-      |> Time_in_seconds.Span.to_int63_seconds_round_down_exn
-      |> Span.of_int63_seconds
-      |> of_span_since_epoch
+      of_span_since_epoch
+        (Span.of_int63_seconds
+           (Time_in_seconds.Span.to_int63_seconds_round_down_exn
+              (Time_in_seconds.to_span_since_epoch time_in_seconds)))
     ;;
 
     let to_time_in_seconds_round_down_exn time =
-      to_span_since_epoch time
-      |> Span.to_int63_seconds_round_down_exn
-      |> Time_in_seconds.Span.of_int63_seconds
-      |> Time_in_seconds.of_span_since_epoch
+      Time_in_seconds.of_span_since_epoch
+        (Time_in_seconds.Span.of_int63_seconds
+           (Span.to_int63_seconds_round_down_exn (to_span_since_epoch time)))
     ;;
 
     let to_date_and_ofday_in_seconds_round_down_exn relative =
-      Date_and_ofday.to_synthetic_span_since_epoch relative
-      |> Span.to_int63_seconds_round_down_exn
-      |> Time_in_seconds.Span.of_int63_seconds
-      |> Time_in_seconds.Date_and_ofday.of_synthetic_span_since_epoch
+      Time_in_seconds.Date_and_ofday.of_synthetic_span_since_epoch
+        (Time_in_seconds.Span.of_int63_seconds
+           (Span.to_int63_seconds_round_down_exn
+              (Date_and_ofday.to_synthetic_span_since_epoch relative)))
     ;;
 
     let index t time = index t (to_time_in_seconds_round_down_exn time)
@@ -747,14 +1364,12 @@ end = struct
 
     let date_and_ofday_of_absolute_time t time =
       let index = index t time in
-      (* no exn because [index] always returns a valid index *)
       let offset_from_utc = index_offset_from_utc_exn t index in
       Date_and_ofday.of_absolute time ~offset_from_utc
     ;;
 
     let absolute_time_of_date_and_ofday t relative =
       let index = index_of_date_and_ofday t relative in
-      (* no exn because [index_of_date_and_ofday] always returns a valid index *)
       let offset_from_utc = index_offset_from_utc_exn t index in
       Date_and_ofday.to_absolute relative ~offset_from_utc
     ;;
@@ -766,14 +1381,15 @@ end = struct
   ;;
 
   let of_date_ofday_precise date ofday ~zone =
-    (* We assume that there will be only one zone shift within a given local day.  *)
     let start_of_day = of_date_ofday ~zone date Ofday.start_of_day in
     let proposed_time = add start_of_day (Ofday.to_span_since_start_of_day ofday) in
     match Zone.next_clock_shift zone ~strictly_after:start_of_day with
     | None -> `Once proposed_time
     | Some (shift_start, shift_amount) ->
-      let shift_backwards = Span.(shift_amount < zero) in
-      (* start and end of the "problematic region" *)
+      let shift_backwards =
+        let open Span in
+        shift_amount < zero
+      in
       let s, e =
         if shift_backwards
         then add shift_start shift_amount, shift_start
@@ -827,11 +1443,10 @@ end = struct
     | true -> ()
     | false ->
       let index = Zone.index zone time in
-      (* no exn because [Zone.index] always returns a valid index *)
       let offset_from_utc = Zone.index_offset_from_utc_exn zone index in
       let rel = Date_and_ofday.of_absolute time ~offset_from_utc in
       let date = Date_and_ofday.to_date rel in
-      let span = Date_and_ofday.to_ofday rel |> Ofday.to_span_since_start_of_day in
+      let span = Ofday.to_span_since_start_of_day (Date_and_ofday.to_ofday rel) in
       let effective_day_start =
         sub (Date_and_ofday.to_absolute rel ~offset_from_utc) span
       in
@@ -840,13 +1455,13 @@ end = struct
         match Zone.index_has_prev_clock_shift zone index with
         | false -> effective_day_start
         | true ->
-          effective_day_start |> max (Zone.index_prev_clock_shift_time_exn zone index)
+          max (Zone.index_prev_clock_shift_time_exn zone index) effective_day_start
       in
       let cache_until_excl =
         match Zone.index_has_next_clock_shift zone index with
         | false -> effective_day_until
         | true ->
-          effective_day_until |> min (Zone.index_next_clock_shift_time_exn zone index)
+          min (Zone.index_next_clock_shift_time_exn zone index) effective_day_until
       in
       date_cache.zone <- zone;
       date_cache.cache_start_incl <- cache_start_incl;
@@ -862,58 +1477,57 @@ end = struct
 
   let to_ofday time ~zone =
     set_date_cache time ~zone;
-    diff time date_cache.effective_day_start |> Ofday.of_span_since_start_of_day_exn
+    Ofday.of_span_since_start_of_day_exn (diff time date_cache.effective_day_start)
   ;;
 
   let to_date_ofday time ~zone = to_date time ~zone, to_ofday time ~zone
 
-  (* The correctness of this algorithm (interface, even) depends on the fact that
-     timezone shifts aren't too close together (as in, it can't simultaneously be the
-     case that a timezone shift of X hours occurred less than X hours ago, *and*
-     a timezone shift of Y hours will occur in less than Y hours' time) *)
   let to_date_ofday_precise time ~zone =
     let date, ofday = to_date_ofday time ~zone in
     let clock_shift_after = Zone.next_clock_shift zone ~strictly_after:time in
     let clock_shift_before_or_at = Zone.prev_clock_shift zone ~at_or_before:time in
     let also_skipped_earlier amount =
-      (* Using [date] and raising on [None] here is OK on the assumption that clock
-         shifts can't cross date boundaries. This is true in all cases I've ever heard
-         of (and [of_date_ofday_precise] would need revisiting if it turned out to be
-         false) *)
       match Ofday.sub ofday amount with
       | Some ofday -> `Also_skipped (date, ofday)
       | None ->
         raise_s
-          [%message
-            "Time.to_date_ofday_precise"
-              ~span_since_epoch:(to_span_since_epoch time : Span.t)
-              (zone : Zone.t)]
+          (let ppx_sexp_message () =
+             Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Time.to_date_ofday_precise"
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "span_since_epoch"
+                   ; (Span.sexp_of_t [@merlin.hide]) (to_span_since_epoch time)
+                   ]
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "zone"
+                   ; (Zone.sexp_of_t [@merlin.hide]) zone
+                   ]
+               ]
+               [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+           in
+           (ppx_sexp_message () [@nontail]))
     in
     let ambiguity =
-      (* Edge cases: the instant of transition belongs to the new zone regime. So if the
-         clock moved by an hour exactly one hour ago, there's no ambiguity, because the
-         hour-ago time belongs to the same regime as you, and conversely, if the clock
-         will move by an hour in an hours' time, there *is* ambiguity. Hence [>.] for
-         the first case and [<=.] for the second. *)
       match clock_shift_before_or_at, clock_shift_after with
       | Some (start, amount), _ when add start (Span.abs amount) > time ->
-        (* clock shifted recently *)
-        if Span.(amount > zero)
-        then
-          (* clock shifted forward recently: we skipped a time *)
-          also_skipped_earlier amount
+        if
+          let open Span in
+          amount > zero
+        then also_skipped_earlier amount
         else (
-          (* clock shifted back recently: this date/ofday already happened *)
-          assert (Span.(amount < zero));
+          assert (
+            let open Span in
+            amount < zero);
           `Also_at (sub time (Span.abs amount)))
       | _, Some (start, amount) when sub start (Span.abs amount) <= time ->
-        (* clock is about to shift *)
-        if Span.(amount > zero)
-        then (* clock about to shift forward: no effect *)
-          `Only
+        if
+          let open Span in
+          amount > zero
+        then `Only
         else (
-          (* clock about to shift back: this date/ofday will be repeated *)
-          assert (Span.(amount < zero));
+          assert (
+            let open Span in
+            amount < zero);
           `Also_at (add time (Span.abs amount)))
       | _ -> `Only
     in
@@ -955,9 +1569,7 @@ end = struct
     in
     fun time ~zone ->
       try attempt time ~zone with
-      | (_ : exn) ->
-        (* If we overflow applying the UTC offset, try again with UTC time. *)
-        attempt time ~zone:Zone.utc
+      | (_ : exn) -> attempt time ~zone:Zone.utc
   ;;
 
   let to_string_abs_trimmed time ~zone =
@@ -1038,9 +1650,10 @@ end = struct
 
   let ensure_colon_in_offset offset =
     let offset_length = String.length offset in
-    if Int.( <= ) offset_length 2
-       && Char.is_digit offset.[0]
-       && Char.is_digit offset.[offset_length - 1]
+    if
+      Int.( <= ) offset_length 2
+      && Char.is_digit offset.[0]
+      && Char.is_digit offset.[offset_length - 1]
     then offset ^ ":00"
     else if Char.( = ) offset.[1] ':' || Char.( = ) offset.[2] ':'
     then offset
@@ -1056,6 +1669,24 @@ end = struct
 
   exception Time_ns_of_string of string * Exn.t [@@deriving sexp]
 
+  include struct
+    let () =
+      Sexplib0.Sexp_conv.Exn_converter.add
+        [%extension_constructor Time_ns_of_string]
+        (function
+        | Time_ns_of_string (arg0__034_, arg1__035_) ->
+          let res0__036_ = sexp_of_string arg0__034_
+          and res1__037_ = Exn.sexp_of_t arg1__035_ in
+          Sexplib0.Sexp.List
+            [ Sexplib0.Sexp.Atom
+                "time_ns.ml.before-ppx.To_and_of_string.Time_ns_of_string"
+            ; res0__036_
+            ; res1__037_
+            ]
+        | _ -> assert false)
+    ;;
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let of_string_gen ~default_zone ~find_zone s =
     try
       let date, ofday, tz =
@@ -1064,7 +1695,7 @@ end = struct
           String.concat [ day; " "; month; " "; year ], ofday, None
         | [ date; ofday; tz ] -> date, ofday, Some tz
         | [ date; ofday ] -> date, ofday, None
-        | [ s ] ->
+        | s :: [] ->
           (match String.rsplit2 ~on:'T' s with
            | Some (date, ofday) -> date, ofday, None
            | None -> failwith "no spaces or T found")
@@ -1104,7 +1735,17 @@ end = struct
   ;;
 
   let of_string_with_utc_offset s =
-    let default_zone () = raise_s [%message "time has no time zone or UTC offset" s] in
+    let default_zone () =
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "time has no time zone or UTC offset"
+             ; Ppx_sexp_conv_lib.Conv.sexp_of_string s
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
+    in
     let find_zone zone_name =
       failwithf "unable to lookup Zone %s.  Try using Core.Time.of_string" zone_name ()
     in
@@ -1118,8 +1759,6 @@ include To_and_of_string
 
 let min_value_representable = of_span_since_epoch Span.min_value_representable
 let max_value_representable = of_span_since_epoch Span.max_value_representable
-
-(* Legacy definitions based on rounding to the nearest microsecond. *)
 let min_value = min_value_for_1us_rounding
 let max_value = max_value_for_1us_rounding
 let to_time = to_time_float_round_nearest_microsecond
@@ -1130,23 +1769,22 @@ module _ = struct
 
   let () =
     Duration.format
-      := (module struct
-           let duration_of_span s = s |> Span.to_int63_ns |> Duration.of_nanoseconds
-           let span_of_duration d = d |> Duration.to_nanoseconds |> Span.of_int63_ns
-           let of_string string = string |> Span.of_string |> duration_of_span
+    := (module struct
+         let duration_of_span s = Duration.of_nanoseconds (Span.to_int63_ns s)
+         let span_of_duration d = Span.of_int63_ns (Duration.to_nanoseconds d)
+         let of_string string = duration_of_span (Span.of_string string)
 
-           let to_string_with_same_unit durations =
-             let spans = durations |> List.map ~f:span_of_duration in
-             let unit_of_time =
-               spans
-               |> List.max_elt ~compare:Span.compare
-               |> Option.value_map
-                    ~f:Span.to_unit_of_time
-                    ~default:Unit_of_time.Nanosecond
-             in
-             spans |> List.map ~f:(Span.to_string_hum ~unit_of_time ~align_decimal:true)
-           ;;
-         end)
+         let to_string_with_same_unit durations =
+           let spans = List.map ~f:span_of_duration durations in
+           let unit_of_time =
+             Option.value_map
+               ~f:Span.to_unit_of_time
+               ~default:Unit_of_time.Nanosecond
+               (List.max_elt ~compare:Span.compare spans)
+           in
+           List.map ~f:(Span.to_string_hum ~unit_of_time ~align_decimal:true) spans
+         ;;
+       end)
   ;;
 end
 
@@ -1190,3 +1828,7 @@ module O = struct
   let ( + ) = add
   let ( - ) = diff
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

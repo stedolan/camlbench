@@ -1,3 +1,3 @@
-(** Time module. *)
+[@@@ocaml.text " Time module. "]
 
-include Time_ns_intf.Time_ns (** @inline *)
+include Time_ns_intf.Time_ns [@@ocaml.doc " @inline "]

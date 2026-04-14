@@ -1,9 +1,30 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"md5.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "md5.ml.before-ppx"
+;;
+
 module T = struct
   include Bin_prot.Md5
 
-  let equal = [%compare.equal: t]
-  let sexp_of_t t = t |> to_hex |> String.sexp_of_t
-  let t_of_sexp s = s |> String.t_of_sexp |> of_hex_exn
+  let equal (_x__001_ : t) _x__002_ =
+    (match
+       (fun (a__003_ : t) ((b__004_ : t) [@merlin.hide]) ->
+          (compare a__003_ b__004_ [@merlin.hide]))
+         _x__001_
+         _x__002_
+     with
+     | 0 -> true
+     | _ -> false)
+    [@merlin.hide]
+  ;;
+
+  let sexp_of_t t = String.sexp_of_t (to_hex t)
+  let t_of_sexp s = of_hex_exn (String.t_of_sexp s)
   let t_sexp_grammar = Sexplib.Sexp_grammar.coerce String.t_sexp_grammar
 end
 
@@ -15,6 +36,24 @@ module As_binary_string = struct
     module V1 = struct
       type t = T.t [@@deriving compare, equal]
 
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let compare =
+          (fun a__005_ b__006_ -> T.compare a__005_ b__006_
+           : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let equal =
+          (fun a__007_ b__008_ -> T.equal a__007_ b__008_
+           : t -> (t[@merlin.hide]) -> bool)
+        ;;
+
+        let _ = equal
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       let hash_fold_t = hash_fold_t
       let hash = hash
       let sexp_of_t x = String.sexp_of_t (T.to_binary x)
@@ -24,13 +63,13 @@ module As_binary_string = struct
       let of_binable = T.of_binary_exn
 
       include Bin_prot.Utils.Make_binable_without_uuid [@alert "-legacy"] (struct
-        module Binable = String.Stable.V1
+          module Binable = String.Stable.V1
 
-        type t = Bin_prot.Md5.t
+          type t = Bin_prot.Md5.t
 
-        let to_binable = to_binable
-        let of_binable = of_binable
-      end)
+          let to_binable = to_binable
+          let of_binable = of_binable
+        end)
 
       let stable_witness : t Stable_witness.t =
         Stable_witness.of_serializable
@@ -50,19 +89,41 @@ module Stable = struct
   module V1 = struct
     type t = T.t [@@deriving compare, equal, sexp, sexp_grammar]
 
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let compare =
+        (fun a__009_ b__010_ -> T.compare a__009_ b__010_ : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let equal =
+        (fun a__011_ b__012_ -> T.equal a__011_ b__012_ : t -> (t[@merlin.hide]) -> bool)
+      ;;
+
+      let _ = equal
+      let t_of_sexp = (T.t_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let sexp_of_t = (T.sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+      let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = T.t_sexp_grammar
+      let _ = t_sexp_grammar
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let hash_fold_t = hash_fold_t
     let hash = hash
     let to_binable = Fn.id
     let of_binable = Fn.id
 
     include Bin_prot.Utils.Make_binable_without_uuid [@alert "-legacy"] (struct
-      module Binable = Bin_prot.Md5.Stable.V1
+        module Binable = Bin_prot.Md5.Stable.V1
 
-      type t = Bin_prot.Md5.t
+        type t = Bin_prot.Md5.t
 
-      let to_binable = to_binable
-      let of_binable = of_binable
-    end)
+        let to_binable = to_binable
+        let of_binable = of_binable
+      end)
 
     let stable_witness : t Stable_witness.t =
       Stable_witness.of_serializable
@@ -138,8 +199,6 @@ external c_digest_subbigstring
   = "core_md5_digest_subbigstring"
 
 let unsafe_digest_subbigstring buf ~pos ~len =
-  (* It's more efficient to allocate the result on the OCaml side and declare the C
-     function as noalloc than to let the C function allocate. *)
   let res = Bytes.create 16 in
   c_digest_subbigstring buf ~pos ~len ~res;
   Md5_lib.unsafe_of_binary
@@ -157,3 +216,7 @@ let digest_subbigstring buf ~pos ~len =
 let digest_bigstring buf =
   unsafe_digest_subbigstring buf ~pos:0 ~len:(Bigstring.length buf)
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

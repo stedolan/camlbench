@@ -1,10 +1,22 @@
-(** Core greatly expands the functionality available in Base while still remaining
-    platform-agnostic.  Core changes more frequently (i.e., is less stable) than Base.
+[@@@ocaml.text
+  " Core greatly expands the functionality available in Base while still remaining\n\
+  \    platform-agnostic.  Core changes more frequently (i.e., is less stable) than \
+   Base.\n\n\
+  \    Some modules are mere extensions of their counterparts in Base, usually adding \
+   generic\n\
+  \    functionality by including functors that make them binable, comparable, sexpable,\n\
+  \    blitable, etc.  The bulk of Core, though, is modules providing entirely new\n\
+  \    functionality. "]
 
-    Some modules are mere extensions of their counterparts in Base, usually adding generic
-    functionality by including functors that make them binable, comparable, sexpable,
-    blitable, etc.  The bulk of Core, though, is modules providing entirely new
-    functionality. *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"core.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "core.ml.before-ppx"
+;;
 
 open! Import
 module Applicative = Applicative
@@ -191,12 +203,12 @@ module Word_size = Word_size
 
 module type Unique_id = Unique_id.Id
 
-include T (** @open *)
+include T [@@ocaml.doc " @open "]
 
 include Std_internal
 include Not_found
 
-(** {2 Top-level values} *)
+[@@@ocaml.text " {2 Top-level values} "]
 
 external phys_equal : ('a[@local_opt]) -> ('a[@local_opt]) -> bool = "%eq"
 
@@ -210,14 +222,17 @@ let does_raise = Exn.does_raise
 let sec = Time_float.Span.of_sec
 let ( ^/ ) = Filename.concat
 
-(** We perform these side effects here because we want them to run for any code that uses
-    [Core].  If this were in another module in [Core] that was not used in some program,
-    then the side effects might not be run in that program.  This will run as long as the
-    program refers to at least one value directly in Core; referring to values in
-    [Core.Bool], for example, is not sufficient. *)
 let () = Exn.initialize_module ()
+[@@ocaml.doc
+  " We perform these side effects here because we want them to run for any code that uses\n\
+  \    [Core].  If this were in another module in [Core] that was not used in some \
+   program,\n\
+  \    then the side effects might not be run in that program.  This will run as long as \
+   the\n\
+  \    program refers to at least one value directly in Core; referring to values in\n\
+  \    [Core.Bool], for example, is not sufficient. "]
+;;
 
-(** To be used in implementing Core, but not by end users. *)
 module Core_private = struct
   module Digit_string_helpers = Digit_string_helpers
   module Time_zone = Zone
@@ -230,6 +245,11 @@ module Core_private = struct
   module Timezone_js_loader = Timezone_js_loader
   module Timezone_types = Timezone_types
 end
+[@@ocaml.doc " To be used in implementing Core, but not by end users. "]
 
 module Core_kernel_private = Core_private
 [@@deprecated "[since 2021-05] Use [Core_private] -- [Core_kernel] was renamed as [Core]"]
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

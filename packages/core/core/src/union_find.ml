@@ -1,44 +1,18 @@
-(* This code is based on the MLton library set/disjoint.fun, which has the
-   following copyright notice.
-*)
-(* Copyright (C) 1999-2005 Henry Cejtin, Matthew Fluet, Suresh
- *    Jagannathan, and Stephen Weeks.
- *
- * MLton is released under a BSD-style license.
- * See the file MLton-LICENSE for details.
- *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"union_find.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "union_find.ml.before-ppx"
+;;
 
 open! Import
 
-(*
-   {v
-           Root
-             |
-           Inner
-        / .. | .. \
-     Inner Inner Inner
-      /|\   /|\   /|\
-      ...   ...   ...
-   v}
-
-   We construct the `inverted' tree in the ML representation.
-   The direction of the edges is UPWARDS.
-   Starting with any ['a t] we can step directly to its parent.
-   But we can't (and don't need to) start from the root and step to its children.
-*)
-
-(*
-   [rank] is an upper bound on the depth of any node in the up-tree.
-
-   Imagine an unlucky sequence of operations in which you create N
-   individual [t]-values and then union them together in such a way
-   that you always pick the root of each tree to union together, so that
-   no path compression takes place.  If you don't take care to somehow
-   balance the resulting up-tree, it is possible that you end up with one
-   big long chain of N links, and then calling [representative] on the
-   deepest node takes Theta(N) time.  With the balancing scheme of never
-   increasing the rank of a node unnecessarily, it would take O(log N).
-*)
 type 'a root =
   { mutable value : 'a
   ; mutable rank : int
@@ -48,7 +22,6 @@ type 'a t = { mutable node : 'a node }
 
 and 'a node =
   | Inner of 'a t
-  (* [Inner x] is a node whose parent is [x]. *)
   | Root of 'a root
 
 let invariant _ t =
@@ -62,16 +35,9 @@ let invariant _ t =
 
 let create v = { node = Root { value = v; rank = 0 } }
 
-(* invariants:
-   [inner.node] = [inner_node] = [Inner t].
-   [descendants] are the proper descendants of [inner] we've visited.
-*)
 let rec compress t ~inner_node ~inner ~descendants =
   match t.node with
   | Root r ->
-    (* t is the root of the tree.
-       Re-point all descendants directly to it by setting them to [Inner t].
-       Note: we don't re-point [inner] as it already points there. *)
     List.iter descendants ~f:(fun t -> t.node <- inner_node);
     t, r
   | Inner t' as node ->
@@ -86,9 +52,7 @@ let representative t =
 
 let root t =
   match t.node with
-  | Root r ->
-    (* avoid tuple allocation in the fast path *)
-    r
+  | Root r -> r
   | _ -> snd (representative t)
 ;;
 
@@ -126,3 +90,7 @@ module Private = struct
   let is_compressed = is_compressed
   let rank = rank
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

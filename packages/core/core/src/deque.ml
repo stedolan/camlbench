@@ -1,24 +1,23 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"deque.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "deque.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 
 type 'a t =
-  { (* [arr] is a cyclic buffer *)
-    mutable arr : 'a Option_array.t
-  ; (* [front_index] and [back_index] are the positions in which new elements may be
-       enqueued.  This makes the active part of [arr] the range from [front_index+1] to
-       [back_index-1] (modulo the length of [arr] and wrapping around if necessary).  Note
-       that this means the active range is maximized when [front_index = back_index], which
-       occurs when there are [Array.length arr - 1] active elements. *)
-    mutable front_index : int
+  { mutable arr : 'a Option_array.t
+  ; mutable front_index : int
   ; mutable back_index : int
-  ; (* apparent_front_index is what is exposed as the front index externally.  It has no
-       real relation to the array -- every enqueue to the front decrements it and every
-       dequeue from the front increments it. *)
-    mutable apparent_front_index : int
+  ; mutable apparent_front_index : int
   ; mutable length : int
-  ; (* We keep arr_length here as a speed hack.  Calling Array.length on arr is actually
-       meaningfully slower. *)
-    mutable arr_length : int
+  ; mutable arr_length : int
   ; never_shrink : bool
   }
 
@@ -31,8 +30,6 @@ let create ?initial_length ?never_shrink () =
   let initial_length = Option.value ~default:7 initial_length in
   if initial_length < 0
   then invalid_argf "passed negative initial_length to Deque.create: %i" initial_length ();
-  (* Make the initial array length be [initial_length + 1] so we can fit [initial_length]
-     elements without growing.  We never quite use the whole array. *)
   let arr_length = initial_length + 1 in
   { arr = Option_array.create ~len:arr_length
   ; front_index = 0
@@ -47,8 +44,6 @@ let create ?initial_length ?never_shrink () =
 let length t = t.length
 let is_empty t = length t = 0
 
-(* We keep track of the length in a mutable field for speed, but this calculation should
-   be correct by construction, and can be used for testing. *)
 let _invariant_length t =
   let constructed_length =
     if t.front_index < t.back_index
@@ -58,8 +53,6 @@ let _invariant_length t =
   assert (length t = constructed_length)
 ;;
 
-(* The various "when_not_empty" functions return misleading numbers when the dequeue is
-   empty.  They are safe to call if it is known that the dequeue is non-empty. *)
 let apparent_front_index_when_not_empty t = t.apparent_front_index
 let apparent_back_index_when_not_empty t = t.apparent_front_index + length t - 1
 
@@ -94,15 +87,6 @@ let foldi' t dir ~init ~f =
           ~stop_pos
           ~step
     in
-    (* We want to iterate from actual_front to actual_back (or vice versa), but we may
-       need to wrap around the array to do so.  Thus we do the following:
-       1.  If the active range is contiguous (i.e. actual_front <= actual_back), then loop
-       starting at the appropriate end of the active range until we reach the first
-       element outside of it.
-       2.  If it is not contiguous (actual_front > actual_back), then first loop from the
-       appropriate end of the active range to the end of the array.  Then, loop from
-       the opposite end of the array to the opposite end of the active range.
-    *)
     match dir with
     | `front_to_back ->
       if actual_front <= actual_back
@@ -185,14 +169,12 @@ let iteri_internal t ~f =
 ;;
 
 let iter t ~f =
-  iteri_internal t ~f:(fun arr i -> Option_array.get_some_exn arr i |> f) [@nontail]
+  iteri_internal t ~f:(fun arr i -> f (Option_array.get_some_exn arr i)) [@nontail]
 ;;
 
 let clear t =
   if t.never_shrink
-  then
-    (* clear the array to allow elements to be garbage collected *)
-    iteri_internal t ~f:Option_array.unsafe_set_none
+  then iteri_internal t ~f:Option_array.unsafe_set_none
   else t.arr <- Option_array.create ~len:8;
   t.front_index <- 0;
   t.back_index <- 1;
@@ -200,16 +182,13 @@ let clear t =
   t.arr_length <- Option_array.length t.arr
 ;;
 
-(* We have to be careful here, importing all of Container.Make would change the runtime of
-   some functions ([length] minimally) silently without changing the semantics.  We get
-   around that by importing things explicitly.  *)
 module C = Container.Make (struct
-  type nonrec 'a t = 'a t
+    type nonrec 'a t = 'a t
 
-  let fold = fold
-  let iter = `Custom iter
-  let length = `Custom length
-end)
+    let fold = fold
+    let iter = `Custom iter
+    let length = `Custom length
+  end)
 
 let count = C.count
 let sum = C.sum
@@ -251,17 +230,10 @@ let blit new_arr t =
       ~src_pos:0
       ~dst_pos:break_pos
       ~len:(actual_back + 1));
-  (* length depends on t.arr and t.front_index, so this needs to be first *)
   t.back_index <- length t;
   t.arr <- new_arr;
   t.arr_length <- Option_array.length new_arr;
   t.front_index <- Option_array.length new_arr - 1;
-  (* Since t.front_index = Option_array.length new_arr - 1, this is asserting that t.back_index
-     is a valid index in the array and that the array can support at least one more
-     element -- recall, if t.front_index = t.back_index then the array is full.
-
-     Note that this is true if and only if Option_array.length new_arr > length t + 1.
-  *)
   assert (t.front_index > t.back_index)
 ;;
 
@@ -435,7 +407,7 @@ let to_array t =
       (fold t ~init:0 ~f:(fun i v ->
          arr.(i) <- v;
          i + 1)
-        : int);
+       : int);
     arr
 ;;
 
@@ -446,26 +418,108 @@ let of_array arr =
 ;;
 
 include Bin_prot.Utils.Make_iterable_binable1 (struct
-  type nonrec 'a t = 'a t
-  type 'a el = 'a [@@deriving bin_io]
+    type nonrec 'a t = 'a t
+    type 'a el = 'a [@@deriving bin_io]
 
-  let caller_identity =
-    Bin_prot.Shape.Uuid.of_string "34c1e9ca-4992-11e6-a686-8b4bd4f87796"
-  ;;
+    include struct
+      let _ = fun (_ : 'a el) -> ()
 
-  let module_name = Some "Core.Deque"
-  let length = length
-  let iter t ~f = iter t ~f
+      let bin_shape_el =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "deque.ml.before-ppx:450:2")
+            [ ( Bin_prot.Shape.Tid.of_string "el"
+              , [ Bin_prot.Shape.Vid.of_string "a" ]
+              , Bin_prot.Shape.var
+                  (Bin_prot.Shape.Location.of_string "deque.ml.before-ppx:450:15")
+                  (Bin_prot.Shape.Vid.of_string "a") )
+            ]
+        in
+        fun a -> (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "el")) [ a ]
+      ;;
 
-  let init ~len ~next =
-    let t = create ~initial_length:len () in
-    for _i = 0 to len - 1 do
-      let x = next () in
-      enqueue_back t x
-    done;
-    t
-  ;;
-end)
+      let _ = bin_shape_el
+
+      let bin_size_el : 'a. 'a Bin_prot.Size.sizer -> 'a el Bin_prot.Size.sizer =
+        fun _size_of_a -> _size_of_a
+      ;;
+
+      let _ = bin_size_el
+
+      let bin_write_el : 'a. 'a Bin_prot.Write.writer -> 'a el Bin_prot.Write.writer =
+        fun _write_a -> _write_a
+      ;;
+
+      let _ = bin_write_el
+
+      let bin_writer_el =
+        (fun bin_writer_a ->
+           { size = (fun v -> bin_size_el bin_writer_a.size v)
+           ; write = (fun v -> bin_write_el bin_writer_a.write v)
+           }
+         : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_el
+
+      let __bin_read_el__
+        : 'a. 'a Bin_prot.Read.reader -> (int -> 'a el) Bin_prot.Read.reader
+        =
+        fun _of__a _buf ~pos_ref _vint ->
+        Bin_prot.Common.raise_read_error
+          (Bin_prot.Common.ReadError.Silly_type "deque.ml.before-ppx.el")
+          !pos_ref
+      ;;
+
+      let _ = __bin_read_el__
+
+      let bin_read_el : 'a. 'a Bin_prot.Read.reader -> 'a el Bin_prot.Read.reader =
+        fun _of__a -> _of__a
+      ;;
+
+      let _ = bin_read_el
+
+      let bin_reader_el =
+        (fun bin_reader_a ->
+           { read = (fun buf ~pos_ref -> (bin_read_el bin_reader_a.read) buf ~pos_ref)
+           ; vtag_read =
+               (fun buf ~pos_ref vtag ->
+                 (__bin_read_el__ bin_reader_a.read) buf ~pos_ref vtag)
+           }
+         : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_el
+
+      let bin_el =
+        (fun bin_a ->
+           { writer = bin_writer_el bin_a.writer
+           ; reader = bin_reader_el bin_a.reader
+           ; shape = bin_shape_el bin_a.shape
+           }
+         : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_el
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    let caller_identity =
+      Bin_prot.Shape.Uuid.of_string "34c1e9ca-4992-11e6-a686-8b4bd4f87796"
+    ;;
+
+    let module_name = Some "Core.Deque"
+    let length = length
+    let iter t ~f = iter t ~f
+
+    let init ~len ~next =
+      let t = create ~initial_length:len () in
+      for _i = 0 to len - 1 do
+        let x = next () in
+        enqueue_back t x
+      done;
+      t
+    ;;
+  end)
 
 let t_of_sexp f sexp = of_array (Array.t_of_sexp f sexp)
 let sexp_of_t f t = Array.sexp_of_t f (to_array t)
@@ -474,7 +528,6 @@ let t_sexp_grammar elt_grammar =
   Sexplib.Sexp_grammar.coerce (Array.t_sexp_grammar elt_grammar)
 ;;
 
-(* re-expose these here under a different name to avoid internal confusion *)
 let back_index = apparent_back_index
 let front_index = apparent_front_index
 
@@ -489,20 +542,16 @@ let front_index_exn t =
 ;;
 
 module Binary_searchable = Test_binary_searchable.Make1_and_test (struct
-  type nonrec 'a t = 'a t
+    type nonrec 'a t = 'a t
 
-  let get t i = get t (front_index_exn t + i)
-  let length = length
+    let get t i = get t (front_index_exn t + i)
+    let length = length
 
-  module For_test = struct
-    let of_array = of_array
-  end
-end)
+    module For_test = struct
+      let of_array = of_array
+    end
+  end)
 
-(* The "stable" indices used in this module make the application of the
-   [Binary_searchable] functor awkward.  We need to be sure to translate incoming
-   positions from stable space to the expected 0 -> length - 1 space and then we need to
-   translate them back on return. *)
 let binary_search ?pos ?len t ~compare how v =
   let pos =
     match pos with
@@ -524,3 +573,7 @@ let binary_search_segmented ?pos ?len t ~segment_of how =
   | None -> None
   | Some untranslated_i -> Some (t.apparent_front_index + untranslated_i)
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

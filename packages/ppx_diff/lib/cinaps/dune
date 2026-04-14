@@ -1,6 +1,6 @@
 (library
  (name diffable_cinaps)
  (public_name ppx_diff.diffable_cinaps)
- (libraries base)
- (preprocess
-  (pps ppx_jane)))
+ (libraries base ppx_bench.runtime-lib ppx_expect.runtime ppx_string.runtime ppx_here.runtime-lib)
+;; (preprocess (pps ppx_jane))
+)

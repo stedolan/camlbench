@@ -13,6 +13,13 @@ module Stable : sig
   module V1 : sig
     type nonrec t = t [@@deriving compare]
 
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Ppx_compare_lib.Comparable.S with type t := t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     val stable_witness : t Stable_witness.t
 
     include Binable.Minimal.S with type t := t

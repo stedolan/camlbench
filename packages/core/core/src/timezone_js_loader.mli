@@ -11,6 +11,13 @@ module Load_error : sig
     | Platform_not_supported
     | Failed of exn
   [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 val load : string -> (t, Load_error.t) Result.t

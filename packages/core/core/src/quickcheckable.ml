@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"quickcheckable.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "quickcheckable.ml.before-ppx"
+;;
+
 open! Import
 open Quickcheckable_intf
 
@@ -11,8 +24,8 @@ module type S2 = Quickcheck.S2
 module type S_int = Quickcheck.S_int
 
 module Of_quickcheckable
-  (Quickcheckable : S)
-  (Conv : Conv with type quickcheckable := Quickcheckable.t) : S with type t := Conv.t =
+    (Quickcheckable : S)
+    (Conv : Conv with type quickcheckable := Quickcheckable.t) : S with type t := Conv.t =
 struct
   let quickcheck_generator =
     Quickcheck.Generator.map Quickcheckable.quickcheck_generator ~f:Conv.of_quickcheckable
@@ -31,8 +44,8 @@ struct
 end
 
 module Of_quickcheckable1
-  (Quickcheckable : S1)
-  (Conv : Conv1 with type 'a quickcheckable := 'a Quickcheckable.t) :
+    (Quickcheckable : S1)
+    (Conv : Conv1 with type 'a quickcheckable := 'a Quickcheckable.t) :
   S1 with type 'a t := 'a Conv.t = struct
   let quickcheck_generator generate_a =
     Quickcheck.Generator.map
@@ -55,8 +68,8 @@ module Of_quickcheckable1
 end
 
 module Of_quickcheckable_filtered
-  (Quickcheckable : S)
-  (Conv : Conv_filtered with type quickcheckable := Quickcheckable.t) :
+    (Quickcheckable : S)
+    (Conv : Conv_filtered with type quickcheckable := Quickcheckable.t) :
   S with type t := Conv.t = struct
   let quickcheck_generator =
     Quickcheck.Generator.filter_map
@@ -77,8 +90,8 @@ module Of_quickcheckable_filtered
 end
 
 module Of_quickcheckable_filtered1
-  (Quickcheckable : S1)
-  (Conv : Conv_filtered1 with type 'a quickcheckable := 'a Quickcheckable.t) :
+    (Quickcheckable : S1)
+    (Conv : Conv_filtered1 with type 'a quickcheckable := 'a Quickcheckable.t) :
   S1 with type 'a t := 'a Conv.t = struct
   let quickcheck_generator generate_a =
     Quickcheck.Generator.filter_map
@@ -99,3 +112,7 @@ module Of_quickcheckable_filtered1
       ~f_inverse:Conv.to_quickcheckable
   ;;
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

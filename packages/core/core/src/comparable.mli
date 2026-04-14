@@ -1,1 +1,1 @@
-include Comparable_intf.Comparable (** @inline *)
+include Comparable_intf.Comparable [@@ocaml.doc " @inline "]

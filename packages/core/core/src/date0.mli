@@ -1,1 +1,1 @@
-include Date0_intf.Date0 (** @inline *)
+include Date0_intf.Date0 [@@ocaml.doc " @inline "]

@@ -1,11 +1,12 @@
 module Definitions = struct
   open Common
 
-  (** Type of reader functions for the binary protocol.  They take a
-      buffer and a reference to a read position, and return the unmarshalled
-      value.  The next buffer position after reading in the value will be
-      stored in the position reference. *)
   type 'a reader = buf -> pos_ref:pos_ref -> 'a
+  [@@ocaml.doc
+    " Type of reader functions for the binary protocol.  They take a\n\
+    \      buffer and a reference to a read position, and return the unmarshalled\n\
+    \      value.  The next buffer position after reading in the value will be\n\
+    \      stored in the position reference. "]
 
   type ('a, 'b) reader1 = 'a reader -> 'b reader
   type ('a, 'b, 'c) reader2 = 'a reader -> ('b, 'c) reader1
@@ -13,7 +14,7 @@ module Definitions = struct
 end
 
 module type Read = sig
-  (** Reading values from the binary protocol using (mostly) OCaml. *)
+  [@@@ocaml.text " Reading values from the binary protocol using (mostly) OCaml. "]
 
   open Common
 
@@ -61,6 +62,6 @@ module type Read = sig
   val bin_read_network64_int64 : int64 reader
   val bin_read_md5 : Md5_lib.t reader
 
-  (** Fail early if the list is larger than [max_len]. *)
   val bin_read_list_with_max_len : max_len:int -> ('a, 'a list) reader1
+  [@@ocaml.doc " Fail early if the list is larger than [max_len]. "]
 end

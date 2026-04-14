@@ -1,5 +1,3 @@
-(* Utils: utility functions for user convenience *)
-
 open Common
 open Size
 open Type_class
@@ -27,8 +25,6 @@ let bin_dump ?(header = false) writer v =
   then buf
   else failwith "Bin_prot.Utils.bin_dump: size changed during writing"
 ;;
-
-(* Reading from streams *)
 
 let bin_read_stream ?max_size ~read reader =
   let buf = create_buf size_header_length in
@@ -59,8 +55,6 @@ let bin_read_stream ?max_size ~read reader =
       in
       failwith msg)
 ;;
-
-(* Conversion of binable types *)
 
 module Of_minimal (S : Binable.Minimal.S) : Binable.S with type t := S.t = struct
   include S
@@ -96,29 +90,29 @@ let maybe_annotate_shape maybe_uuid shape =
 ;;
 
 module Make_binable_gen (S : sig
-  include Make_binable_without_uuid_spec
+    include Make_binable_without_uuid_spec
 
-  val maybe_caller_identity : Shape.Uuid.t option
-end) =
+    val maybe_caller_identity : Shape.Uuid.t option
+  end) =
 struct
   include Of_minimal (struct
-    module B = S.Binable
+      module B = S.Binable
 
-    type t = S.t
+      type t = S.t
 
-    let bin_shape_t = maybe_annotate_shape S.maybe_caller_identity B.bin_shape_t
-    let bin_size_t t = B.bin_size_t (S.to_binable t)
-    let bin_write_t buf ~pos t = B.bin_write_t buf ~pos (S.to_binable t)
-    let bin_read_t buf ~pos_ref = S.of_binable (B.bin_read_t buf ~pos_ref)
-    let __bin_read_t__ buf ~pos_ref n = S.of_binable (B.__bin_read_t__ buf ~pos_ref n)
-  end)
+      let bin_shape_t = maybe_annotate_shape S.maybe_caller_identity B.bin_shape_t
+      let bin_size_t t = B.bin_size_t (S.to_binable t)
+      let bin_write_t buf ~pos t = B.bin_write_t buf ~pos (S.to_binable t)
+      let bin_read_t buf ~pos_ref = S.of_binable (B.bin_read_t buf ~pos_ref)
+      let __bin_read_t__ buf ~pos_ref n = S.of_binable (B.__bin_read_t__ buf ~pos_ref n)
+    end)
 end
 
 module Make_binable1_gen (S : sig
-  include Make_binable1_without_uuid_spec
+    include Make_binable1_without_uuid_spec
 
-  val maybe_caller_identity : Shape.Uuid.t option
-end) =
+    val maybe_caller_identity : Shape.Uuid.t option
+  end) =
 struct
   module B = S.Binable
 
@@ -163,10 +157,10 @@ struct
 end
 
 module Make_binable2_gen (S : sig
-  include Make_binable2_without_uuid_spec
+    include Make_binable2_without_uuid_spec
 
-  val maybe_caller_identity : Shape.Uuid.t option
-end) =
+    val maybe_caller_identity : Shape.Uuid.t option
+  end) =
 struct
   module B = S.Binable
 
@@ -217,10 +211,10 @@ struct
 end
 
 module Make_binable3_gen (S : sig
-  include Make_binable3_without_uuid_spec
+    include Make_binable3_without_uuid_spec
 
-  val maybe_caller_identity : Shape.Uuid.t option
-end) =
+    val maybe_caller_identity : Shape.Uuid.t option
+  end) =
 struct
   module B = S.Binable
 
@@ -273,59 +267,59 @@ struct
 end
 
 module Make_binable_with_uuid (S : Make_binable_with_uuid_spec) = Make_binable_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = Some S.caller_identity
-end)
+    let maybe_caller_identity = Some S.caller_identity
+  end)
 
 module Make_binable1_with_uuid (S : Make_binable1_with_uuid_spec) =
 Make_binable1_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = Some S.caller_identity
-end)
+    let maybe_caller_identity = Some S.caller_identity
+  end)
 
 module Make_binable2_with_uuid (S : Make_binable2_with_uuid_spec) =
 Make_binable2_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = Some S.caller_identity
-end)
+    let maybe_caller_identity = Some S.caller_identity
+  end)
 
 module Make_binable3_with_uuid (S : Make_binable3_with_uuid_spec) =
 Make_binable3_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = Some S.caller_identity
-end)
+    let maybe_caller_identity = Some S.caller_identity
+  end)
 
 module Make_binable_without_uuid (S : Make_binable_without_uuid_spec) =
 Make_binable_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = None
-end)
+    let maybe_caller_identity = None
+  end)
 
 module Make_binable1_without_uuid (S : Make_binable1_without_uuid_spec) =
 Make_binable1_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = None
-end)
+    let maybe_caller_identity = None
+  end)
 
 module Make_binable2_without_uuid (S : Make_binable2_without_uuid_spec) =
 Make_binable2_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = None
-end)
+    let maybe_caller_identity = None
+  end)
 
 module Make_binable3_without_uuid (S : Make_binable3_without_uuid_spec) =
 Make_binable3_gen (struct
-  include S
+    include S
 
-  let maybe_caller_identity = None
-end)
+    let maybe_caller_identity = None
+  end)
 
 let with_module_name f ~module_name function_name =
   match module_name with
@@ -348,13 +342,13 @@ module Make_iterable_binable (S : Make_iterable_binable_spec) = struct
   open S
 
   let bin_shape_t =
-    Shape.(
-      basetype
-        caller_identity
-        [ basetype
-            (Uuid.of_string "6592371a-4994-11e6-923a-7748e4182764")
-            [ S.bin_shape_el ]
-        ])
+    let open Shape in
+    basetype
+      caller_identity
+      [ basetype
+          (Uuid.of_string "6592371a-4994-11e6-923a-7748e4182764")
+          [ S.bin_shape_el ]
+      ]
   ;;
 
   let bin_size_t t =
@@ -405,13 +399,13 @@ module Make_iterable_binable1 (S : Make_iterable_binable1_spec) = struct
   open S
 
   let bin_shape_t t =
-    Shape.(
-      basetype
-        caller_identity
-        [ basetype
-            (Uuid.of_string "ac8a9ff4-4994-11e6-9a1b-9fb4e933bd9d")
-            [ S.bin_shape_el t ]
-        ])
+    let open Shape in
+    basetype
+      caller_identity
+      [ basetype
+          (Uuid.of_string "ac8a9ff4-4994-11e6-9a1b-9fb4e933bd9d")
+          [ S.bin_shape_el t ]
+      ]
   ;;
 
   let bin_size_t bin_size_a t =
@@ -478,13 +472,13 @@ module Make_iterable_binable2 (S : Make_iterable_binable2_spec) = struct
   open S
 
   let bin_shape_t t1 t2 =
-    Shape.(
-      basetype
-        caller_identity
-        [ basetype
-            (Uuid.of_string "b4e54ad2-4994-11e6-b8df-87c2997f9f52")
-            [ S.bin_shape_el t1 t2 ]
-        ])
+    let open Shape in
+    basetype
+      caller_identity
+      [ basetype
+          (Uuid.of_string "b4e54ad2-4994-11e6-b8df-87c2997f9f52")
+          [ S.bin_shape_el t1 t2 ]
+      ]
   ;;
 
   let bin_size_t bin_size_a bin_size_b t =
@@ -557,13 +551,13 @@ module Make_iterable_binable3 (S : Make_iterable_binable3_spec) = struct
   open S
 
   let bin_shape_t t1 t2 t3 =
-    Shape.(
-      basetype
-        caller_identity
-        [ basetype
-            (Uuid.of_string "f2112eda-e7d7-11e6-bb36-072e9ce159db")
-            [ S.bin_shape_el t1 t2 t3 ]
-        ])
+    let open Shape in
+    basetype
+      caller_identity
+      [ basetype
+          (Uuid.of_string "f2112eda-e7d7-11e6-bb36-072e9ce159db")
+          [ S.bin_shape_el t1 t2 t3 ]
+      ]
   ;;
 
   let bin_size_t bin_size_a bin_size_b bin_size_c t =

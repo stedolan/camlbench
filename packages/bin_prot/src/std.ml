@@ -1,7 +1,7 @@
-(**
-   This module defines default converters for the types defined in the OCaml
-   standard library.
-*)
+[@@@ocaml.text
+  "\n\
+  \   This module defines default converters for the types defined in the OCaml\n\
+  \   standard library.\n"]
 
 include Size
 

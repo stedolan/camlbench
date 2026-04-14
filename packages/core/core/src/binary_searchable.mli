@@ -1,4 +1,5 @@
-(** This module extends the {{!Base.Binary_searchable}[Base.Binary_searchable]}
-    module. *)
+[@@@ocaml.text
+  " This module extends the {{!Base.Binary_searchable}[Base.Binary_searchable]}\n\
+  \    module. "]
 
-include Binary_searchable_intf.Binary_searchable (** @inline *)
+include Binary_searchable_intf.Binary_searchable [@@ocaml.doc " @inline "]

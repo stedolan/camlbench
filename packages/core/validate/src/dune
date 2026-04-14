@@ -1,6 +1,5 @@
 (library
  (name validate)
  (public_name core.validate)
- (preprocess
-  (pps ppx_jane))
- (libraries base))
+;; (preprocess (pps ppx_jane))
+ (libraries base ppx_bench.runtime-lib ppx_expect.runtime))

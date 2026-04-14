@@ -1,1 +1,1 @@
-include Quickcheckable_intf.Quickcheckable (** @inline *)
+include Quickcheckable_intf.Quickcheckable [@@ocaml.doc " @inline "]

@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"span_helpers.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "span_helpers.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 
@@ -6,7 +19,18 @@ let randomize span random_state ~percent ~scale =
   if Float.( < ) mult 0. || Float.( > ) mult 1.
   then
     raise_s
-      [%message "Span.randomize: percent is out of range [0x, 1x]" (percent : Percent.t)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Span.randomize: percent is out of range [0x, 1x]"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "percent"
+               ; (Percent.sexp_of_t [@merlin.hide]) percent
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let factor =
     Random.State.float_range random_state (1. -. mult) (Float.one_ulp `Up (1. +. mult))
   in
@@ -40,3 +64,7 @@ let short_string ~sign ~hr ~min ~sec ~ms ~us ~ns =
   | Neg -> "-" ^ s
   | Zero | Pos -> s
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

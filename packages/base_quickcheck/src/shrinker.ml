@@ -74,7 +74,50 @@ let bigarray2 =
       }
     [@@deriving fields ~fields]
 
-    let create a = Bigarray.Array2.{ dim1 = dim1 a; dim2 = dim2 a }
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : t) -> ()
+      let dim2 _r__ = _r__.dim2
+      let _ = dim2
+      let dim1 _r__ = _r__.dim1
+      let _ = dim1
+
+      module Fields = struct
+        let dim2 =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "dim2"
+             ; getter = dim2
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with dim2 = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = dim2
+
+        let dim1 =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "dim1"
+             ; getter = dim1
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with dim1 = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = dim1
+      end
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+    let create a =
+      let open Bigarray.Array2 in
+      { dim1 = dim1 a; dim2 = dim2 a }
+    ;;
   end
   in
   let shrink field src =
@@ -133,7 +176,7 @@ let sexp =
       | Sexp.Atom _ -> Sequence.empty
       | Sexp.List l ->
         let shrink_list =
-          shrink (list shrinker) l |> Sequence.map ~f:(fun l -> Sexp.List l)
+          Sequence.map ~f:(fun l -> Sexp.List l) (shrink (list shrinker) l)
         in
         let shrink_tree = Sequence.of_list l in
         Sequence.round_robin [ shrink_list; shrink_tree ]))

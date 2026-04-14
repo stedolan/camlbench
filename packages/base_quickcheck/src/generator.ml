@@ -12,7 +12,18 @@ end = struct
 
   let generate (t : _ t) ~size ~random =
     if size < 0
-    then raise_s [%message "Base_quickcheck.Generator.generate: size < 0" (size : int)]
+    then
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                 "Base_quickcheck.Generator.generate: size < 0"
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "size"; (sexp_of_int [@merlin.hide]) size ]
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     else Staged.unstage t ~size ~random
   ;;
 end
@@ -73,12 +84,12 @@ let all_unit list =
 ;;
 
 module For_applicative = Applicative.Make (struct
-  type nonrec 'a t = 'a t
+    type nonrec 'a t = 'a t
 
-  let return = return
-  let apply = apply
-  let map = `Custom map
-end)
+    let return = return
+    let apply = apply
+    let map = `Custom map
+  end)
 
 let both = For_applicative.both
 let map2 = For_applicative.map2
@@ -88,12 +99,12 @@ module Applicative_infix = For_applicative.Applicative_infix
 include Applicative_infix
 
 module For_monad = Monad.Make (struct
-  type nonrec 'a t = 'a t
+    type nonrec 'a t = 'a t
 
-  let return = return
-  let bind = bind
-  let map = `Custom map
-end)
+    let return = return
+    let bind = bind
+    let map = `Custom map
+  end)
 
 let ignore_m = For_monad.ignore_m
 let join = For_monad.join
@@ -105,7 +116,14 @@ open Let_syntax
 
 let of_list list =
   if List.is_empty list
-  then Error.raise_s [%message "Base_quickcheck.Generator.of_list: empty list"];
+  then
+    Error.raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Conv.sexp_of_string
+           "Base_quickcheck.Generator.of_list: empty list"
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let array = Array.of_list list in
   let lo = 0 in
   let hi = Array.length array - 1 in
@@ -118,7 +136,14 @@ let union list = join (of_list list)
 
 let of_weighted_list alist =
   if List.is_empty alist
-  then Error.raise_s [%message "Base_quickcheck.Generator.of_weighted_list: empty list"];
+  then
+    Error.raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Conv.sexp_of_string
+           "Base_quickcheck.Generator.of_weighted_list: empty list"
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let weights, values = List.unzip alist in
   let value_array = Array.of_list values in
   let total_weight, cumulative_weight_array =
@@ -128,15 +153,33 @@ let of_weighted_list alist =
         if not (Float.is_finite weight)
         then
           Error.raise_s
-            [%message
-              "Base_quickcheck.Generator.of_weighted_list: weight is not finite"
-                (weight : float)];
+            (let ppx_sexp_message () =
+               Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                     "Base_quickcheck.Generator.of_weighted_list: weight is not finite"
+                 ; Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "weight"
+                     ; (sexp_of_float [@merlin.hide]) weight
+                     ]
+                 ]
+                 [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+             in
+             (ppx_sexp_message () [@nontail]));
         if Float.( < ) weight 0.
         then
           Error.raise_s
-            [%message
-              "Base_quickcheck.Generator.of_weighted_list: weight is negative"
-                (weight : float)];
+            (let ppx_sexp_message () =
+               Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                     "Base_quickcheck.Generator.of_weighted_list: weight is negative"
+                 ; Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "weight"
+                     ; (sexp_of_float [@merlin.hide]) weight
+                     ]
+                 ]
+                 [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+             in
+             (ppx_sexp_message () [@nontail]));
         let cumulative = acc +. weight in
         array.(index) <- cumulative;
         cumulative)
@@ -144,7 +187,12 @@ let of_weighted_list alist =
     if Float.( <= ) sum 0.
     then
       Error.raise_s
-        [%message "Base_quickcheck.Generator.of_weighted_list: total weight is zero"];
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Conv.sexp_of_string
+             "Base_quickcheck.Generator.of_weighted_list: total weight is zero"
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]));
     sum, array
   in
   create (fun ~size:_ ~random ->
@@ -172,20 +220,22 @@ let weighted_recursive_union nonrec_list ~f =
   fixed_point (fun self ->
     let rec_list =
       List.map (f self) ~f:(fun (w, t) ->
-        ( w
-        , let%bind n = size in
-          with_size ~size:(n - 1) t ))
+        w, Let_syntax.bind size ~f:(fun n -> with_size ~size:(n - 1) t))
     in
     if List.is_empty nonrec_list || List.is_empty rec_list
     then
       raise_s
-        [%message
-          "Base_quickcheck.Generator.weighted_recursive_union: lists must be non-empty"];
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Conv.sexp_of_string
+             "Base_quickcheck.Generator.weighted_recursive_union: lists must be non-empty"
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]));
     let nonrec_gen = weighted_union nonrec_list in
     let rec_gen = weighted_union (nonrec_list @ rec_list) in
-    match%bind size with
-    | 0 -> nonrec_gen
-    | _ -> rec_gen)
+    Let_syntax.bind size ~f:(function
+      | 0 -> nonrec_gen
+      | _ -> rec_gen))
 ;;
 
 let recursive_union nonrec_list ~f =
@@ -198,14 +248,9 @@ let sizes ?(min_length = 0) ?(max_length = Int.max_value) () =
     assert (min_length <= max_length);
     let upper_bound = min_length + size in
     let max_length =
-      if upper_bound >= min_length (* guard against overflow *)
-      then min max_length upper_bound
-      else max_length
+      if upper_bound >= min_length then min max_length upper_bound else max_length
     in
-    (* pick a length, weighted low so that most of the size is spent on elements *)
     let len = Splittable_random.Log_uniform.int random ~lo:min_length ~hi:max_length in
-    (* if there are no elements return an empty array, otherwise return a non-empty array
-       with the size distributed among the elements *)
     if len = 0
     then []
     else (
@@ -213,11 +258,9 @@ let sizes ?(min_length = 0) ?(max_length = Int.max_value) () =
       let remaining = size - (len - min_length) in
       let max_index = len - 1 in
       for _ = 1 to remaining do
-        (* pick an index, weighted low so that we see unbalanced distributions often *)
         let index = Splittable_random.Log_uniform.int random ~lo:0 ~hi:max_index in
         sizes.(index) <- sizes.(index) + 1
       done;
-      (* permute the array so that no index is favored over another *)
       for i = 0 to max_index - 1 do
         let j = Splittable_random.int random ~lo:i ~hi:max_index in
         Array.swap sizes i j
@@ -238,8 +281,8 @@ let result ok_t err_t =
 ;;
 
 let list_generic ?min_length ?max_length elt_gen =
-  let%bind sizes = sizes ?min_length ?max_length () in
-  List.map sizes ~f:(fun size -> with_size ~size elt_gen) |> all
+  Let_syntax.bind (sizes ?min_length ?max_length ()) ~f:(fun sizes ->
+    all (List.map sizes ~f:(fun size -> with_size ~size elt_gen)))
 ;;
 
 let list elt_gen = list_generic elt_gen
@@ -255,14 +298,11 @@ let list_filtered elts =
   create (fun ~size:_ ~random ->
     let length_of_output = Splittable_random.int random ~lo:0 ~hi:length_of_input in
     let indices = Array.init length_of_input ~f:Fn.id in
-    (* Choose [length_of_output] random values in the prefix of [indices]. *)
     for i = 0 to length_of_output - 1 do
       let j = Splittable_random.int random ~lo:i ~hi:(length_of_input - 1) in
       Array.swap indices i j
     done;
-    (* Sort the chosen indices because we don't want to reorder them. *)
     Array.sort indices ~pos:0 ~len:length_of_output ~compare:Int.compare;
-    (* Return the chosen elements. *)
     List.init length_of_output ~f:(fun i -> elts.(indices.(i))))
 ;;
 
@@ -282,8 +322,8 @@ let lazy_t t = map t ~f:Lazy.from_val
 
 let char_uniform_inclusive lo hi =
   create (fun ~size:_ ~random ->
-    Splittable_random.int random ~lo:(Char.to_int lo) ~hi:(Char.to_int hi)
-    |> Char.unsafe_of_int)
+    Char.unsafe_of_int
+      (Splittable_random.int random ~lo:(Char.to_int lo) ~hi:(Char.to_int hi)))
 ;;
 
 let char_uppercase = char_uniform_inclusive 'A' 'Z'
@@ -292,15 +332,7 @@ let char_digit = char_uniform_inclusive '0' '9'
 let char_print_uniform = char_uniform_inclusive ' ' '~'
 let char_uniform = char_uniform_inclusive Char.min_value Char.max_value
 let char_alpha = union [ char_lowercase; char_uppercase ]
-
-let char_alphanum =
-  weighted_union
-    (* Most people probably expect this to be a uniform distribution, not weighted
-       toward digits like we would get with [union] (since there are fewer digits than
-       letters). *)
-    [ 52., char_alpha; 10., char_digit ]
-;;
-
+let char_alphanum = weighted_union [ 52., char_alpha; 10., char_digit ]
 let char_whitespace = of_list (List.filter Char.all ~f:Char.is_whitespace)
 let char_print = weighted_union [ 10., char_alphanum; 1., char_print_uniform ]
 
@@ -313,8 +345,6 @@ let char =
     ]
 ;;
 
-(* Produces a number from 0 or 1 to size + 1, weighted high. We have found this
-   distribution empirically useful for string lengths. *)
 let small_int ~allow_zero =
   create (fun ~size ~random ->
     let lower_bound = if allow_zero then 0 else 1 in
@@ -344,11 +374,18 @@ module For_integer (Integer : Int_with_random) = struct
     then return Integer.max_value
     else if Float.( < ) p 0. || Float.( > ) p 1. || Float.is_nan p
     then
-      raise_s [%message "geometric distribution: p must be between 0 and 1" (p : float)]
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                 "geometric distribution: p must be between 0 and 1"
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "p"; (sexp_of_float [@merlin.hide]) p ]
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     else (
-      (* We start with a uniform distribution. We convert to exponential distribution
-         using [log]. We convert to geometric with [round_down]. Then we bounds check and
-         return. *)
       let denominator = Float.log1p (-.p) in
       create (fun ~size:_ ~random ->
         let uniform = Splittable_random.unit_float random in
@@ -378,19 +415,24 @@ module For_integer (Integer : Int_with_random) = struct
   let uniform_all = uniform_inclusive Integer.min_value Integer.max_value
 
   let all =
-    [%map
-      let negative = bool
-      and magnitude = log_inclusive Integer.zero Integer.max_value in
-      if negative then Integer.bit_not magnitude else magnitude]
+    let __let_syntax__003_ = bool [@@ppxlib.do_not_enter_value]
+    and __let_syntax__004_ =
+      log_inclusive Integer.zero Integer.max_value
+        [@@ppxlib.do_not_enter_value]
+    in
+    Let_syntax.map
+      (Let_syntax.both __let_syntax__003_ __let_syntax__004_)
+      ~f:(fun (negative, magnitude) ->
+        if negative then Integer.bit_not magnitude else magnitude)
   ;;
 end
 
 module For_int = For_integer (struct
-  include Int
+    include Int
 
-  let uniform = Splittable_random.int
-  let log_uniform = Splittable_random.Log_uniform.int
-end)
+    let uniform = Splittable_random.int
+    let log_uniform = Splittable_random.Log_uniform.int
+  end)
 
 let int = For_int.all
 let int_uniform = For_int.uniform_all
@@ -401,11 +443,11 @@ let int_log_uniform_inclusive = For_int.log_uniform_inclusive
 let int_geometric = For_int.geometric
 
 module For_int32 = For_integer (struct
-  include Int32
+    include Int32
 
-  let uniform = Splittable_random.int32
-  let log_uniform = Splittable_random.Log_uniform.int32
-end)
+    let uniform = Splittable_random.int32
+    let log_uniform = Splittable_random.Log_uniform.int32
+  end)
 
 let int32 = For_int32.all
 let int32_uniform = For_int32.uniform_all
@@ -416,11 +458,11 @@ let int32_log_uniform_inclusive = For_int32.log_uniform_inclusive
 let int32_geometric = For_int32.geometric
 
 module For_int63 = For_integer (struct
-  include Int63
+    include Int63
 
-  let uniform = Splittable_random.int63
-  let log_uniform = Splittable_random.Log_uniform.int63
-end)
+    let uniform = Splittable_random.int63
+    let log_uniform = Splittable_random.Log_uniform.int63
+  end)
 
 let int63 = For_int63.all
 let int63_uniform = For_int63.uniform_all
@@ -431,11 +473,11 @@ let int63_log_uniform_inclusive = For_int63.log_uniform_inclusive
 let int63_geometric = For_int63.geometric
 
 module For_int64 = For_integer (struct
-  include Int64
+    include Int64
 
-  let uniform = Splittable_random.int64
-  let log_uniform = Splittable_random.Log_uniform.int64
-end)
+    let uniform = Splittable_random.int64
+    let log_uniform = Splittable_random.Log_uniform.int64
+  end)
 
 let int64 = For_int64.all
 let int64_uniform = For_int64.uniform_all
@@ -446,11 +488,11 @@ let int64_log_uniform_inclusive = For_int64.log_uniform_inclusive
 let int64_geometric = For_int64.geometric
 
 module For_nativeint = For_integer (struct
-  include Nativeint
+    include Nativeint
 
-  let uniform = Splittable_random.nativeint
-  let log_uniform = Splittable_random.Log_uniform.nativeint
-end)
+    let uniform = Splittable_random.nativeint
+    let log_uniform = Splittable_random.Log_uniform.nativeint
+  end)
 
 let nativeint = For_nativeint.all
 let nativeint_uniform = For_nativeint.uniform_all
@@ -480,27 +522,30 @@ let float_min_nan_mantissa = Int63.succ float_inf_mantissa
 let float_max_nan_mantissa = float_max_normal_mantissa
 let float_num_mantissa_bits = 52
 
-(* We weight mantissas so that "integer-like" values, and values with only a few digits
-   past the decimal, are reasonably common. *)
 let float_normal_mantissa =
-  let%bind num_bits = For_int.uniform_inclusive 0 float_num_mantissa_bits in
-  let%map bits =
-    For_int63.inclusive Int63.zero (Int63.pred (Int63.shift_left Int63.one num_bits))
-  in
-  Int63.shift_left bits (Int.( - ) float_num_mantissa_bits num_bits)
+  Let_syntax.bind
+    (For_int.uniform_inclusive 0 float_num_mantissa_bits)
+    ~f:(fun num_bits ->
+      Let_syntax.map
+        (For_int63.inclusive
+           Int63.zero
+           (Int63.pred (Int63.shift_left Int63.one num_bits)))
+        ~f:(fun bits ->
+          Int63.shift_left bits (Int.( - ) float_num_mantissa_bits num_bits)))
 ;;
 
 let float_exponent_weighted_low lower_bound upper_bound =
-  let%map offset = For_int.log_inclusive 0 (Int.( - ) upper_bound lower_bound) in
-  Int.( + ) lower_bound offset
+  Let_syntax.map
+    (For_int.log_inclusive 0 (Int.( - ) upper_bound lower_bound))
+    ~f:(fun offset -> Int.( + ) lower_bound offset)
 ;;
 
 let float_exponent_weighted_high lower_bound upper_bound =
-  let%map offset = For_int.log_inclusive 0 (Int.( - ) upper_bound lower_bound) in
-  Int.( - ) upper_bound offset
+  Let_syntax.map
+    (For_int.log_inclusive 0 (Int.( - ) upper_bound lower_bound))
+    ~f:(fun offset -> Int.( - ) upper_bound offset)
 ;;
 
-(* We weight exponents such that values near 1 are more likely. *)
 let float_exponent =
   let midpoint = Float.ieee_exponent 1. in
   union
@@ -510,42 +555,61 @@ let float_exponent =
 ;;
 
 let float_zero =
-  let%map negative = bool in
-  Float.create_ieee_exn
-    ~negative
-    ~exponent:float_zero_exponent
-    ~mantissa:float_zero_mantissa
+  Let_syntax.map bool ~f:(fun negative ->
+    Float.create_ieee_exn
+      ~negative
+      ~exponent:float_zero_exponent
+      ~mantissa:float_zero_mantissa)
 ;;
 
 let float_subnormal =
-  let%map negative = bool
-  and exponent = return float_subnormal_exponent
-  and mantissa =
+  let __let_syntax__011_ = bool [@@ppxlib.do_not_enter_value]
+  and __let_syntax__012_ = return float_subnormal_exponent [@@ppxlib.do_not_enter_value]
+  and __let_syntax__013_ =
     For_int63.log_inclusive float_min_subnormal_mantissa float_max_subnormal_mantissa
+      [@@ppxlib.do_not_enter_value]
   in
-  Float.create_ieee_exn ~negative ~exponent ~mantissa
+  Let_syntax.map
+    (Let_syntax.both
+       __let_syntax__011_
+       (Let_syntax.both __let_syntax__012_ __let_syntax__013_))
+    ~f:(fun (negative, (exponent, mantissa)) ->
+      Float.create_ieee_exn ~negative ~exponent ~mantissa)
 ;;
 
 let float_normal =
-  let%map negative = bool
-  and exponent = float_exponent
-  and mantissa = float_normal_mantissa in
-  Float.create_ieee_exn ~negative ~exponent ~mantissa
+  let __let_syntax__015_ = bool [@@ppxlib.do_not_enter_value]
+  and __let_syntax__016_ = float_exponent [@@ppxlib.do_not_enter_value]
+  and __let_syntax__017_ = float_normal_mantissa [@@ppxlib.do_not_enter_value] in
+  Let_syntax.map
+    (Let_syntax.both
+       __let_syntax__015_
+       (Let_syntax.both __let_syntax__016_ __let_syntax__017_))
+    ~f:(fun (negative, (exponent, mantissa)) ->
+      Float.create_ieee_exn ~negative ~exponent ~mantissa)
 ;;
 
 let float_infinite =
-  let%map negative = bool in
-  Float.create_ieee_exn
-    ~negative
-    ~exponent:float_inf_exponent
-    ~mantissa:float_inf_mantissa
+  Let_syntax.map bool ~f:(fun negative ->
+    Float.create_ieee_exn
+      ~negative
+      ~exponent:float_inf_exponent
+      ~mantissa:float_inf_mantissa)
 ;;
 
 let float_nan =
-  let%map negative = bool
-  and exponent = return float_nan_exponent
-  and mantissa = For_int63.inclusive float_min_nan_mantissa float_max_nan_mantissa in
-  Float.create_ieee_exn ~negative ~exponent ~mantissa
+  let __let_syntax__020_ = bool [@@ppxlib.do_not_enter_value]
+  and __let_syntax__021_ = return float_nan_exponent [@@ppxlib.do_not_enter_value]
+  and __let_syntax__022_ =
+    For_int63.inclusive float_min_nan_mantissa float_max_nan_mantissa
+      [@@ppxlib.do_not_enter_value]
+  in
+  Let_syntax.map
+    (Let_syntax.both
+       __let_syntax__020_
+       (Let_syntax.both __let_syntax__021_ __let_syntax__022_))
+    ~f:(fun (negative, (exponent, mantissa)) ->
+      Float.create_ieee_exn ~negative ~exponent ~mantissa)
 ;;
 
 let float_of_class c =
@@ -567,9 +631,9 @@ let float_weight_of_class c =
 ;;
 
 let float_matching_classes filter =
-  List.filter_map Float.Class.all ~f:(fun c ->
-    if filter c then Some (float_weight_of_class c, float_of_class c) else None)
-  |> weighted_union
+  weighted_union
+    (List.filter_map Float.Class.all ~f:(fun c ->
+       if filter c then Some (float_weight_of_class c, float_of_class c) else None))
 ;;
 
 let float_finite =
@@ -593,43 +657,58 @@ let float_finite_non_zero =
 ;;
 
 let float_strictly_positive =
-  let%map t = float_finite_non_zero in
-  Float.abs t
+  Let_syntax.map float_finite_non_zero ~f:(fun t -> Float.abs t)
 ;;
 
 let float_strictly_negative =
-  let%map t = float_finite_non_zero in
-  ~-.(Float.abs t)
+  Let_syntax.map float_finite_non_zero ~f:(fun t -> -.Float.abs t)
 ;;
 
-let float_positive_or_zero =
-  let%map t = float_finite in
-  Float.abs t
-;;
-
-let float_negative_or_zero =
-  let%map t = float_finite in
-  ~-.(Float.abs t)
-;;
+let float_positive_or_zero = Let_syntax.map float_finite ~f:(fun t -> Float.abs t)
+let float_negative_or_zero = Let_syntax.map float_finite ~f:(fun t -> -.Float.abs t)
 
 let float_uniform_exclusive lower_bound upper_bound =
   let open Float.O in
   if (not (Float.is_finite lower_bound)) || not (Float.is_finite upper_bound)
   then
     raise_s
-      [%message
-        "Float.uniform_exclusive: bounds are not finite"
-          (lower_bound : float)
-          (upper_bound : float)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Float.uniform_exclusive: bounds are not finite"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "lower_bound"
+               ; (sexp_of_float [@merlin.hide]) lower_bound
+               ]
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "upper_bound"
+               ; (sexp_of_float [@merlin.hide]) upper_bound
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let lower_inclusive = Float.one_ulp `Up lower_bound in
   let upper_inclusive = Float.one_ulp `Down upper_bound in
   if lower_inclusive > upper_inclusive
   then
     raise_s
-      [%message
-        "Float.uniform_exclusive: requested range is empty"
-          (lower_bound : float)
-          (upper_bound : float)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Float.uniform_exclusive: requested range is empty"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "lower_bound"
+               ; (sexp_of_float [@merlin.hide]) lower_bound
+               ]
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "upper_bound"
+               ; (sexp_of_float [@merlin.hide]) upper_bound
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   create (fun ~size:_ ~random ->
     Splittable_random.float random ~lo:lower_inclusive ~hi:upper_inclusive)
 ;;
@@ -648,7 +727,7 @@ let float_inclusive lower_bound upper_bound =
 ;;
 
 let string_with_length_of char_gen ~length =
-  list_with_length char_gen ~length |> map ~f:String.of_char_list
+  map ~f:String.of_char_list (list_with_length char_gen ~length)
 ;;
 
 let string_of char_gen =
@@ -667,85 +746,98 @@ let string_with_length ~length = string_with_length_of char ~length
 
 module Edit_string = struct
   let edit_insert string =
-    let%bind pos = int_uniform_inclusive 0 (String.length string) in
-    let%bind len = int_geometric 1 ~p:0.5 in
-    let%bind str = string_with_length ~length:len in
-    [ String.prefix string pos; str; String.drop_prefix string pos ]
-    |> String.concat
-    |> return
+    Let_syntax.bind
+      (int_uniform_inclusive 0 (String.length string))
+      ~f:(fun pos ->
+        Let_syntax.bind (int_geometric 1 ~p:0.5) ~f:(fun len ->
+          Let_syntax.bind (string_with_length ~length:len) ~f:(fun str ->
+            return
+              (String.concat
+                 [ String.prefix string pos; str; String.drop_prefix string pos ]))))
   ;;
 
   let edit_remove string =
-    let%bind len = int_log_uniform_inclusive 1 (String.length string) in
-    let%bind pos = int_uniform_inclusive 0 (String.length string - len) in
-    [ String.prefix string pos; String.drop_prefix string (pos + len) ]
-    |> String.concat
-    |> return
+    Let_syntax.bind
+      (int_log_uniform_inclusive 1 (String.length string))
+      ~f:(fun len ->
+        Let_syntax.bind
+          (int_uniform_inclusive 0 (String.length string - len))
+          ~f:(fun pos ->
+            return
+              (String.concat
+                 [ String.prefix string pos; String.drop_prefix string (pos + len) ])))
   ;;
 
   let edit_replace string =
-    let%bind len = int_log_uniform_inclusive 1 (String.length string) in
-    let%bind pos = int_uniform_inclusive 0 (String.length string - len) in
-    let%bind str = string_with_length ~length:len in
-    [ String.prefix string pos; str; String.drop_prefix string (pos + len) ]
-    |> String.concat
-    |> return
+    Let_syntax.bind
+      (int_log_uniform_inclusive 1 (String.length string))
+      ~f:(fun len ->
+        Let_syntax.bind
+          (int_uniform_inclusive 0 (String.length string - len))
+          ~f:(fun pos ->
+            Let_syntax.bind (string_with_length ~length:len) ~f:(fun str ->
+              return
+                (String.concat
+                   [ String.prefix string pos
+                   ; str
+                   ; String.drop_prefix string (pos + len)
+                   ]))))
   ;;
 
   let edit_double string =
-    let%bind len = int_log_uniform_inclusive 1 (String.length string) in
-    let%bind pos = int_uniform_inclusive 0 (String.length string - len) in
-    [ String.prefix string (pos + len); String.drop_prefix string pos ]
-    |> String.concat
-    |> return
+    Let_syntax.bind
+      (int_log_uniform_inclusive 1 (String.length string))
+      ~f:(fun len ->
+        Let_syntax.bind
+          (int_uniform_inclusive 0 (String.length string - len))
+          ~f:(fun pos ->
+            return
+              (String.concat
+                 [ String.prefix string (pos + len); String.drop_prefix string pos ])))
   ;;
 
   let edit_nonempty string =
-    [ edit_insert string; edit_remove string; edit_replace string; edit_double string ]
-    |> union
+    union
+      [ edit_insert string; edit_remove string; edit_replace string; edit_double string ]
   ;;
 
   let rec edit string n_times =
     if n_times <= 0
     then return string
-    else (
-      let%bind string =
-        if String.is_empty string then edit_insert string else edit_nonempty string
-      in
-      edit string (n_times - 1))
+    else
+      Let_syntax.bind
+        (if String.is_empty string then edit_insert string else edit_nonempty string)
+        ~f:(fun string -> edit string (n_times - 1))
   ;;
 end
 
 let string_like string =
-  let%bind n_times = int_geometric 0 ~p:0.5 in
-  Edit_string.edit string n_times
+  Let_syntax.bind (int_geometric 0 ~p:0.5) ~f:(fun n_times ->
+    Edit_string.edit string n_times)
 ;;
 
 let bytes = map string ~f:Bytes.of_string
 
 let sexp_of atom =
   fixed_point (fun self ->
-    let%bind size = size in
-    (* choose a number weighted low so we have a decreasing, but not vanishing, chance
-       to generate atoms as size grows *)
-    match%bind For_int.log_uniform_inclusive 0 (size + 1) with
-    (* generate an atom using the given size *)
-    | 0 ->
-      let%map atom = atom in
-      Sexp.Atom atom
-    (* relying on [List.gen] to distribute [size] over sub-sexps *)
-    | _ ->
-      let%map list = list self in
-      Sexp.List list)
+    Let_syntax.bind size ~f:(fun size ->
+      Let_syntax.bind
+        (For_int.log_uniform_inclusive 0 (size + 1))
+        ~f:(function
+          | 0 -> Let_syntax.map atom ~f:(fun atom -> Sexp.Atom atom)
+          | _ -> Let_syntax.map (list self) ~f:(fun list -> Sexp.List list))))
 ;;
 
 let sexp = sexp_of string
 
 let map_tree_using_comparator ~comparator key_gen data_gen =
-  let%bind keys = list key_gen in
-  let keys = List.dedup_and_sort keys ~compare:comparator.Comparator.compare in
-  let%bind data = list_with_length data_gen ~length:(List.length keys) in
-  return (Map.Using_comparator.Tree.of_alist_exn ~comparator (List.zip_exn keys data))
+  Let_syntax.bind (list key_gen) ~f:(fun keys ->
+    let keys = List.dedup_and_sort keys ~compare:comparator.Comparator.compare in
+    Let_syntax.bind
+      (list_with_length data_gen ~length:(List.length keys))
+      ~f:(fun data ->
+        return
+          (Map.Using_comparator.Tree.of_alist_exn ~comparator (List.zip_exn keys data))))
 ;;
 
 let set_tree_using_comparator ~comparator elt_gen =
@@ -753,34 +845,37 @@ let set_tree_using_comparator ~comparator elt_gen =
 ;;
 
 let comparator_of_m
-  (type a c)
-  (module M : Comparator.S with type t = a and type comparator_witness = c)
+      (type a)
+      (type c)
+      ((module M) : (module Comparator.S with type t = a and type comparator_witness = c))
   =
   M.comparator
 ;;
 
 let map_t_m m key_gen data_gen =
   let comparator = comparator_of_m m in
-  map_tree_using_comparator ~comparator key_gen data_gen
-  |> map ~f:(Map.Using_comparator.of_tree ~comparator)
+  map
+    ~f:(Map.Using_comparator.of_tree ~comparator)
+    (map_tree_using_comparator ~comparator key_gen data_gen)
 ;;
 
 let set_t_m m elt_gen =
   let comparator = comparator_of_m m in
-  set_tree_using_comparator ~comparator elt_gen
-  |> map ~f:(Set.Using_comparator.of_tree ~comparator)
+  map
+    ~f:(Set.Using_comparator.of_tree ~comparator)
+    (set_tree_using_comparator ~comparator elt_gen)
 ;;
 
 let bigarray1 t kind layout ~length =
-  let%map elts =
-    match length with
-    | None -> list t
-    | Some length -> list_with_length t ~length
-  in
-  let elts = Array.of_list elts in
-  let dim = Array.length elts in
-  let offset = Bigarray_helpers.Layout.offset layout in
-  Bigarray_helpers.Array1.init kind layout dim ~f:(fun i -> elts.(i - offset))
+  Let_syntax.map
+    (match length with
+     | None -> list t
+     | Some length -> list_with_length t ~length)
+    ~f:(fun elts ->
+      let elts = Array.of_list elts in
+      let dim = Array.length elts in
+      let offset = Bigarray_helpers.Layout.offset layout in
+      Bigarray_helpers.Array1.init kind layout dim ~f:(fun i -> elts.(i - offset)))
 ;;
 
 let bigstring_gen = bigarray1 char Char C_layout
@@ -794,32 +889,29 @@ let float32_vec_with_length ~length = float32_vec_gen ~length:(Some length)
 let float64_vec_with_length ~length = float64_vec_gen ~length:(Some length)
 
 let bigarray2_dim =
-  match%bind size with
-  | 0 -> return (0, 0)
-  | max_total_size ->
-    let%bind a =
-      (* choose a dimension up to [max_total_size], weighted low to give the other
-         dimension a good chance of being comparatively high *)
-      int_log_uniform_inclusive 1 max_total_size
-    in
-    let%bind b =
-      (* choose a dimension up to [max_total_size / a], weighted high to reach close to
-         [max_total_size] most of the time *)
-      let max_b = max_total_size / a in
-      let%map b_weighted_low = int_log_uniform_inclusive 0 max_b in
-      max_b - b_weighted_low
-    in
-    (* avoid any skew of a vs b by randomly swapping *)
-    if%map bool then a, b else b, a
+  Let_syntax.bind size ~f:(function
+    | 0 -> return (0, 0)
+    | max_total_size ->
+      Let_syntax.bind (int_log_uniform_inclusive 1 max_total_size) ~f:(fun a ->
+        Let_syntax.bind
+          (let max_b = max_total_size / a in
+           Let_syntax.map (int_log_uniform_inclusive 0 max_b) ~f:(fun b_weighted_low ->
+             max_b - b_weighted_low))
+          ~f:(fun b ->
+            Let_syntax.map bool ~f:(function
+              | true -> a, b
+              | false -> b, a))))
 ;;
 
 let bigarray2 t kind layout =
-  let%bind dim1, dim2 = bigarray2_dim in
-  let%map elts = list_with_length ~length:dim1 (list_with_length ~length:dim2 t) in
-  let elts = Array.of_list_map ~f:Array.of_list elts in
-  let offset = Bigarray_helpers.Layout.offset layout in
-  Bigarray_helpers.Array2.init kind layout dim1 dim2 ~f:(fun i j ->
-    elts.(i - offset).(j - offset))
+  Let_syntax.bind bigarray2_dim ~f:(fun (dim1, dim2) ->
+    Let_syntax.map
+      (list_with_length ~length:dim1 (list_with_length ~length:dim2 t))
+      ~f:(fun elts ->
+        let elts = Array.of_list_map ~f:Array.of_list elts in
+        let offset = Bigarray_helpers.Layout.offset layout in
+        Bigarray_helpers.Array2.init kind layout dim1 dim2 ~f:(fun i j ->
+          elts.(i - offset).(j - offset))))
 ;;
 
 let float32_mat = bigarray2 float Float32 Fortran_layout
@@ -827,9 +919,11 @@ let float64_mat = bigarray2 float Float64 Fortran_layout
 
 module Debug = struct
   let coverage
-    (type k cmp)
-    (module Cmp : Comparator.S with type t = k and type comparator_witness = cmp)
-    sample
+        (type k)
+        (type cmp)
+        ((module Cmp) :
+          (module Comparator.S with type t = k and type comparator_witness = cmp))
+        sample
     =
     Sequence.fold
       sample

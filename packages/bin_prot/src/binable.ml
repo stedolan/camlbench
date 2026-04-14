@@ -1,9 +1,3 @@
-(* Binable: signatures defining generated functions for the binary protocol.
-   [S, S1, etc] are the signatures satisfied by the generated code and
-   [Minimal.S, Minimal.S1, etc] are the signatures that generated code uses. *)
-
-(* the subset of S containing only functions, so that one can recursively define modules
-   implementing this interface *)
 module type S_only_functions = sig
   type t
 
@@ -11,13 +5,16 @@ module type S_only_functions = sig
   val bin_write_t : t Write.writer
   val bin_read_t : t Read.reader
 
-  (**
-     This function only needs implementation if [t] exposed to be a polymorphic variant.
-     Despite what the type reads, this does *not* produce a function after reading;
-     instead it takes the constructor tag (int) before reading and reads the rest of the
-     variant [t] afterwards.
-  *)
   val __bin_read_t__ : (int -> t) Read.reader
+  [@@ocaml.doc
+    "\n\
+    \     This function only needs implementation if [t] exposed to be a polymorphic \
+     variant.\n\
+    \     Despite what the type reads, this does *not* produce a function after reading;\n\
+    \     instead it takes the constructor tag (int) before reading and reads the rest \
+     of the\n\
+    \     variant [t] afterwards.\n\
+    \  "]
 end
 
 module type S_local_only_functions = sig

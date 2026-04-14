@@ -1,14 +1,28 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"string_id.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "string_id.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 include String_id_intf
 
-module Make_with_validate_without_pretty_printer_with_bin_shape (M : sig
-  val module_name : string
-  val validate : string -> unit Or_error.t
-  val include_default_validation : bool
-  val caller_identity : Bin_prot.Shape.Uuid.t option
-end)
-() =
+module Make_with_validate_without_pretty_printer_with_bin_shape
+    (M : sig
+       val module_name : string
+       val validate : string -> unit Or_error.t
+       val include_default_validation : bool
+       val caller_identity : Bin_prot.Shape.Uuid.t option
+     end)
+    () =
 struct
   module Stable = struct
     module V1 = struct
@@ -16,6 +30,82 @@ struct
         type t = string
         [@@deriving
           compare, equal, globalize, hash, sexp, sexp_grammar, typerep, stable_witness]
+
+        include struct
+          [@@@ocaml.warning "-60"]
+
+          let _ = fun (_ : t) -> ()
+
+          let compare =
+            (fun a__001_ b__002_ -> compare_string a__001_ b__002_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let equal =
+            (fun a__003_ b__004_ -> equal_string a__003_ b__004_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+          let globalize : t -> t = (globalize_string : t -> t)
+          let _ = globalize
+
+          let hash_fold_t
+            : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+            =
+            fun hsv arg -> hash_fold_string hsv arg
+
+          and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+            let func = hash_string in
+            fun x -> func x
+          ;;
+
+          let _ = hash_fold_t
+          and _ = hash
+
+          let t_of_sexp = (string_of_sexp : Sexplib0.Sexp.t -> t)
+          let _ = t_of_sexp
+          let sexp_of_t = (sexp_of_string : t -> Sexplib0.Sexp.t)
+          let _ = sexp_of_t
+          let t_sexp_grammar : t Sexplib0.Sexp_grammar.t = string_sexp_grammar
+          let _ = t_sexp_grammar
+
+          module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+              type nonrec t = t
+
+              let name =
+                "string_id.ml.before-ppx.Make_with_validate_without_pretty_printer_with_bin_shape.Stable.V1.T.t"
+              ;;
+
+              let _ = name
+            end)
+
+          let typename_of_t = Typename_of_t.typename_of_t
+          let _ = typename_of_t
+
+          let typerep_of_t =
+            let name_of_t = Typename_of_t.named in
+            Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy typerep_of_string))
+          ;;
+
+          let _ = typerep_of_t
+
+          let stable_witness =
+            (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+             : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+          and __stable_witness_checks_for_t__ () =
+            let _ : string Ppx_stable_witness_runtime.Stable_witness.t =
+              stable_witness_string
+            in
+            ()
+          ;;
+
+          let _ = stable_witness
+          and _ = __stable_witness_checks_for_t__
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
         let check_for_whitespace =
           let invalid s reason =
@@ -97,19 +187,21 @@ struct
   let quickcheck_observer = String.quickcheck_observer
 
   let quickcheck_generator =
-    String.gen_nonempty' Char.gen_print
-    |> Quickcheck.Generator.filter ~f:(fun string -> check string |> Result.is_ok)
+    Quickcheck.Generator.filter
+      ~f:(fun string -> Result.is_ok (check string))
+      (String.gen_nonempty' Char.gen_print)
   ;;
 
   let arg_type = Command.Arg_type.create of_string
 end
 
-module Make_with_validate_without_pretty_printer (M : sig
-  val module_name : string
-  val validate : string -> unit Or_error.t
-  val include_default_validation : bool
-end)
-() =
+module Make_with_validate_without_pretty_printer
+    (M : sig
+       val module_name : string
+       val validate : string -> unit Or_error.t
+       val include_default_validation : bool
+     end)
+    () =
 struct
   include
     Make_with_validate_without_pretty_printer_with_bin_shape
@@ -121,10 +213,11 @@ struct
       ()
 end
 
-module Make_without_pretty_printer (M : sig
-  val module_name : string
-end)
-() =
+module Make_without_pretty_printer
+    (M : sig
+       val module_name : string
+     end)
+    () =
 struct
   include
     Make_with_validate_without_pretty_printer
@@ -136,43 +229,46 @@ struct
       ()
 end
 
-module Make_with_validate (M : sig
-  val module_name : string
-  val validate : string -> unit Or_error.t
-  val include_default_validation : bool
-end)
-() =
+module Make_with_validate
+    (M : sig
+       val module_name : string
+       val validate : string -> unit Or_error.t
+       val include_default_validation : bool
+     end)
+    () =
 struct
   include Make_with_validate_without_pretty_printer (M) ()
 
   include Pretty_printer.Register (struct
-    type nonrec t = t
+      type nonrec t = t
 
-    let module_name = M.module_name
-    let to_string = to_string
-  end)
+      let module_name = M.module_name
+      let to_string = to_string
+    end)
 end
 
-module Make (M : sig
-  val module_name : string
-end)
-() =
+module Make
+    (M : sig
+       val module_name : string
+     end)
+    () =
 struct
   include Make_without_pretty_printer (M) ()
 
   include Pretty_printer.Register (struct
-    type nonrec t = t
+      type nonrec t = t
 
-    let module_name = M.module_name
-    let to_string = to_string
-  end)
+      let module_name = M.module_name
+      let to_string = to_string
+    end)
 end
 
-module Make_with_distinct_bin_shape (M : sig
-  val module_name : string
-  val caller_identity : Bin_prot.Shape.Uuid.t
-end)
-() =
+module Make_with_distinct_bin_shape
+    (M : sig
+       val module_name : string
+       val caller_identity : Bin_prot.Shape.Uuid.t
+     end)
+    () =
 struct
   include
     Make_with_validate_without_pretty_printer_with_bin_shape
@@ -185,11 +281,11 @@ struct
       ()
 
   include Pretty_printer.Register (struct
-    type nonrec t = t
+      type nonrec t = t
 
-    let module_name = M.module_name
-    let to_string = to_string
-  end)
+      let module_name = M.module_name
+      let to_string = to_string
+    end)
 end
 
 include
@@ -205,3 +301,7 @@ module String_without_validation_without_pretty_printer = struct
   let globalize = globalize_string
   let arg_type = Command.Arg_type.create Fn.id
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -5,9 +5,8 @@ module Test = Test
 module Export = Export
 include Export
 
-(**/**)
+[@@@ocaml.text "/*"]
 
-(*_ This module is exposed only to make ocamldoc output more readable. *)
 module With_basic_types = With_basic_types
 
 module Private = struct

@@ -1,4 +1,4 @@
-(** A [Time_ns] that uses its alternate sexp representation. **)
+[@@@ocaml.text " A [Time_ns] that uses its alternate sexp representation. *"]
 
 open! Import
 

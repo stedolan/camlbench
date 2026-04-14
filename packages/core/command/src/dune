@@ -1,6 +1,7 @@
 (library
  (name command)
  (public_name core.command)
- (libraries base filename_base stdio univ_map)
- (preprocess
-  (pps ppx_jane ppx_optcomp)))
+ (libraries base filename_base stdio univ_map ppx_enumerate.runtime-lib ppx_stable_witness.runtime bin_prot ppx_sexp_conv.runtime-lib sexplib ppx_string.runtime)
+;; (preprocess
+;;  (pps ppx_jane ppx_optcomp))
+)

@@ -1,3 +1,13 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"memo.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "memo.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 
@@ -26,8 +36,7 @@ let unit f =
 
 let unbounded (type a) ?(hashable = Hashtbl.Hashable.poly) f =
   let cache =
-    let module A =
-      Hashable.Make_plain_and_derive_hash_fold_t (struct
+    let module A = Hashable.Make_plain_and_derive_hash_fold_t (struct
         type t = a
 
         let { Hashtbl.Hashable.hash; compare; sexp_of_t } = hashable
@@ -35,18 +44,14 @@ let unbounded (type a) ?(hashable = Hashtbl.Hashable.poly) f =
     in
     A.Table.create () ~size:0
   in
-  (* Allocate this closure at the call to [unbounded], not at each call to the memoized
-     function. *)
   let really_call_f arg = Result.capture f arg in
   fun arg -> Result.return (Hashtbl.findi_or_add cache arg ~default:really_call_f)
 ;;
 
-(* the same but with a bound on cache size *)
 let lru (type a) ?(hashable = Hashtbl.Hashable.poly) ~max_cache_size f =
   if max_cache_size <= 0
   then failwithf "Memo.lru: max_cache_size of %i <= 0" max_cache_size ();
-  let module Cache =
-    Hash_queue.Make (struct
+  let module Cache = Hash_queue.Make (struct
       type t = a
 
       let { Hashtbl.Hashable.hash; compare; sexp_of_t } = hashable
@@ -60,7 +65,6 @@ let lru (type a) ?(hashable = Hashtbl.Hashable.poly) ~max_cache_size f =
        | None ->
          let result = Result.capture f arg in
          Cache.enqueue_back_exn cache arg result;
-         (* eject least recently used cache entry *)
          if Cache.length cache > max_cache_size
          then ignore (Cache.dequeue_front_exn cache : _ Result.t);
          result)
@@ -72,28 +76,6 @@ let general ?hashable ?cache_size_bound f =
   | Some n -> lru ?hashable ~max_cache_size:n f
 ;;
 
-(* We expect [f_onestep] to be a one-step unrolled recursive function; see the mli. Hence,
-   here we create the memoized function _and_ pass it to [f_onestep] to be used for
-   recursive calls.
-
-   Note that we immediately apply [f_onestep] to its first argument here so that any
-   precomputation is performed when the user calls [recursive].
-
-   As an example, if someone writes this non-memoized code:
-
-   [ let rec f = let data = compute_without_using_f () in fun x -> ... f ... ]
-
-   and converts to memoization by doing:
-
-   {[
-     let f =
-       let f_onestep f = let data = compute_without_using_f () in fun x -> ... f ... in
-       recursive f_onestep
-   ]}
-
-   we want to compute [data] immediately. If we had [fun x -> f_onestep (force memoized)
-   x] below, we'd recompute [data] each time the user calls [f] on an argument that hadn't
-   yet been memoized. *)
 let recursive ~hashable ?cache_size_bound f_onestep =
   let rec memoized =
     lazy (general ~hashable ?cache_size_bound (f_onestep (fun x -> (force memoized) x)))
@@ -101,7 +83,11 @@ let recursive ~hashable ?cache_size_bound f_onestep =
   force memoized
 ;;
 
-let of_comparable (type index) (module M : Comparable.S_plain with type t = index) f =
+let of_comparable
+      (type index)
+      ((module M) : (module Comparable.S_plain with type t = index))
+      f
+  =
   let m = ref M.Map.empty in
   fun (x : M.t) ->
     let v =
@@ -114,3 +100,7 @@ let of_comparable (type index) (module M : Comparable.S_plain with type t = inde
     in
     Result.return v
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

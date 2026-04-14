@@ -1,10 +1,19 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"doubly_linked.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "doubly_linked.ml.before-ppx"
+;;
+
 open! Import
 include Doubly_linked_intf
 
-(* INVARIANT: This exception is raised if a list is mutated during a pending iteration.
-
-   This invariant is guaranteed by the Header and Elt modules in conjunction.  All
-   downstream code in this module need not be concerned with this invariant. *)
 exception Attempt_to_mutate_list_during_iteration
 
 let phys_equal = ( == )
@@ -17,33 +26,6 @@ module Header : sig
   val equal : t -> t -> bool
   val incr_length : by:int -> t -> unit
   val check_no_pending_iterations : t -> unit
-
-  (* Unfortunate, but by specializing [with_iteration] for different arities, a large
-     amount of allocation during folds and iterations is avoided.
-
-     The original type of [with_iteration] was
-     [val with_iteration : t -> (unit -> 'a) -> 'a]
-
-     The difference between
-     {[
-       let x = e in
-       let f () = g x in
-       f ()
-     ]}
-     and
-     {[
-       let x = e in
-       let f x = g x in
-       f x
-     ]}
-     is that in the first case the closure for [f] contains a pointer to [x],
-     and in the second case it doesn't. A closure without pointers to enclosing
-     environment is implemented as a naked function pointer, so we don't
-     allocate at all.
-
-     For the same reason we make sure not to call [Result.try_with (fun () -> ...)]
-     inside [with_iteration] and do an explicit match statement instead. *)
-
   val with_iteration_2l : t -> 'a -> 'b -> ('a -> 'b -> 'c) -> 'c
   val with_iteration_3l : t -> 'a -> 'b -> 'c -> ('a -> 'b -> 'c -> 'd) -> 'd
   val with_iteration_4 : t -> 'a -> 'b -> 'c -> 'd -> ('a -> 'b -> 'c -> 'd -> 'e) -> 'e
@@ -74,9 +56,6 @@ end = struct
     let s = union_find_get__check_no_pending_iterations t in
     s.length <- s.length + n
   ;;
-
-  (* Care is taken not to allocate in [with_iteration_*], since it is called every second
-     by [every_second] in [writer0.ml] *)
 
   let incr_pending_iters s = s.pending_iterations <- s.pending_iterations + 1
   let decr_pending_iters s = s.pending_iterations <- s.pending_iterations - 1
@@ -146,6 +125,13 @@ end
 module Elt : sig
   type 'a t [@@deriving sexp_of]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val header : 'a t -> Header.t
   val equal : 'a t -> 'a t -> bool
   val create : 'a -> 'a t
@@ -183,25 +169,6 @@ end = struct
   let value t = t.value
   let set t v = t.value <- v
 
-  (*
-     [split_or_splice] is sufficient as the lone primitive for
-     accomplishing all pointer updates on cyclic loops of list nodes.
-     It takes two "gaps" between adjacent linked list nodes.  If the gaps
-     point into the same list, the result is that it will be split into
-     two lists afterwards.  If the gaps point into different lists, the
-     result is that they will be spliced together into one list afterwards.
-
-     {v
-       Before                      After
-           -----+        +-----         -----+               +-----
-              A |  <-->  | B               A |  <---   --->  | B
-           -----+        +-----         -----+      \ /      +-----
-                                                     X
-           -----+        +-----         -----+      / \      +-----
-              C |  <-->  | D               C |  <---   --->  | D
-           -----+        +-----         -----+               +-----
-     v} *)
-
   let unsafe_split_or_splice ~prev1:a ~next1:b ~prev2:c ~next2:d =
     a.next <- d;
     d.prev <- a;
@@ -231,7 +198,6 @@ end = struct
     then Header.check_no_pending_iterations t2.header
   ;;
 
-  (* We redefine safe versions for export *)
   let split_or_splice_after t1 t2 =
     check_two_nodes_no_pending_iterations t1 t2;
     unsafe_split_or_splice_after t1 t2
@@ -336,14 +302,13 @@ let map t ~f =
       new_first
       first
       (fun f new_first first ->
-      let rec loop f acc first elt =
-        let acc = Elt.insert_after acc (f (Elt.value elt)) in
-        let next = Elt.next elt in
-        if not (phys_equal next first) then loop f acc first next
-      in
-      (* unroll and skip first elt *)
-      let next = Elt.next first in
-      if not (phys_equal next first) then loop f new_first first next);
+         let rec loop f acc first elt =
+           let acc = Elt.insert_after acc (f (Elt.value elt)) in
+           let next = Elt.next elt in
+           if not (phys_equal next first) then loop f acc first next
+         in
+         let next = Elt.next first in
+         if not (phys_equal next first) then loop f new_first first next);
     ref (Some new_first)
 ;;
 
@@ -358,14 +323,13 @@ let mapi t ~f =
       new_first
       first
       (fun f new_first first ->
-      let rec loop f i acc first elt =
-        let acc = Elt.insert_after acc (f i (Elt.value elt)) in
-        let next = Elt.next elt in
-        if not (phys_equal next first) then loop f (i + 1) acc first next
-      in
-      (* unroll and skip first elt *)
-      let next = Elt.next first in
-      if not (phys_equal next first) then loop f 1 new_first first next);
+         let rec loop f i acc first elt =
+           let acc = Elt.insert_after acc (f i (Elt.value elt)) in
+           let next = Elt.next elt in
+           if not (phys_equal next first) then loop f (i + 1) acc first next
+         in
+         let next = Elt.next first in
+         if not (phys_equal next first) then loop f 1 new_first first next);
     ref (Some new_first)
 ;;
 
@@ -440,8 +404,6 @@ let findi_elt t ~f =
     None)
 ;;
 
-(* this function is lambda lifted for performance, to make direct recursive calls instead
-   of calls through its closure. It also avoids the initial closure allocation. *)
 let rec iter_loop first f elt =
   f (Elt.value elt);
   let next = Elt.next elt in
@@ -481,16 +443,16 @@ let foldi t ~init ~f =
 ;;
 
 module C = Container.Make (struct
-  type nonrec 'a t = 'a t
+    type nonrec 'a t = 'a t
 
-  let fold t ~init ~f =
-    let r = fold_elt_1 t ~init f ~f:(fun f acc elt -> f acc (Elt.value elt)) in
-    r
-  ;;
+    let fold t ~init ~f =
+      let r = fold_elt_1 t ~init f ~f:(fun f acc elt -> f acc (Elt.value elt)) in
+      r
+    ;;
 
-  let iter = `Custom iter
-  let length = `Custom length
-end)
+    let iter = `Custom iter
+    let length = `Custom length
+  end)
 
 let count = C.count
 let sum = C.sum
@@ -514,7 +476,6 @@ let unchecked_iter t ~f =
       f (Elt.value elt);
       let next = Elt.next elt in
       match !t with
-      (* the first element of the bag may have been changed by [f] *)
       | None -> ()
       | Some first -> if not (phys_equal first next) then loop t f next
     in
@@ -522,8 +483,6 @@ let unchecked_iter t ~f =
 ;;
 
 let is_empty t = Option.is_none !t
-
-(* more efficient than what Container.Make returns *)
 
 let fold_right t ~init ~f =
   match !t with
@@ -670,8 +629,8 @@ let first_elt t = !t
 let last_elt t = Option.map ~f:Elt.prev !t
 let first t = Option.map ~f:Elt.value (first_elt t)
 let last t = Option.map ~f:Elt.value (last_elt t)
-let first_exn (t : 'a t) = Option.value_exn !t |> Elt.value
-let last_exn (t : 'a t) = Option.value_exn !t |> Elt.prev |> Elt.value
+let first_exn (t : 'a t) = Elt.value (Option.value_exn !t)
+let last_exn (t : 'a t) = Elt.value (Elt.prev (Option.value_exn !t))
 
 let is_first t elt =
   match !t with
@@ -804,7 +763,7 @@ let filter t ~f =
      Header.with_iteration_3l (Elt.header first) f new_t first (fun f new_t first ->
        let rec loop f new_t first elt =
          if f (Elt.value elt)
-         then insert_last new_t (Elt.value elt) |> (ignore : _ Elt.t -> unit);
+         then (ignore : _ Elt.t -> unit) (insert_last new_t (Elt.value elt));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f new_t first next
        in
@@ -820,7 +779,7 @@ let filteri t ~f =
      Header.with_iteration_3l (Elt.header first) f new_t first (fun f new_t first ->
        let rec loop f i new_t first elt =
          if f i (Elt.value elt)
-         then insert_last new_t (Elt.value elt) |> (ignore : _ Elt.t -> unit);
+         then (ignore : _ Elt.t -> unit) (insert_last new_t (Elt.value elt));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f (i + 1) new_t first next
        in
@@ -837,7 +796,7 @@ let filter_map t ~f =
        let rec loop f new_t first elt =
          (match f (Elt.value elt) with
           | None -> ()
-          | Some value -> insert_last new_t value |> (ignore : _ Elt.t -> unit));
+          | Some value -> (ignore : _ Elt.t -> unit) (insert_last new_t value));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f new_t first next
        in
@@ -854,7 +813,7 @@ let filter_mapi t ~f =
        let rec loop f i new_t first elt =
          (match f i (Elt.value elt) with
           | None -> ()
-          | Some value -> insert_last new_t value |> (ignore : _ Elt.t -> unit));
+          | Some value -> (ignore : _ Elt.t -> unit) (insert_last new_t value));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f (i + 1) new_t first next
        in
@@ -870,8 +829,8 @@ let partition_tf t ~f =
    | Some first ->
      Header.with_iteration_4 (Elt.header first) f t1 t2 first (fun f t1 t2 first ->
        let rec loop f t1 t2 first elt =
-         insert_last (if f (Elt.value elt) then t1 else t2) (Elt.value elt)
-         |> (ignore : _ Elt.t -> unit);
+         (ignore : _ Elt.t -> unit)
+           (insert_last (if f (Elt.value elt) then t1 else t2) (Elt.value elt));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f t1 t2 first next
        in
@@ -887,8 +846,8 @@ let partitioni_tf t ~f =
    | Some first ->
      Header.with_iteration_4 (Elt.header first) f t1 t2 first (fun f t1 t2 first ->
        let rec loop f i t1 t2 first elt =
-         insert_last (if f i (Elt.value elt) then t1 else t2) (Elt.value elt)
-         |> (ignore : _ Elt.t -> unit);
+         (ignore : _ Elt.t -> unit)
+           (insert_last (if f i (Elt.value elt) then t1 else t2) (Elt.value elt));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f (i + 1) t1 t2 first next
        in
@@ -905,8 +864,8 @@ let partition_map t ~f =
      Header.with_iteration_4 (Elt.header first) f t1 t2 first (fun f t1 t2 first ->
        let rec loop f t1 t2 first elt =
          (match (f (Elt.value elt) : (_, _) Either.t) with
-          | First value -> insert_last t1 value |> (ignore : _ Elt.t -> unit)
-          | Second value -> insert_last t2 value |> (ignore : _ Elt.t -> unit));
+          | First value -> (ignore : _ Elt.t -> unit) (insert_last t1 value)
+          | Second value -> (ignore : _ Elt.t -> unit) (insert_last t2 value));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f t1 t2 first next
        in
@@ -923,8 +882,8 @@ let partition_mapi t ~f =
      Header.with_iteration_4 (Elt.header first) f t1 t2 first (fun f t1 t2 first ->
        let rec loop f i t1 t2 first elt =
          (match (f i (Elt.value elt) : (_, _) Either.t) with
-          | First value -> insert_last t1 value |> (ignore : _ Elt.t -> unit)
-          | Second value -> insert_last t2 value |> (ignore : _ Elt.t -> unit));
+          | First value -> (ignore : _ Elt.t -> unit) (insert_last t1 value)
+          | Second value -> (ignore : _ Elt.t -> unit) (insert_last t2 value));
          let next = Elt.next elt in
          if not (phys_equal next first) then loop f (i + 1) t1 t2 first next
        in
@@ -943,7 +902,6 @@ let move_before t elt ~anchor =
     | Some first ->
       if Header.equal (Elt.header first) (Elt.header elt)
       then (
-        (* unlink [elt] *)
         let after_elt = Elt.next elt in
         Elt.split_or_splice_before elt after_elt;
         let first =
@@ -953,7 +911,6 @@ let move_before t elt ~anchor =
             after_elt)
           else first
         in
-        (* splice [elt] in before [anchor] *)
         Elt.split_or_splice_before anchor elt;
         if Elt.equal first anchor then t := Some elt)
       else raise Elt_does_not_belong_to_list)
@@ -975,11 +932,9 @@ let move_after t elt ~anchor =
     | Some first ->
       if Header.equal (Elt.header first) (Elt.header elt)
       then (
-        (* unlink [elt] *)
         let after_elt = Elt.next elt in
         Elt.split_or_splice_before elt after_elt;
         if Elt.equal first elt then t := Some after_elt;
-        (* splice [elt] in after [anchor] *)
         Elt.split_or_splice_after anchor elt)
       else raise Elt_does_not_belong_to_list)
   else raise Elt_does_not_belong_to_list
@@ -993,4 +948,7 @@ let move_to_back t elt =
     if not (Elt.equal elt last) then move_after t elt ~anchor:last
 ;;
 
-let to_sequence t = to_list t |> Sequence.of_list
+let to_sequence t = Sequence.of_list (to_list t)
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

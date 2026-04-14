@@ -1,21 +1,14 @@
-(** This module extends {!Base.Sexpable}. *)
+[@@@ocaml.text " This module extends {!Base.Sexpable}. "]
 
 open! Import
 
-(** @inline *)
 include module type of struct
   include Base.Sexpable
 end
+[@@ocaml.doc " @inline "]
 
-module To_stringable (M : S) : Stringable.S with type t := M.t
+module To_stringable : functor (M : S) -> Stringable.S with type t := M.t
 
-(** The following functors preserve stability: if applied to stable types with stable
-    (de)serializations, they will produce stable types with stable (de)serializations.
-
-    Note: In all cases, stability of the input (and therefore the output) depends on the
-    semantics of all conversion functions (e.g. to_string, to_sexpable) not changing in
-    the future.
-*)
 module Stable : sig
   module Of_sexpable : sig
     module V1 : module type of Of_sexpable
@@ -41,3 +34,11 @@ module Stable : sig
     module V1 : module type of To_stringable
   end
 end
+[@@ocaml.doc
+  " The following functors preserve stability: if applied to stable types with stable\n\
+  \    (de)serializations, they will produce stable types with stable \
+   (de)serializations.\n\n\
+  \    Note: In all cases, stability of the input (and therefore the output) depends on \
+   the\n\
+  \    semantics of all conversion functions (e.g. to_string, to_sexpable) not changing in\n\
+  \    the future.\n"]

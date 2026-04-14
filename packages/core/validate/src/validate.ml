@@ -1,11 +1,25 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"validate.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "validate.ml.before-ppx"
+;;
+
 open Base
 
-(** Each single_error is a path indicating the location within the datastructure in
-    question that is being validated, along with an error message. *)
 type single_error =
   { path : string list
   ; error : Error.t
   }
+[@@ocaml.doc
+  " Each single_error is a path indicating the location within the datastructure in\n\
+  \    question that is being validated, along with an error message. "]
 
 type t = single_error list
 type 'a check = 'a -> t
@@ -24,7 +38,7 @@ let of_list = List.concat
 
 let name name t =
   match t with
-  | [] -> [] (* when successful, avoid the allocation of a closure for [~f], below *)
+  | [] -> []
   | _ -> List.map t ~f:(fun { path; error } -> { path = name :: path; error })
 ;;
 
@@ -42,8 +56,8 @@ let protect f v =
 let try_with f =
   protect
     (fun () ->
-      f ();
-      pass)
+       f ();
+       pass)
     ()
 ;;
 
@@ -58,13 +72,21 @@ let result_fail t =
   Or_error.error
     "validation errors"
     (List.map t ~f:(fun { path; error } -> path_string path, error))
-    [%sexp_of: (string * Error.t) List.t]
-  [@@cold]
+    ((fun x__005_ ->
+       List.sexp_of_t
+         (fun (arg0__001_, arg1__002_) ->
+            let res0__003_ = sexp_of_string arg0__001_
+            and res1__004_ = Error.sexp_of_t arg1__002_ in
+            Sexplib0.Sexp.List [ res0__003_; res1__004_ ])
+         x__005_) [@merlin.hide])
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
-(** [result] is carefully implemented so that it can be inlined -- calling [result_fail],
-    which is not inlineable, is key to this. *)
 let result t = if List.is_empty t then Ok () else result_fail t
+[@@ocaml.doc
+  " [result] is carefully implemented so that it can be inlined -- calling [result_fail],\n\
+  \    which is not inlineable, is key to this. "]
+;;
 
 let maybe_raise t = Or_error.ok_exn (result t)
 let valid_or_error check x = Or_error.map (result (protect check x)) ~f:(fun () -> x)
@@ -87,7 +109,7 @@ let field_folder check record =
 let field_direct_folder check =
   Staged.stage (fun acc fld record v ->
     match field_direct check fld record v with
-    | [] -> acc (* Avoid allocating a new list in the success case *)
+    | [] -> acc
     | result -> result :: acc)
 ;;
 
@@ -124,18 +146,16 @@ let pair ~fst ~snd (fst_value, snd_value) =
 ;;
 
 let list_indexed check list =
-  List.mapi list ~f:(fun i el -> name (Int.to_string (i + 1)) (protect check el))
-  |> of_list
+  of_list
+    (List.mapi list ~f:(fun i el -> name (Int.to_string (i + 1)) (protect check el)))
 ;;
 
 let list ~name:extract_name check list =
-  List.map list ~f:(fun el ->
-    match protect check el with
-    | [] -> []
-    | t ->
-      (* extra level of protection in case extract_name throws an exception *)
-      protect (fun t -> name (extract_name el) t) t)
-  |> of_list
+  of_list
+    (List.map list ~f:(fun el ->
+       match protect check el with
+       | [] -> []
+       | t -> protect (fun t -> name (extract_name el) t) t))
 ;;
 
 let alist ~name f list' = list (fun (_, x) -> f x) list' ~name:(fun (key, _) -> name key)
@@ -164,3 +184,7 @@ let bounded ~name ~lower ~upper ~compare x =
 module Infix = struct
   let ( ++ ) t1 t2 = combine t1 t2
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

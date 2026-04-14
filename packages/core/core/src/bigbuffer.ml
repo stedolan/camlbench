@@ -1,4 +1,15 @@
-(* Some code taken from INRIA's buffer module. *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"bigbuffer.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "bigbuffer.ml.before-ppx"
+;;
 
 open! Import
 open Bigstring
@@ -6,8 +17,6 @@ include Bigbuffer_internal
 
 let __internal (t : t) = t
 let length t = t.pos
-
-(* {[ let invariant t = assert (t.len == Bigstring.length t.bstr) ]} *)
 
 let create n =
   let n = max 1 n in
@@ -37,6 +46,12 @@ module To_bytes =
     end)
     (struct
       type nonrec t = t [@@deriving sexp_of]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
       let create ~len =
         let t = create len in
@@ -131,11 +146,6 @@ let add_bin_prot t (writer : _ Bin_prot.Type_class.writer) x =
     match writer.write t.bstr ~pos:t.pos x with
     | pos -> pos
     | exception _ ->
-      (* It's likeky that the exception is due to a buffer overflow, so resize the
-         internal buffer and try again. Technically we could match on
-         [Bin_prot.Common.Buffer_short] only, however we can't easily enforce that custom
-         bin_write_xxx functions do raise this particular exception and not
-         [Invalid_argument] or [Failure] for instance. *)
       let size = writer.size x in
       if t.pos + size > t.len then resize t size;
       writer.write t.bstr ~pos:t.pos x
@@ -149,22 +159,33 @@ let closing = function
   | _ -> assert false
 ;;
 
-(* opening and closing: open and close characters, typically ( and )
-   k: balance of opening and closing chars
-   s: the string where we are searching
-   start: the index where we start the search. *)
 let advance_to_closing opening closing k s start =
   let rec advance k i lim =
     if i >= lim
     then
       raise
         (Not_found_s
-           [%message
-             "Bigbuffer.add_substitute: cannot find closing delimiter"
-               (opening : char)
-               (closing : char)
-               (start : int)
-               s])
+           (let ppx_sexp_message () =
+              Ppx_sexp_conv_lib.Sexp.List
+                [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                    "Bigbuffer.add_substitute: cannot find closing delimiter"
+                ; Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Sexp.Atom "opening"
+                    ; (sexp_of_char [@merlin.hide]) opening
+                    ]
+                ; Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Sexp.Atom "closing"
+                    ; (sexp_of_char [@merlin.hide]) closing
+                    ]
+                ; Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Sexp.Atom "start"
+                    ; (sexp_of_int [@merlin.hide]) start
+                    ]
+                ; Ppx_sexp_conv_lib.Conv.sexp_of_string s
+                ]
+                [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+            in
+            (ppx_sexp_message () [@nontail])))
     else if Char.equal s.[i] opening
     then advance (k + 1) (i + 1) lim
     else if Char.equal s.[i] closing
@@ -184,55 +205,50 @@ let advance_to_non_alpha s start =
       | 'A' .. 'Z'
       | '0' .. '9'
       | '_'
-      | 'é'
-      | 'à'
-      | 'á'
-      | 'è'
-      | 'ù'
-      | 'â'
-      | 'ê'
-      | 'î'
-      | 'ô'
-      | 'û'
-      | 'ë'
-      | 'ï'
-      | 'ü'
-      | 'ç'
-      | 'É'
-      | 'À'
-      | 'Á'
-      | 'È'
-      | 'Ù'
-      | 'Â'
-      | 'Ê'
-      | 'Î'
-      | 'Ô'
-      | 'Û'
-      | 'Ë'
-      | 'Ï'
-      | 'Ü'
-      | 'Ç' -> advance (i + 1) lim
+      | '\233'
+      | '\224'
+      | '\225'
+      | '\232'
+      | '\249'
+      | '\226'
+      | '\234'
+      | '\238'
+      | '\244'
+      | '\251'
+      | '\235'
+      | '\239'
+      | '\252'
+      | '\231'
+      | '\201'
+      | '\192'
+      | '\193'
+      | '\200'
+      | '\217'
+      | '\194'
+      | '\202'
+      | '\206'
+      | '\212'
+      | '\219'
+      | '\203'
+      | '\207'
+      | '\220'
+      | '\199' -> advance (i + 1) lim
       | _ -> i)
   in
   advance start (String.length s)
 ;;
 
-(* We are just at the beginning of an ident in s, starting at start. *)
 let find_ident s start =
   match s.[start] with
-  (* Parenthesized ident ? *)
   | ('(' | '{') as c ->
     let new_start = start + 1 in
     let stop = advance_to_closing c (closing c) 0 s new_start in
     String.sub s ~pos:new_start ~len:(stop - start - 1), stop + 1
-  (* Regular ident *)
   | _ ->
     let stop = advance_to_non_alpha s (start + 1) in
     String.sub s ~pos:start ~len:(stop - start), stop
 ;;
 
-(* Substitute $ident, $(ident), or ${ident} in s,
-   according to the function mapping f. *)
 let add_substitute buf f s =
   let lim = String.length s in
   let rec subst previous i =
@@ -269,3 +285,7 @@ end
 module Printf = struct
   let bprintf buf = Printf.ksprintf (add_string buf)
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

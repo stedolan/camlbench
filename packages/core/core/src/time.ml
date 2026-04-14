@@ -1,5 +1,13 @@
-(* See time_float.ml for the primary instantiation of this functor that is visible outside
-   of Core as Time (see core.ml). *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"time.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "time.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open! Int.Replace_polymorphic_compare
@@ -19,31 +27,28 @@ module Make (Time0 : Time0_intf.S) = struct
     include Zone
 
     let of_span_in_seconds span_in_seconds =
-      (* NB. no actual rounding or exns can occur here *)
-      Time_in_seconds.Span.to_int63_seconds_round_down_exn span_in_seconds
-      |> Time0.Span.of_int63_seconds
+      Time0.Span.of_int63_seconds
+        (Time_in_seconds.Span.to_int63_seconds_round_down_exn span_in_seconds)
     ;;
 
     let of_time_in_seconds time_in_seconds =
-      Time_in_seconds.to_span_since_epoch time_in_seconds
-      (* NB. no actual rounding or exns can occur here *)
-      |> Time_in_seconds.Span.to_int63_seconds_round_down_exn
-      |> Time0.Span.of_int63_seconds
-      |> Time0.of_span_since_epoch
+      Time0.of_span_since_epoch
+        (Time0.Span.of_int63_seconds
+           (Time_in_seconds.Span.to_int63_seconds_round_down_exn
+              (Time_in_seconds.to_span_since_epoch time_in_seconds)))
     ;;
 
     let to_time_in_seconds_round_down_exn time =
-      Time0.to_span_since_epoch time
-      |> Time0.Span.to_int63_seconds_round_down_exn
-      |> Time_in_seconds.Span.of_int63_seconds
-      |> Time_in_seconds.of_span_since_epoch
+      Time_in_seconds.of_span_since_epoch
+        (Time_in_seconds.Span.of_int63_seconds
+           (Time0.Span.to_int63_seconds_round_down_exn (Time0.to_span_since_epoch time)))
     ;;
 
     let to_date_and_ofday_in_seconds_round_down_exn relative =
-      Time0.Date_and_ofday.to_synthetic_span_since_epoch relative
-      |> Time0.Span.to_int63_seconds_round_down_exn
-      |> Time_in_seconds.Span.of_int63_seconds
-      |> Time_in_seconds.Date_and_ofday.of_synthetic_span_since_epoch
+      Time_in_seconds.Date_and_ofday.of_synthetic_span_since_epoch
+        (Time_in_seconds.Span.of_int63_seconds
+           (Time0.Span.to_int63_seconds_round_down_exn
+              (Time0.Date_and_ofday.to_synthetic_span_since_epoch relative)))
     ;;
 
     let index t time = index t (to_time_in_seconds_round_down_exn time)
@@ -72,10 +77,7 @@ module Make (Time0 : Time0_intf.S) = struct
       of_span_in_seconds (index_next_clock_shift_amount_exn t index)
     ;;
 
-    let abbreviation t time =
-      (* no exn because [index] always returns a valid index *)
-      index_abbreviation_exn t (index t time)
-    ;;
+    let abbreviation t time = index_abbreviation_exn t (index t time)
 
     let index_prev_clock_shift t index =
       match index_has_prev_clock_shift t index with
@@ -92,14 +94,12 @@ module Make (Time0 : Time0_intf.S) = struct
 
     let date_and_ofday_of_absolute_time t time =
       let index = index t time in
-      (* no exn because [index] always returns a valid index *)
       let offset_from_utc = index_offset_from_utc_exn t index in
       Time0.Date_and_ofday.of_absolute time ~offset_from_utc
     ;;
 
     let absolute_time_of_date_and_ofday t relative =
       let index = index_of_date_and_ofday t relative in
-      (* no exn because [index_of_date_and_ofday] always returns a valid index *)
       let offset_from_utc = index_offset_from_utc_exn t index in
       Time0.Date_and_ofday.to_absolute relative ~offset_from_utc
     ;;
@@ -113,14 +113,15 @@ module Make (Time0 : Time0_intf.S) = struct
   ;;
 
   let of_date_ofday_precise date ofday ~zone =
-    (* We assume that there will be only one zone shift within a given local day.  *)
     let start_of_day = of_date_ofday ~zone date Ofday.start_of_day in
     let proposed_time = add start_of_day (Ofday.to_span_since_start_of_day ofday) in
     match Zone.next_clock_shift zone ~strictly_after:start_of_day with
     | None -> `Once proposed_time
     | Some (shift_start, shift_amount) ->
-      let shift_backwards = Span.(shift_amount < zero) in
-      (* start and end of the "problematic region" *)
+      let shift_backwards =
+        let open Span in
+        shift_amount < zero
+      in
       let s, e =
         if shift_backwards
         then add shift_start shift_amount, shift_start
@@ -174,11 +175,10 @@ module Make (Time0 : Time0_intf.S) = struct
     | true -> ()
     | false ->
       let index = Zone.index zone time in
-      (* no exn because [Zone.index] always returns a valid index *)
       let offset_from_utc = Zone.index_offset_from_utc_exn zone index in
       let rel = Date_and_ofday.of_absolute time ~offset_from_utc in
       let date = Date_and_ofday.to_date rel in
-      let span = Date_and_ofday.to_ofday rel |> Ofday.to_span_since_start_of_day in
+      let span = Ofday.to_span_since_start_of_day (Date_and_ofday.to_ofday rel) in
       let effective_day_start =
         Time0.sub (Date_and_ofday.to_absolute rel ~offset_from_utc) span
       in
@@ -187,15 +187,13 @@ module Make (Time0 : Time0_intf.S) = struct
         match Zone.index_has_prev_clock_shift zone index with
         | false -> effective_day_start
         | true ->
-          effective_day_start
-          |> Time0.max (Zone.index_prev_clock_shift_time_exn zone index)
+          Time0.max (Zone.index_prev_clock_shift_time_exn zone index) effective_day_start
       in
       let cache_until_excl =
         match Zone.index_has_next_clock_shift zone index with
         | false -> effective_day_until
         | true ->
-          effective_day_until
-          |> Time0.min (Zone.index_next_clock_shift_time_exn zone index)
+          Time0.min (Zone.index_next_clock_shift_time_exn zone index) effective_day_until
       in
       date_cache.zone <- zone;
       date_cache.cache_start_incl <- cache_start_incl;
@@ -209,66 +207,74 @@ module Make (Time0 : Time0_intf.S) = struct
     date_cache.date
   ;;
 
-  let end_of_day = Ofday.prev Ofday.start_of_next_day |> Option.value_exn ~here:[%here]
+  let end_of_day =
+    Option.value_exn
+      ~here:
+        { Ppx_here_lib.pos_fname = "time.ml.before-ppx"
+        ; pos_lnum = 212
+        ; pos_cnum = 7400
+        ; pos_bol = 7320
+        }
+      (Ofday.prev Ofday.start_of_next_day)
+  ;;
 
   let to_ofday time ~zone =
     set_date_cache time ~zone;
     let of_day =
-      Time0.diff time date_cache.effective_day_start
-      |> Ofday.of_span_since_start_of_day_exn
+      Ofday.of_span_since_start_of_day_exn
+        (Time0.diff time date_cache.effective_day_start)
     in
     if Ofday.equal of_day Ofday.start_of_next_day then end_of_day else of_day
   ;;
 
   let to_date_ofday time ~zone = to_date time ~zone, to_ofday time ~zone
 
-  (* The correctness of this algorithm (interface, even) depends on the fact that
-     timezone shifts aren't too close together (as in, it can't simultaneously be the
-     case that a timezone shift of X hours occurred less than X hours ago, *and*
-     a timezone shift of Y hours will occur in less than Y hours' time) *)
   let to_date_ofday_precise time ~zone =
     let date, ofday = to_date_ofday time ~zone in
     let clock_shift_after = Zone.next_clock_shift zone ~strictly_after:time in
     let clock_shift_before_or_at = Zone.prev_clock_shift zone ~at_or_before:time in
     let also_skipped_earlier amount =
-      (* Using [date] and raising on [None] here is OK on the assumption that clock
-         shifts can't cross date boundaries. This is true in all cases I've ever heard
-         of (and [of_date_ofday_precise] would need revisiting if it turned out to be
-         false) *)
       match Ofday.sub ofday amount with
       | Some ofday -> `Also_skipped (date, ofday)
       | None ->
         raise_s
-          [%message
-            "Time.to_date_ofday_precise"
-              ~span_since_epoch:(to_span_since_epoch time : Span.t)
-              (zone : Zone.t)]
+          (let ppx_sexp_message () =
+             Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Time.to_date_ofday_precise"
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "span_since_epoch"
+                   ; (Span.sexp_of_t [@merlin.hide]) (to_span_since_epoch time)
+                   ]
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "zone"
+                   ; (Zone.sexp_of_t [@merlin.hide]) zone
+                   ]
+               ]
+               [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+           in
+           (ppx_sexp_message () [@nontail]))
     in
     let ambiguity =
-      (* Edge cases: the instant of transition belongs to the new zone regime. So if the
-         clock moved by an hour exactly one hour ago, there's no ambiguity, because the
-         hour-ago time belongs to the same regime as you, and conversely, if the clock
-         will move by an hour in an hours' time, there *is* ambiguity. Hence [>.] for
-         the first case and [<=.] for the second. *)
       match clock_shift_before_or_at, clock_shift_after with
       | Some (start, amount), _ when add start (Span.abs amount) >. time ->
-        (* clock shifted recently *)
-        if Span.(amount > zero)
-        then
-          (* clock shifted forward recently: we skipped a time *)
-          also_skipped_earlier amount
+        if
+          let open Span in
+          amount > zero
+        then also_skipped_earlier amount
         else (
-          (* clock shifted back recently: this date/ofday already happened *)
-          assert (Span.(amount < zero));
+          assert (
+            let open Span in
+            amount < zero);
           `Also_at (sub time (Span.abs amount)))
       | _, Some (start, amount) when sub start (Span.abs amount) <=. time ->
-        (* clock is about to shift *)
-        if Span.(amount > zero)
-        then (* clock about to shift forward: no effect *)
-          `Only
+        if
+          let open Span in
+          amount > zero
+        then `Only
         else (
-          (* clock about to shift back: this date/ofday will be repeated *)
-          assert (Span.(amount < zero));
+          assert (
+            let open Span in
+            amount < zero);
           `Also_at (add time (Span.abs amount)))
       | _ -> `Only
     in
@@ -383,9 +389,10 @@ module Make (Time0 : Time0_intf.S) = struct
 
   let ensure_colon_in_offset offset =
     let offset_length = String.length offset in
-    if Int.( <= ) offset_length 2
-       && Char.is_digit offset.[0]
-       && Char.is_digit offset.[offset_length - 1]
+    if
+      Int.( <= ) offset_length 2
+      && Char.is_digit offset.[0]
+      && Char.is_digit offset.[offset_length - 1]
     then offset ^ ":00"
     else if Char.( = ) offset.[1] ':' || Char.( = ) offset.[2] ':'
     then offset
@@ -401,6 +408,23 @@ module Make (Time0 : Time0_intf.S) = struct
 
   exception Time_of_string of string * Exn.t [@@deriving sexp]
 
+  include struct
+    let () =
+      Sexplib0.Sexp_conv.Exn_converter.add
+        [%extension_constructor Time_of_string]
+        (function
+        | Time_of_string (arg0__001_, arg1__002_) ->
+          let res0__003_ = sexp_of_string arg0__001_
+          and res1__004_ = Exn.sexp_of_t arg1__002_ in
+          Sexplib0.Sexp.List
+            [ Sexplib0.Sexp.Atom "time.ml.before-ppx.Make.Time_of_string"
+            ; res0__003_
+            ; res1__004_
+            ]
+        | _ -> assert false)
+    ;;
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let of_string_gen ~default_zone ~find_zone s =
     try
       let date, ofday, tz =
@@ -409,7 +433,7 @@ module Make (Time0 : Time0_intf.S) = struct
           String.concat [ day; " "; month; " "; year ], ofday, None
         | [ date; ofday; tz ] -> date, ofday, Some tz
         | [ date; ofday ] -> date, ofday, None
-        | [ s ] ->
+        | s :: [] ->
           (match String.rsplit2 ~on:'T' s with
            | Some (date, ofday) -> date, ofday, None
            | None -> failwith "no spaces or T found")
@@ -449,7 +473,17 @@ module Make (Time0 : Time0_intf.S) = struct
   ;;
 
   let of_string_with_utc_offset s =
-    let default_zone () = raise_s [%message "time has no time zone or UTC offset" s] in
+    let default_zone () =
+      raise_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "time has no time zone or UTC offset"
+             ; Ppx_sexp_conv_lib.Conv.sexp_of_string s
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
+    in
     let find_zone zone_name =
       failwithf "unable to lookup Zone %s.  Try using Core.Time.of_string" zone_name ()
     in
@@ -474,12 +508,18 @@ module Make (Time0 : Time0_intf.S) = struct
   ;;
 
   let gen_incl lo hi =
-    Span.gen_incl (to_span_since_epoch lo) (to_span_since_epoch hi)
-    |> Quickcheck.Generator.map ~f:of_span_since_epoch
+    Quickcheck.Generator.map
+      ~f:of_span_since_epoch
+      (Span.gen_incl (to_span_since_epoch lo) (to_span_since_epoch hi))
   ;;
 
   let gen_uniform_incl lo hi =
-    Span.gen_uniform_incl (to_span_since_epoch lo) (to_span_since_epoch hi)
-    |> Quickcheck.Generator.map ~f:of_span_since_epoch
+    Quickcheck.Generator.map
+      ~f:of_span_since_epoch
+      (Span.gen_uniform_incl (to_span_since_epoch lo) (to_span_since_epoch hi))
   ;;
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

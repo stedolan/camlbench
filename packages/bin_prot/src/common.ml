@@ -1,12 +1,14 @@
-(* Common: common definitions used by binary protocol converters *)
-
 open Base
 open Printf
 open Bigarray
 
 type pos = int [@@deriving sexp_of]
 
-(* Errors and exceptions *)
+include struct
+  let _ = fun (_ : pos) -> ()
+  let sexp_of_pos = (sexp_of_int : pos -> Sexplib0.Sexp.t)
+  let _ = sexp_of_pos
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 exception Buffer_short
 exception No_variant_match
@@ -68,6 +70,19 @@ module ReadError = struct
 end
 
 exception Read_error of ReadError.t * pos [@@deriving sexp_of]
+
+include struct
+  let () =
+    Sexplib0.Sexp_conv.Exn_converter.add [%extension_constructor Read_error] (function
+      | Read_error (arg0__001_, arg1__002_) ->
+        let res0__003_ = ReadError.sexp_of_t arg0__001_
+        and res1__004_ = sexp_of_pos arg1__002_ in
+        Sexplib0.Sexp.List
+          [ Sexplib0.Sexp.Atom "common.ml.before-ppx.Read_error"; res0__003_; res1__004_ ]
+      | _ -> assert false)
+  ;;
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 exception Poly_rec_write of string
 exception Empty_type of string
 
@@ -79,8 +94,6 @@ let raise_variant_wrong_type name pos =
 
 let raise_concurrent_modification loc = failwith (loc ^ ": concurrent modification")
 let array_bound_error () = invalid_arg "index out of bounds"
-
-(* Buffers *)
 
 type pos_ref = pos ref
 type buf = (char, int8_unsigned_elt, c_layout) Array1.t
@@ -141,7 +154,7 @@ external unsafe_blit_string_buf
   -> len:int
   -> unit
   = "bin_prot_blit_string_buf_stub"
-  [@@noalloc]
+[@@noalloc]
 
 external unsafe_blit_bytes_buf
   :  src_pos:int
@@ -151,7 +164,7 @@ external unsafe_blit_bytes_buf
   -> len:int
   -> unit
   = "bin_prot_blit_bytes_buf_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let blit_string_buf ?src_pos str ?dst_pos buf ~len =
   let loc = "blit_string_buf" in
@@ -199,7 +212,7 @@ external unsafe_blit_buf_string
   -> len:int
   -> unit
   = "bin_prot_blit_buf_bytes_stub"
-  [@@noalloc]
+[@@noalloc]
 
 external unsafe_blit_buf_bytes
   :  src_pos:int
@@ -209,7 +222,7 @@ external unsafe_blit_buf_bytes
   -> len:int
   -> unit
   = "bin_prot_blit_buf_bytes_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let blit_buf_bytes ?src_pos buf ?dst_pos str ~len =
   let loc = "blit_buf_string" in
@@ -232,8 +245,6 @@ let blit_buf_bytes ?src_pos buf ?dst_pos str ~len =
 
 let blit_buf_string = blit_buf_bytes
 
-(* Miscellaneous *)
-
 let rec copy_htbl_list htbl = function
   | [] -> htbl
   | (k, v) :: rest ->
@@ -241,16 +252,12 @@ let rec copy_htbl_list htbl = function
     copy_htbl_list htbl rest
 ;;
 
-(* Bigarrays *)
-
 type vec32 = (float, float32_elt, fortran_layout) Array1.t
 type vec64 = (float, float64_elt, fortran_layout) Array1.t
 type vec = vec64
 type mat32 = (float, float32_elt, fortran_layout) Array2.t
 type mat64 = (float, float64_elt, fortran_layout) Array2.t
 type mat = mat64
-
-(* Float arrays *)
 
 external unsafe_blit_float_array_buf
   :  src_pos:int
@@ -260,7 +267,7 @@ external unsafe_blit_float_array_buf
   -> len:int
   -> unit
   = "bin_prot_blit_float_array_buf_stub"
-  [@@noalloc]
+[@@noalloc]
 
 external unsafe_blit_buf_float_array
   :  src_pos:int
@@ -270,7 +277,7 @@ external unsafe_blit_buf_float_array
   -> len:int
   -> unit
   = "bin_prot_blit_buf_float_array_stub"
-  [@@noalloc]
+[@@noalloc]
 
 external unsafe_blit_floatarray_buf
   :  src_pos:int
@@ -280,7 +287,7 @@ external unsafe_blit_floatarray_buf
   -> len:int
   -> unit
   = "bin_prot_blit_float_array_buf_stub"
-  [@@noalloc]
+[@@noalloc]
 
 external unsafe_blit_buf_floatarray
   :  src_pos:int
@@ -290,8 +297,6 @@ external unsafe_blit_buf_floatarray
   -> len:int
   -> unit
   = "bin_prot_blit_buf_float_array_stub"
-  [@@noalloc]
-
-(***)
+[@@noalloc]
 
 let ( + ) = ( + )

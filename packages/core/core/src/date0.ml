@@ -1,12 +1,19 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"date0.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "date0.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open Digit_string_helpers
 
 let is_leap_year ~year = (year mod 4 = 0 && not (year mod 100 = 0)) || year mod 400 = 0
 
-(* Create a local private date type to ensure that all dates are created via
-   Date.create_exn.
-*)
 module Stable = struct
   module V1 = struct
     module Without_comparable = struct
@@ -14,6 +21,19 @@ module Stable = struct
         type t
         [@@immediate]
         [@@deriving bin_io ~localize, compare, equal, hash, typerep, stable_witness]
+
+        include sig
+          [@@@ocaml.warning "-32"]
+
+          include Bin_prot.Binable.S_local with type t := t
+          include Ppx_compare_lib.Comparable.S with type t := t
+          include Ppx_compare_lib.Equal.S with type t := t
+          include Ppx_hash_lib.Hashable.S with type t := t
+          include Typerep_lib.Typerepable.S with type t := t
+
+          val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+        end
+        [@@ocaml.doc "@inline"] [@@merlin.hide]
 
         val create_exn : y:int -> m:Month.Stable.V1.t -> d:int -> t
         val year : t -> int
@@ -25,29 +45,88 @@ module Stable = struct
         val of_int_unchecked : int -> t
         val invalid_value__for_internal_use_only : t
       end = struct
-        (* We used to store dates like this:
-           type t = { y: int; m: Month.Stable.V1.t; d: int; }
-           In the below we make sure that the bin_io representation is
-           identical (and the stable unit tests check this)
-
-           In memory we use the following much more compact representation:
-           2 bytes year
-           1 byte month
-           1 byte day
-
-           all packed into a single immediate int (so from 4 words down to 1).
-        *)
         type t = int
         [@@deriving
           compare
-          , equal
-          , hash
-          , typerep
-          , bin_shape ~basetype:"899ee3e0-490a-11e6-a10a-a3734f733566"
-          , stable_witness]
+        , equal
+        , hash
+        , typerep
+        , bin_shape ~basetype:"899ee3e0-490a-11e6-a10a-a3734f733566"
+        , stable_witness]
+
+        include struct
+          [@@@ocaml.warning "-60"]
+
+          let _ = fun (_ : t) -> ()
+
+          let compare =
+            (fun a__001_ b__002_ -> compare_int a__001_ b__002_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let equal =
+            (fun a__003_ b__004_ -> equal_int a__003_ b__004_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+
+          let hash_fold_t
+            : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+            =
+            fun hsv arg -> hash_fold_int hsv arg
+
+          and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+            let func = hash_int in
+            fun x -> func x
+          ;;
+
+          let _ = hash_fold_t
+          and _ = hash
+
+          module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+              type nonrec t = t
+
+              let name = "date0.ml.before-ppx.Stable.V1.Without_comparable.T.t"
+              let _ = name
+            end)
+
+          let typename_of_t = Typename_of_t.typename_of_t
+          let _ = typename_of_t
+
+          let typerep_of_t =
+            let name_of_t = Typename_of_t.named in
+            Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy typerep_of_int))
+          ;;
+
+          let _ = typerep_of_t
+
+          let bin_shape_t =
+            (Bin_prot.Shape.basetype
+               (Bin_prot.Shape.Uuid.of_string "899ee3e0-490a-11e6-a10a-a3734f733566"))
+              []
+          ;;
+
+          let _ = bin_shape_t
+
+          let stable_witness =
+            (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+             : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+          and __stable_witness_checks_for_t__ () =
+            let _ : int Ppx_stable_witness_runtime.Stable_witness.t =
+              stable_witness_int
+            in
+            ()
+          ;;
+
+          let _ = stable_witness
+          and _ = __stable_witness_checks_for_t__
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
         let create0 ~year ~month ~day =
-          (* create_exn's validation make sure that each value fits *)
           (year lsl 16) lor (Month.to_int month lsl 8) lor day
         ;;
 
@@ -64,11 +143,34 @@ module Stable = struct
         ;;
 
         let create_exn ~y:year ~m:month ~d:day =
-          (* year, month, and day need to be passed as parameters to avoid allocating
-             a closure (see unit test below) *)
           let invalid ~year ~month ~day msg =
             invalid_argf
-              !"Date.create_exn ~y:%d ~m:%{Month} ~d:%d error: %s"
+              ((Format
+                  ( String_literal
+                      ( "Date.create_exn ~y:"
+                      , Int
+                          ( Int_d
+                          , No_padding
+                          , No_precision
+                          , String_literal
+                              ( " ~m:"
+                              , Custom
+                                  ( Custom_succ Custom_zero
+                                  , (fun () _custom_printf__005_ ->
+                                      Month.to_string _custom_printf__005_)
+                                  , String_literal
+                                      ( " ~d:"
+                                      , Int
+                                          ( Int_d
+                                          , No_padding
+                                          , No_precision
+                                          , String_literal
+                                              ( " error: "
+                                              , String (No_padding, End_of_format) ) ) )
+                                  ) ) ) )
+                  , "Date.create_exn ~y:%d ~m:%{Month} ~d:%d error: %s" )
+               : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+               [@merlin.hide])
               year
               month
               day
@@ -84,11 +186,6 @@ module Stable = struct
           create0 ~year ~month ~day
         ;;
 
-        (* We don't use Make_binable here, because that would go via an immediate
-           tuple or record.  That is exactly the 32 bytes we worked so hard above to
-           get rid of.  We also don't want to just bin_io the integer directly
-           because that would mean a new bin_io format.  *)
-
         let bin_read_t buf ~pos_ref =
           let year = Int.bin_read_t buf ~pos_ref in
           let month = Month.Stable.V1.bin_read_t buf ~pos_ref in
@@ -97,7 +194,6 @@ module Stable = struct
         ;;
 
         let __bin_read_t__ _buf ~pos_ref =
-          (* __bin_read_t is only needed for variants *)
           Bin_prot.Common.raise_variant_wrong_type "Date.t" !pos_ref
         ;;
 
@@ -131,14 +227,23 @@ module Stable = struct
         let of_int_exn n = create_exn ~y:(year n) ~m:(month n) ~d:(day n)
         let invalid_value__for_internal_use_only = 0
 
-        let%test "invalid value" =
-          Exn.does_raise (fun () : t -> of_int_exn invalid_value__for_internal_use_only)
+        let () =
+          Ppx_inline_test_lib.test
+            ~config:(module Inline_test_config)
+            ~descr:(lazy "invalid value")
+            ~tags:[]
+            ~filename:"date0.ml.before-ppx"
+            ~line_number:134
+            ~start_pos:8
+            ~end_pos:123
+            (fun () ->
+               Exn.does_raise (fun () : t ->
+                 of_int_exn invalid_value__for_internal_use_only))
         ;;
       end
 
       include T
 
-      (** YYYY-MM-DD *)
       let to_string_iso8601_extended t =
         let buf = Bytes.create 10 in
         write_4_digit_int buf ~pos:0 (year t);
@@ -147,20 +252,20 @@ module Stable = struct
         Bytes.set buf 7 '-';
         write_2_digit_int buf ~pos:8 (day t);
         Bytes.unsafe_to_string ~no_mutation_while_string_reachable:buf
+      [@@ocaml.doc " YYYY-MM-DD "]
       ;;
 
       let to_string = to_string_iso8601_extended
 
-      (** YYYYMMDD *)
       let to_string_iso8601_basic t =
         let buf = Bytes.create 8 in
         write_4_digit_int buf ~pos:0 (year t);
         write_2_digit_int buf ~pos:4 (Month.to_int (month t));
         write_2_digit_int buf ~pos:6 (day t);
         Bytes.unsafe_to_string ~no_mutation_while_string_reachable:buf
+      [@@ocaml.doc " YYYYMMDD "]
       ;;
 
-      (** MM/DD/YYYY *)
       let to_string_american t =
         let buf = Bytes.create 10 in
         write_2_digit_int buf ~pos:0 (Month.to_int (month t));
@@ -169,13 +274,13 @@ module Stable = struct
         Bytes.set buf 5 '/';
         write_4_digit_int buf ~pos:6 (year t);
         Bytes.unsafe_to_string ~no_mutation_while_string_reachable:buf
+      [@@ocaml.doc " MM/DD/YYYY "]
       ;;
 
       let parse_year4 str pos = read_4_digit_int str ~pos
       let parse_month str pos = Month.of_int_exn (read_2_digit_int str ~pos)
       let parse_day str pos = read_2_digit_int str ~pos
 
-      (** YYYYMMDD *)
       let of_string_iso8601_basic str ~pos =
         if pos + 8 > String.length str
         then invalid_arg "Date.of_string_iso8601_basic: pos + 8 > string length";
@@ -183,10 +288,9 @@ module Stable = struct
           ~y:(parse_year4 str pos)
           ~m:(parse_month str (pos + 4))
           ~d:(parse_day str (pos + 6))
+      [@@ocaml.doc " YYYYMMDD "]
       ;;
 
-      (* WARNING: if you are going to change this function in a material way, be sure you
-         understand the implications of working in Stable *)
       let of_string s =
         let invalid () = failwith ("invalid date: " ^ s) in
         let ensure b = if not b then invalid () in
@@ -203,8 +307,7 @@ module Stable = struct
         then (
           let y, m, d =
             match String.split s ~on:'/' with
-            | [ a; b; c ] ->
-              if String.length a = 4 then a, b, c (* y/m/d *) else c, a, b (* m/d/y *)
+            | [ a; b; c ] -> if String.length a = 4 then a, b, c else c, a, b
             | _ -> invalid ()
           in
           let year = Int.of_string y in
@@ -216,24 +319,19 @@ module Stable = struct
           create_exn ~y:year ~m:month ~d:day)
         else if String.contains s '-'
         then (
-          (* yyyy-mm-dd *)
           ensure (String.length s = 10 && Char.( = ) s.[4] '-' && Char.( = ) s.[7] '-');
           month_num ~year:0 ~month:5 ~day:8)
         else if String.contains s ' '
         then
           if String.length s = 11 && Char.( = ) s.[2] ' ' && Char.( = ) s.[6] ' '
-          then (* DD MMM YYYY *)
-            month_abrv ~day:0 ~month:3 ~year:7
+          then month_abrv ~day:0 ~month:3 ~year:7
           else (
-            (* YYYY MMM DD *)
             ensure (String.length s = 11 && Char.( = ) s.[4] ' ' && Char.( = ) s.[8] ' ');
             month_abrv ~day:9 ~month:5 ~year:0)
         else if String.length s = 9
-        then (* DDMMMYYYY *)
-          month_abrv ~day:0 ~month:2 ~year:5
+        then month_abrv ~day:0 ~month:2 ~year:5
         else if String.length s = 8
-        then (* assume YYYYMMDD *)
-          month_num ~year:0 ~month:4 ~day:6
+        then month_num ~year:0 ~month:4 ~day:6
         else invalid ()
       ;;
 
@@ -250,6 +348,73 @@ module Stable = struct
             ; d : int
             }
           [@@deriving sexp]
+
+          include struct
+            let _ = fun (_ : t) -> ()
+
+            let t_of_sexp =
+              (let error_source__007_ =
+                 "date0.ml.before-ppx.Stable.V1.Without_comparable.Sexpable.Old_date.t"
+               in
+               fun x__008_ ->
+                 Sexplib0.Sexp_conv_record.record_of_sexp
+                   ~caller:error_source__007_
+                   ~fields:
+                     (Field
+                        { name = "y"
+                        ; kind = Required
+                        ; conv = int_of_sexp
+                        ; rest =
+                            Field
+                              { name = "m"
+                              ; kind = Required
+                              ; conv = int_of_sexp
+                              ; rest =
+                                  Field
+                                    { name = "d"
+                                    ; kind = Required
+                                    ; conv = int_of_sexp
+                                    ; rest = Empty
+                                    }
+                              }
+                        })
+                   ~index_of_field:(function
+                     | "y" -> 0
+                     | "m" -> 1
+                     | "d" -> 2
+                     | _ -> -1)
+                   ~allow_extra_fields:false
+                   ~create:(fun (y, (m, (d, ()))) -> ({ y; m; d } : t))
+                   x__008_
+               : Sexplib0.Sexp.t -> t)
+            ;;
+
+            let _ = t_of_sexp
+
+            let sexp_of_t =
+              (fun { y = y__010_; m = m__012_; d = d__014_ } ->
+                 let bnds__009_ = ([] : _ Stdlib.List.t) in
+                 let bnds__009_ =
+                   let arg__015_ = sexp_of_int d__014_ in
+                   (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "d"; arg__015_ ] :: bnds__009_
+                    : _ Stdlib.List.t)
+                 in
+                 let bnds__009_ =
+                   let arg__013_ = sexp_of_int m__012_ in
+                   (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "m"; arg__013_ ] :: bnds__009_
+                    : _ Stdlib.List.t)
+                 in
+                 let bnds__009_ =
+                   let arg__011_ = sexp_of_int y__010_ in
+                   (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "y"; arg__011_ ] :: bnds__009_
+                    : _ Stdlib.List.t)
+                 in
+                 Sexplib0.Sexp.List bnds__009_
+               : t -> Sexplib0.Sexp.t)
+            ;;
+
+            let _ = sexp_of_t
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
           let to_date t = T.create_exn ~y:t.y ~m:(Month.of_int_exn t.m) ~d:t.d
         end
@@ -291,14 +456,129 @@ module Stable = struct
       type t = int
       [@@deriving
         bin_io ~localize
-        , bin_shape ~basetype:"826a3e79-3321-451a-9707-ed6c03b84e2f"
-        , compare
-        , equal
-        , hash
-        , typerep
-        , stable_witness]
+      , bin_shape ~basetype:"826a3e79-3321-451a-9707-ed6c03b84e2f"
+      , compare
+      , equal
+      , hash
+      , typerep
+      , stable_witness]
 
-      let none = V1.(to_int invalid_value__for_internal_use_only)
+      include struct
+        [@@@ocaml.warning "-60"]
+
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "date0.ml.before-ppx:291:6")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_int ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t__local : t Bin_prot.Size.sizer_local = bin_size_int__local
+        let _ = bin_size_t__local
+        let bin_size_t = (bin_size_t__local :> _ Bin_prot.Size.sizer)
+        let _ = bin_size_t
+        let bin_write_t__local : t Bin_prot.Write.writer_local = bin_write_int__local
+        let _ = bin_write_t__local
+        let bin_write_t = (bin_write_t__local :> _ Bin_prot.Write.writer)
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_int__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_int
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let bin_shape_t =
+          (Bin_prot.Shape.basetype
+             (Bin_prot.Shape.Uuid.of_string "826a3e79-3321-451a-9707-ed6c03b84e2f"))
+            []
+        ;;
+
+        let _ = bin_shape_t
+
+        let compare =
+          (fun a__016_ b__017_ -> compare_int a__016_ b__017_
+           : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let equal =
+          (fun a__018_ b__019_ -> equal_int a__018_ b__019_
+           : t -> (t[@merlin.hide]) -> bool)
+        ;;
+
+        let _ = equal
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg -> hash_fold_int hsv arg
+
+        and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func = hash_int in
+          fun x -> func x
+        ;;
+
+        let _ = hash_fold_t
+        and _ = hash
+
+        module Typename_of_t = Typerep_lib.Std.Make_typename.Make0 (struct
+            type nonrec t = t
+
+            let name = "date0.ml.before-ppx.Stable.Option.V1.t"
+            let _ = name
+          end)
+
+        let typename_of_t = Typename_of_t.typename_of_t
+        let _ = typename_of_t
+
+        let typerep_of_t =
+          let name_of_t = Typename_of_t.named in
+          Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy typerep_of_int))
+        ;;
+
+        let _ = typerep_of_t
+
+        let stable_witness =
+          (Ppx_stable_witness_runtime.Stable_witness.assert_stable
+           : t Ppx_stable_witness_runtime.Stable_witness.t)
+
+        and __stable_witness_checks_for_t__ () =
+          let _ : int Ppx_stable_witness_runtime.Stable_witness.t = stable_witness_int in
+          ()
+        ;;
+
+        let _ = stable_witness
+        and _ = __stable_witness_checks_for_t__
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let none =
+        let open V1 in
+        to_int invalid_value__for_internal_use_only
+      ;;
+
       let is_none t = t = none
       let is_some t = not (is_none t)
       let some_is_representable _ = true
@@ -315,20 +595,30 @@ module Stable = struct
       let value_exn t =
         if is_some t
         then unchecked_value t
-        else raise_s [%message [%here] "Date.Option.value_exn none"]
+        else
+          raise_s
+            (let ppx_sexp_message () =
+               Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Conv.sexp_of_string "date0.ml.before-ppx:318:31"
+                 ; Ppx_sexp_conv_lib.Conv.sexp_of_string "Date.Option.value_exn none"
+                 ]
+                 [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+             in
+             (ppx_sexp_message () [@nontail]))
       ;;
 
       let value t ~default = Bool.select (is_none t) default (unchecked_value t)
-      let sexp_of_t t = to_option t |> Option.sexp_of_t V1.sexp_of_t
-      let t_of_sexp sexp = (Option.t_of_sexp V1.t_of_sexp) sexp |> of_option
-      let t_sexp_grammar = Sexplib.Sexp_grammar.coerce [%sexp_grammar: V1.t Option.t]
+      let sexp_of_t t = Option.sexp_of_t V1.sexp_of_t (to_option t)
+      let t_of_sexp sexp = of_option ((Option.t_of_sexp V1.t_of_sexp) sexp)
 
-      let of_int_exn t =
-        (* Don't just blindly convert from an integer. Use [V1.of_int_exn] to validate the
-           date. *)
-        if t = none then none else some (V1.of_int_exn t)
+      let t_sexp_grammar =
+        Sexplib.Sexp_grammar.coerce
+          ((Option.t_sexp_grammar V1.t_sexp_grammar
+           : V1.t Option.t Sexplib0.Sexp_grammar.t)
+           [@merlin.hide])
       ;;
 
+      let of_int_exn t = if t = none then none else some (V1.of_int_exn t)
       let to_int t = t
     end
   end
@@ -340,9 +630,9 @@ module C = Comparable.Make_binable_using_comparator (Without_comparable)
 include C
 
 include Diffable.Atomic.Make (struct
-  include Without_comparable
-  include C
-end)
+    include Without_comparable
+    include C
+  end)
 
 module O = struct
   include (C : Comparable.Infix with type t := t)
@@ -359,33 +649,25 @@ include (
     Hashable.S_binable with type t := t)
 
 include Pretty_printer.Register (struct
-  type nonrec t = t
+    type nonrec t = t
 
-  let module_name = "Core.Date"
-  let to_string = to_string
-end)
+    let module_name = "Core.Date"
+    let to_string = to_string
+  end)
 
 let unix_epoch = create_exn ~y:1970 ~m:Jan ~d:1
 
-(* The Days module is used for calculations that involve adding or removing a known number
-   of days from a date.  Internally the date is translated to a day number, the days are
-   added, and the new date is returned.  Those interested in the math can read:
-
-   http://alcor.concordia.ca/~gpkatch/gdate-method.html
-
-   note: unit tests are in lib_test/time_test.ml
-*)
 module Days : sig
-  type date = t
-  type t [@@immediate]
+    type date = t
+    type t [@@immediate]
 
-  val of_date : date -> t
-  val to_date : t -> date
-  val diff : t -> t -> int
-  val add_days : t -> int -> t
-  val unix_epoch : t
-end
-with type date := t = struct
+    val of_date : date -> t
+    val to_date : t -> date
+    val diff : t -> t -> int
+    val add_days : t -> int -> t
+    val unix_epoch : t
+  end
+  with type date := t = struct
   open Int
 
   type t = int
@@ -434,10 +716,8 @@ let add_months t n =
   let total_months = Month.to_int (month t) + n in
   let y = year t + (total_months /% 12) in
   let m = total_months % 12 in
-  (* correct for december *)
   let y, m = if Int.( = ) m 0 then y - 1, m + 12 else y, m in
   let m = Month.of_int_exn m in
-  (* handle invalid dates for months with fewer number of days *)
   let rec try_create d =
     try create_exn ~y ~m ~d with
     | _exn ->
@@ -449,10 +729,6 @@ let add_months t n =
 
 let add_years t n = add_months t (n * 12)
 
-(* http://en.wikipedia.org/wiki/Determination_of_the_day_of_the_week#Purely_mathematical_methods
-
-   note: unit tests in lib_test/time_test.ml
-*)
 let day_of_week =
   let table = [| 0; 3; 2; 5; 0; 3; 5; 1; 4; 6; 2; 4 |] in
   fun t ->
@@ -462,7 +738,6 @@ let day_of_week =
       ((y + (y / 4) - (y / 100) + (y / 400) + table.(m - 1) + day t) % 7)
 ;;
 
-(* http://en.wikipedia.org/wiki/Ordinal_date *)
 let non_leap_year_table = [| 0; 31; 59; 90; 120; 151; 181; 212; 243; 273; 304; 334 |]
 let leap_year_table = [| 0; 31; 60; 91; 121; 152; 182; 213; 244; 274; 305; 335 |]
 
@@ -482,16 +757,9 @@ let last_week_of_year y =
   else 52
 ;;
 
-(* See http://en.wikipedia.org/wiki/ISO_week_date or ISO 8601 for the details of this
-   algorithm.
-
-   Uses a [~f] argument to avoid allocating a tuple when called by [week_number].
-*)
 let call_with_week_and_year t ~f =
   let ordinal = ordinal_date t in
   let weekday = Day_of_week.iso_8601_weekday_number (day_of_week t) in
-  (* [ordinal - weekday + 4] is the ordinal of this week's Thursday, then (n + 6) / 7 is
-     division by 7 rounding up *)
   let week = (ordinal - weekday + 10) / 7 in
   let year = year t in
   if Int.( < ) week 1
@@ -511,9 +779,7 @@ let rec diff_weekend_days t1 t2 =
   if t1 < t2
   then -diff_weekend_days t2 t1
   else (
-    (* Basic date diff *)
     let diff = diff t1 t2 in
-    (* Compute the number of Saturday -> Sunday crossings *)
     let d1 = day_of_week t1 in
     let d2 = day_of_week t2 in
     let num_satsun_crossings =
@@ -594,8 +860,6 @@ let dates_between ~min:t1 ~max:t2 =
 let weekdays_between ~min ~max =
   let all_dates = dates_between ~min ~max in
   Option.value_map (List.hd all_dates) ~default:[] ~f:(fun first_date ->
-    (* to avoid a system call on every date, we just get the weekday for the first
-       date and use it to get all the other weekdays *)
     let first_weekday = day_of_week first_date in
     let date_and_weekdays =
       List.mapi all_dates ~f:(fun i date -> date, Day_of_week.shift first_weekday i)
@@ -605,7 +869,7 @@ let weekdays_between ~min ~max =
 ;;
 
 let business_dates_between ~min ~max ~is_holiday =
-  weekdays_between ~min ~max |> List.filter ~f:(fun d -> not (is_holiday d))
+  List.filter ~f:(fun d -> not (is_holiday d)) (weekdays_between ~min ~max)
 ;;
 
 let first_strictly_after t ~on:dow =
@@ -623,10 +887,22 @@ module For_quickcheck = struct
     if d1 > d2
     then
       raise_s
-        [%message
-          "Date.gen_uniform_incl: bounds are crossed"
-            ~lower_bound:(d1 : t)
-            ~upper_bound:(d2 : t)];
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                 "Date.gen_uniform_incl: bounds are crossed"
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "lower_bound"
+                 ; (sexp_of_t [@merlin.hide]) d1
+                 ]
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "upper_bound"
+                 ; (sexp_of_t [@merlin.hide]) d2
+                 ]
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]));
     Generator.map (Int.gen_uniform_incl 0 (diff d2 d1)) ~f:(fun days -> add_days d1 days)
   ;;
 
@@ -680,10 +956,43 @@ module Option = struct
     Quickcheck.Observer.of_hash
       (module struct
         type nonrec t = t [@@deriving hash]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let hash_fold_t
+            : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+            =
+            fun hsv arg -> hash_fold_t hsv arg
+
+          and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+            let func = hash in
+            fun x -> func x
+          ;;
+
+          let _ = hash_fold_t
+          and _ = hash
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
       end)
   ;;
 
   include Comparable.Make_plain (struct
-    type nonrec t = t [@@deriving compare, sexp_of]
-  end)
+      type nonrec t = t [@@deriving compare, sexp_of]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let compare =
+          (fun a__020_ b__021_ -> compare a__020_ b__021_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end)
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -1,3 +1,13 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"stable.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "stable.ml.before-ppx"
+;;
+
 module Unit_test = Stable_unit_test.Make
 
 module type Stable = Stable_module_types.S0
@@ -76,3 +86,7 @@ include Perms.Export
 include Ppx_compare_lib.Builtin
 include Base.Exported_for_specific_uses.Globalize
 include Import.Not_found
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

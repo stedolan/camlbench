@@ -1,16 +1,18 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"core_pervasives.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "core_pervasives.ml.before-ppx"
+;;
+
 include Stdlib
 
-(* At Jane Street, the OCaml stdlib is patched to define [Pervasives.raise] as the
-   ["%reraise"] primitive. We do this as the compiler is currently not good enough at
-   automatically detecting reraise [1]. We patch the stdlib so that everything is
-   affected, including libraries defined before base such as sexplib or non Jane Street
-   libraries.
-
-   We need this definition so that this implementation can match its interface with the
-   patched stdlib and with the original one.
-
-   [[1] http://caml.inria.fr/mantis/view.php?id=6556
-*)
 external raise : exn -> 'a = "%reraise"
 external ignore : ('a[@local_opt]) -> unit = "%ignore"
 
@@ -36,3 +38,7 @@ external format_of_string
   :  (('a, 'b, 'c, 'd, 'e, 'f) format6[@local_opt])
   -> (('a, 'b, 'c, 'd, 'e, 'f) format6[@local_opt])
   = "%identity"
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

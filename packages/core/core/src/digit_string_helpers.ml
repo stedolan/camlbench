@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"digit_string_helpers.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "digit_string_helpers.ml.before-ppx"
+;;
+
 open! Import
 open Std_internal
 open Int.Replace_polymorphic_compare
@@ -7,6 +20,26 @@ module Round = struct
     | Toward_positive_infinity
     | Toward_negative_infinity
   [@@deriving compare, sexp_of]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let compare =
+      (fun a__001_ b__002_ -> Stdlib.compare a__001_ b__002_
+       : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+
+    let sexp_of_t =
+      (function
+       | Toward_positive_infinity -> Sexplib0.Sexp.Atom "Toward_positive_infinity"
+       | Toward_negative_infinity -> Sexplib0.Sexp.Atom "Toward_negative_infinity"
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 let module_name = "Digit_string_helpers"
@@ -194,86 +227,34 @@ module Unsafe = struct
     invalid_argf "%s.%s: invalid decimal character" module_name name ()
   ;;
 
-  (* Reads the portion of string between [pos] and [pos+decimals-1], inclusive, and
-     interperets it as a positive decimal part of a number, which we call [x].
-
-     Let [i] and [r] be the integer part and remaining fractional part of
-     [x * scale / divisor].
-
-     If [r < round_at/divisor], returns [i].
-     If [r = round_at/divisor], returns [i] or [i+1] based on [round_exact].
-     If [r > round_at/divisor], returns [i+1].
-
-     Assumes without checking that [scale] and [divisor] are both positive and
-     less than [Int63.max_value / 10] (to avoid internal overflow during the algorithm
-     when multiplying by 10), and that [round_at >= 0] and [round_at < divisor]. *)
   let read_int63_decimal_rounded
-    string
-    ~pos:start
-    ~decimals
-    ~scale
-    ~divisor
-    ~round_at
-    ~round_exact
-    ~allow_underscore
+        string
+        ~pos:start
+        ~decimals
+        ~scale
+        ~divisor
+        ~round_at
+        ~round_exact
+        ~allow_underscore
     =
     let open Int63.O in
     let until = Int.( + ) start decimals in
-    (* The loop invariant is that each iteration, we strip off the next decimal digit and
-       update [sum], [round_at], and [divisor] such that the desired result is:
-
-       [ sum + round(remaining_digits_of_x_parsed_as_decimal * scale / divisor) ]
-       where "round" rounds based on the new value of [round_at].
-    *)
     let divisor = ref divisor in
     let round_at = ref round_at in
     let sum = ref Int63.zero in
     let pos = ref start in
-    (* Stop if we run out of characters, or if further digits cannot increase our sum. *)
     while Int.( <> ) !pos until && !round_at < scale do
       (match String.unsafe_get string !pos with
        | '0' .. '9' as char ->
          let digit = Int63.of_int (digit_of_char char) in
-         (* Every new decimal place implicitly scales our numerator by a factor of ten,
-            so must also effectively scale our denominator.
-
-            0.abcdef * scale/divisor        [round at round_at]
-            = a.bcdef * scale/(divisor*10)  [round at round_at*10]
-
-            Then redefine divisor := divisor*10 and round_at := round_at*10, so we have:
-            a.bcdef * scale/divisor [round at round_at] *)
          divisor := !divisor * int63_ten;
          round_at := !round_at * int63_ten;
-         (* Next we work out the part of the sum based on our current digit:
-
-            a.bcdef * scale/divisor [round at round_at]
-            = a.bcdef * scale/divisor - round_at / divisor  [round at 0]
-            = (a*scale-round_at) / divisor + 0.bcdef * scale/divisor  [round at 0]
-
-            Decompose the first term into integer and remainder parts.
-            Since we have already subtracted [round_at], we decompose based
-            on the ceiling rather than the floor of the division,
-            e.g. 5/3 would decompose as 2 + (-1)/3, rather than 1 + (2/3).
-
-            = increment + remainder/divisor + 0.bcdef * scale/divisor  [round at 0]
-            = increment + 0.bcdef * scale/divisor  [round at -remainder]
-         *)
          let numerator = (digit * scale) - !round_at in
          let denominator = !divisor in
          let increment = divide_and_round_up ~numerator ~denominator in
          let remainder = numerator - (increment * denominator) in
-         (* Now just accumulate the new increment and iterate on the remaining part:
-            0.bcdef * scale/divisor  [round at -remainder].
-
-            Since [remainder] is between [-(divisor-1)] and [0] inclusive, the new
-            [round_at] will be within [0] and [divisor-1] inclusive. *)
          round_at := -remainder;
          sum := !sum + increment;
-         (* This line prevents the divisor from growing without bound and overflowing. If
-            this line actually changes the divisor, then the divisor is larger than the
-            scale, so the sum will increase if and only if [parsed_remaining_digits *
-            scale (> or >=) round_at], which doesn't depend on how much larger the
-            divisor is. So this change is safe. *)
          divisor := Int63.min denominator scale
        | '_' when allow_underscore -> ()
        | _ -> raise_invalid_decimal "read_int63_decimal");
@@ -348,7 +329,35 @@ let raise_int_out_of_bounds name ~max int =
 ;;
 
 let raise_int63_out_of_bounds name ~max int63 =
-  invalid_argf !"%s.%s: %{Int63} out of range [0, %{Int63}]" module_name name int63 max ()
+  invalid_argf
+    ((Format
+        ( String
+            ( No_padding
+            , Char_literal
+                ( '.'
+                , String
+                    ( No_padding
+                    , String_literal
+                        ( ": "
+                        , Custom
+                            ( Custom_succ Custom_zero
+                            , (fun () _custom_printf__004_ ->
+                                Int63.to_string _custom_printf__004_)
+                            , String_literal
+                                ( " out of range [0, "
+                                , Custom
+                                    ( Custom_succ Custom_zero
+                                    , (fun () _custom_printf__003_ ->
+                                        Int63.to_string _custom_printf__003_)
+                                    , Char_literal (']', End_of_format) ) ) ) ) ) ) )
+        , "%s.%s: %{Int63} out of range [0, %{Int63}]" )
+     : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+     [@merlin.hide])
+    module_name
+    name
+    int63
+    max
+    ()
 ;;
 
 let check_decimals name ~decimals =
@@ -511,3 +520,7 @@ let read_int63_decimal string ~pos ~decimals ~scale ~round_ties ~allow_underscor
   check_read63_decimal "read_int63_decimal" ~string ~pos ~decimals ~scale;
   Unsafe.read_int63_decimal string ~pos ~decimals ~scale ~round_ties ~allow_underscore
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -1,29 +1,47 @@
-(** For making an abstract version of a type that ensures a validation check has passed.
+[@@@ocaml.text
+  " For making an abstract version of a type that ensures a validation check has passed.\n\n\
+  \    Suppose one wants to have a type of positive integers:\n\n\
+  \    {[\n\
+  \      module Positive_int = Validated.Make (struct\n\
+  \          type t = int\n\
+  \          let here = [%here]\n\
+  \          let validate = Int.validate_positive\n\
+  \        end)\n\
+  \    ]}\n\n\
+  \    With this, one is certain that any value of type [Positive_int.t] has passed\n\
+  \    [Int.validate_positive].\n\n\
+  \    One can call [Positive_int.create_exn n] to create a new positive int from an [n],\n\
+  \    which will of course raise if [n <= 0].  One can call [Positive_int.raw \
+   positive_int]\n\
+  \    to get the [int] from a [Positive_int.t].  "]
 
-    Suppose one wants to have a type of positive integers:
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
 
-    {[
-      module Positive_int = Validated.Make (struct
-          type t = int
-          let here = [%here]
-          let validate = Int.validate_positive
-        end)
-    ]}
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"validated_intf.ml.before-ppx"
+;;
 
-    With this, one is certain that any value of type [Positive_int.t] has passed
-    [Int.validate_positive].
-
-    One can call [Positive_int.create_exn n] to create a new positive int from an [n],
-    which will of course raise if [n <= 0].  One can call [Positive_int.raw positive_int]
-    to get the [int] from a [Positive_int.t].  *)
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "validated_intf.ml.before-ppx"
+;;
 
 open! Import
 
 module type Raw = sig
   type t [@@deriving sexp]
 
-  (** [here] will appear in validation-failure error messages. *)
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val here : Source_code_position.t
+  [@@ocaml.doc " [here] will appear in validation-failure error messages. "]
 
   val validate : t Validate.check
 end
@@ -31,25 +49,47 @@ end
 module type Raw_bin_io = sig
   type t [@@deriving bin_io]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Raw with type t := t
 
-  (** [validate_binio_deserialization] controls whether when the binio representation of a
-      value is deserialized, the resulting value is validated.  Whether one needs to
-      validate values upon deserialization depends on how serialization is being used.  If
-      one only ever serializes/deserializes so that the validation function is the same on
-      both ends, then one need not validate upon deserialization, because only values that
-      already pass the validation function can be serialized.
-
-      If the validation functions in the serializer and deserializer may be different,
-      e.g. because of two different versions of the code compiled at different times, then
-      it is possible to serialize a value that may fail validation upon deserialization.
-      In that case, having [validate_binio_deserialization = true] is necessary to prevent
-      creating values that don't pass the validation function. *)
   val validate_binio_deserialization : bool
+  [@@ocaml.doc
+    " [validate_binio_deserialization] controls whether when the binio representation of a\n\
+    \      value is deserialized, the resulting value is validated.  Whether one needs to\n\
+    \      validate values upon deserialization depends on how serialization is being \
+     used.  If\n\
+    \      one only ever serializes/deserializes so that the validation function is the \
+     same on\n\
+    \      both ends, then one need not validate upon deserialization, because only \
+     values that\n\
+    \      already pass the validation function can be serialized.\n\n\
+    \      If the validation functions in the serializer and deserializer may be \
+     different,\n\
+    \      e.g. because of two different versions of the code compiled at different \
+     times, then\n\
+    \      it is possible to serialize a value that may fail validation upon \
+     deserialization.\n\
+    \      In that case, having [validate_binio_deserialization = true] is necessary to \
+     prevent\n\
+    \      creating values that don't pass the validation function. "]
 end
 
 module type Raw_bin_io_compare_hash_sexp = sig
   type t [@@deriving compare, hash]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_hash_lib.Hashable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Raw_bin_io with type t := t
 end
@@ -57,29 +97,28 @@ end
 module type Raw_bin_io_compare_globalize_hash_sexp = sig
   type t [@@deriving globalize]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val globalize : t -> t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Raw_bin_io_compare_hash_sexp with type t := t
 end
 
-(** [S_allowing_substitution] is the same as [S], but allows writing interfaces like:
-
-    {[
-      type t [@@deriving bin_io, compare, ...]
-
-      include Validated.S_allowing_substitution with type t := t and type raw := my_raw_type
-    ]}
-
-    which is not possible with [S] due to the fact that it constrains [t].  The downside
-    is that you can no longer directly coerce [t] to be a [raw] but:
-
-    + You can use the [raw] function instead
-    + You can match on [type_equal] to do the coercion if you really need to (although
-    that's still a bit clunkier than a direct coercion would be)
-*)
 module type S_allowing_substitution = sig
   type ('raw, 'witness) validated
   type witness
   type raw
   type t [@@deriving sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   val create : raw -> t Or_error.t
   val create_exn : raw -> t
@@ -88,6 +127,19 @@ module type S_allowing_substitution = sig
   val create_stable_witness : raw Stable_witness.t -> t Stable_witness.t
   val type_equal : (t, (raw, witness) validated) Type_equal.t
 end
+[@@ocaml.doc
+  " [S_allowing_substitution] is the same as [S], but allows writing interfaces like:\n\n\
+  \    {[\n\
+  \      type t [@@deriving bin_io, compare, ...]\n\n\
+  \      include Validated.S_allowing_substitution with type t := t and type raw := \
+   my_raw_type\n\
+  \    ]}\n\n\
+  \    which is not possible with [S] due to the fact that it constrains [t].  The \
+   downside\n\
+  \    is that you can no longer directly coerce [t] to be a [raw] but:\n\n\
+  \    + You can use the [raw] function instead\n\
+  \    + You can match on [type_equal] to do the coercion if you really need to (although\n\
+  \    that's still a bit clunkier than a direct coercion would be)\n"]
 
 module type S = sig
   type ('raw, 'witness) validated
@@ -97,10 +149,10 @@ module type S = sig
 
   include
     S_allowing_substitution
-      with type t := t
-       and type raw := raw
-       and type witness := witness
-       and type ('raw, 'witness) validated := ('raw, 'witness) validated
+    with type t := t
+     and type raw := raw
+     and type witness := witness
+     and type ('raw, 'witness) validated := ('raw, 'witness) validated
 end
 
 module type S_bin_io = sig
@@ -108,6 +160,13 @@ module type S_bin_io = sig
 
   include sig
       type t = (raw, witness) validated [@@deriving bin_io]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
     with type t := t
 end
@@ -117,6 +176,15 @@ module type S_bin_io_compare_hash_sexp = sig
 
   include sig
       type t = (raw, witness) validated [@@deriving bin_io, compare, hash]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Ppx_compare_lib.Comparable.S with type t := t
+        include Ppx_hash_lib.Hashable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
     with type t := t
 end
@@ -126,6 +194,13 @@ module type S_bin_io_compare_globalize_hash_sexp = sig
 
   include sig
       type t = (raw, witness) validated [@@deriving globalize]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val globalize : t -> t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
     with type t := t
 end
@@ -150,54 +225,126 @@ module type Validated = sig
   module type S_bin_io_compare_globalize_hash_sexp =
     S_bin_io_compare_globalize_hash_sexp with type ('a, 'b) validated := ('a, 'b) t
 
-  module Make (Raw : Raw) : S with type raw := Raw.t
-  module Make_binable (Raw : Raw_bin_io) : S_bin_io with type raw := Raw.t
+  module Make : functor (Raw : Raw) -> S with type raw := Raw.t
+  module Make_binable : functor (Raw : Raw_bin_io) -> S_bin_io with type raw := Raw.t
 
-  (** [Make_bin_io_compare_hash_sexp] is useful for stable types. *)
-  module Make_bin_io_compare_hash_sexp (Raw : Raw_bin_io_compare_hash_sexp) :
+  module Make_bin_io_compare_hash_sexp : functor (Raw : Raw_bin_io_compare_hash_sexp) ->
     S_bin_io_compare_hash_sexp with type raw := Raw.t
+  [@@ocaml.doc " [Make_bin_io_compare_hash_sexp] is useful for stable types. "]
 
-  module Make_bin_io_compare_globalize_hash_sexp
-    (Raw : Raw_bin_io_compare_globalize_hash_sexp) :
-    S_bin_io_compare_globalize_hash_sexp with type raw := Raw.t
+  module Make_bin_io_compare_globalize_hash_sexp : functor
+      (Raw : Raw_bin_io_compare_globalize_hash_sexp)
+      -> S_bin_io_compare_globalize_hash_sexp with type raw := Raw.t
 
-  module Add_bin_io (Raw : sig
-    type t [@@deriving bin_io]
+  module Add_bin_io : functor
+      (Raw : sig
+         type t [@@deriving bin_io]
 
-    include Raw_bin_io with type t := t
-  end)
-  (Validated : S with type raw := Raw.t) : sig
-    type t [@@deriving bin_io]
-  end
-  with type t := Validated.t
+         include sig
+           [@@@ocaml.warning "-32"]
 
-  module Add_compare (Raw : sig
-    type t [@@deriving compare]
+           include Bin_prot.Binable.S with type t := t
+         end
+         [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-    include Raw with type t := t
-  end)
-  (Validated : S with type raw := Raw.t) : sig
-    type t [@@deriving compare]
-  end
-  with type t := Validated.t
+         include Raw_bin_io with type t := t
+       end)
+      -> functor
+      (Validated : S with type raw := Raw.t)
+      -> sig
+      type t [@@deriving bin_io]
 
-  module Add_hash (Raw : sig
-    type t [@@deriving hash]
+      include sig
+        [@@@ocaml.warning "-32"]
 
-    include Raw with type t := t
-  end)
-  (Validated : S with type raw := Raw.t) : sig
-    type t [@@deriving hash]
-  end
-  with type t := Validated.t
+        include Bin_prot.Binable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end
+    with type t := Validated.t
 
-  module Add_typerep (Raw : sig
-    type t [@@deriving typerep]
+  module Add_compare : functor
+      (Raw : sig
+         type t [@@deriving compare]
 
-    include Raw with type t := t
-  end)
-  (Validated : S with type raw := Raw.t) : sig
-    type t [@@deriving typerep]
-  end
-  with type t := Validated.t
+         include sig
+           [@@@ocaml.warning "-32"]
+
+           include Ppx_compare_lib.Comparable.S with type t := t
+         end
+         [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+         include Raw with type t := t
+       end)
+      -> functor
+      (Validated : S with type raw := Raw.t)
+      -> sig
+      type t [@@deriving compare]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Ppx_compare_lib.Comparable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end
+    with type t := Validated.t
+
+  module Add_hash : functor
+      (Raw : sig
+         type t [@@deriving hash]
+
+         include sig
+           [@@@ocaml.warning "-32"]
+
+           include Ppx_hash_lib.Hashable.S with type t := t
+         end
+         [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+         include Raw with type t := t
+       end)
+      -> functor
+      (Validated : S with type raw := Raw.t)
+      -> sig
+      type t [@@deriving hash]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Ppx_hash_lib.Hashable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end
+    with type t := Validated.t
+
+  module Add_typerep : functor
+      (Raw : sig
+         type t [@@deriving typerep]
+
+         include sig
+           [@@@ocaml.warning "-32"]
+
+           include Typerep_lib.Typerepable.S with type t := t
+         end
+         [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+         include Raw with type t := t
+       end)
+      -> functor
+      (Validated : S with type raw := Raw.t)
+      -> sig
+      type t [@@deriving typerep]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Typerep_lib.Typerepable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end
+    with type t := Validated.t
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

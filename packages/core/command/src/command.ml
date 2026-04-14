@@ -1,10 +1,21 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"command.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "command.ml.before-ppx"
+;;
+
 open! Base
 open! Import
 include Command_intf
 module Shape = Shape
 
-(* in order to define expect tests, we want to raise rather than exit if the code is
-   running in the test runner process *)
 let raise_instead_of_exit =
   match Ppx_inline_test_lib.testing with
   | `Testing `Am_test_runner -> true
@@ -13,7 +24,22 @@ let raise_instead_of_exit =
 
 exception Exit_called of { status : int } [@@deriving sexp_of]
 
-(* [raise_instead_of_exit]-respecting wrappers for [exit] and functions that call it *)
+include struct
+  let () =
+    Sexplib0.Sexp_conv.Exn_converter.add [%extension_constructor Exit_called] (function
+      | Exit_called { status = status__002_ } ->
+        let bnds__001_ = ([] : _ Stdlib.List.t) in
+        let bnds__001_ =
+          let arg__003_ = sexp_of_int status__002_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "status"; arg__003_ ] :: bnds__001_
+           : _ Stdlib.List.t)
+        in
+        Sexplib0.Sexp.List
+          (Sexplib0.Sexp.Atom "command.ml.before-ppx.Exit_called" :: bnds__001_)
+      | _ -> assert false)
+  ;;
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 include struct
   let exit status =
     if raise_instead_of_exit then raise (Exit_called { status }) else Stdlib.exit status
@@ -24,7 +50,7 @@ include struct
       if raise_instead_of_exit
       then (
         try f () with
-        | Exit_called { status = 0 } as exn -> print_s [%sexp (exn : exn)])
+        | Exit_called { status = 0 } as exn -> print_s ((sexp_of_exn [@merlin.hide]) exn))
       else Exn.handle_uncaught_and_exit f
     ;;
   end
@@ -38,16 +64,6 @@ exception Failed_to_parse_command_line of string
 let die fmt = ksprintf (fun msg () -> raise (Failed_to_parse_command_line msg)) fmt
 let help_screen_compare = Shape.Private.help_screen_compare
 
-(* universal maps are used to pass around values between different bits
-   of command line parsing code without having a huge impact on the
-   types involved
-
-   1. passing values from parsed args to command-line autocomplete functions
-   2. passing special values to a base commands that request them in their spec
- * expanded subcommand path
- * args passed to the base command
- * help text for the base command
- *)
 module Env = struct
   include Univ_map
 
@@ -57,7 +73,7 @@ module Env = struct
 end
 
 let key_internal_validate_parsing =
-  Env.Key.create ~name:"----internal-validate-parsing" [%sexp_of: unit]
+  Env.Key.create ~name:"----internal-validate-parsing" (sexp_of_unit [@merlin.hide])
 ;;
 
 module Parsing_outcome : sig
@@ -106,12 +122,12 @@ end = struct
   let error ~has_arg err = { result = Error err; has_arg }
 
   include Applicative.Make (struct
-    type nonrec 'a t = 'a t
+      type nonrec 'a t = 'a t
 
-    let return = return_no_arg
-    let map = `Custom map
-    let apply = apply
-  end)
+      let return = return_no_arg
+      let map = `Custom map
+      let apply = apply
+    end)
 end
 
 module Auto_complete = struct
@@ -217,6 +233,18 @@ end = struct
     }
   [@@deriving fields ~getters]
 
+  include struct
+    let _ = fun (_ : 'a t) -> ()
+    let extra_doc _r__ = _r__.extra_doc
+    let _ = extra_doc
+    let key _r__ = _r__.key
+    let _ = key
+    let complete _r__ = _r__.complete
+    let _ = complete
+    let parse _r__ = _r__.parse
+    let _ = parse
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let parse t s = Or_error.try_with (fun () -> t.parse s)
   let create' ?complete ?key parse ~extra_doc = { parse; key; complete; extra_doc }
 
@@ -230,10 +258,7 @@ end = struct
     let parse str = (force t).parse str in
     let complete env ~part =
       match (force t).complete with
-      | None ->
-        (* See [run_and_exit] - no completions is equivalent to not having a
-           [Complete]. *)
-        []
+      | None -> []
       | Some complete -> complete env ~part
     in
     let extra_doc = Lazy.bind t ~f:extra_doc in
@@ -251,12 +276,12 @@ end = struct
   ;;
 
   let associative
-    ?(accept_unique_prefixes = true)
-    ?(list_values_in_help = true)
-    ?auto_complete
-    ?key
-    ~case_sensitive
-    alist
+        ?(accept_unique_prefixes = true)
+        ?(list_values_in_help = true)
+        ?auto_complete
+        ?key
+        ~case_sensitive
+        alist
     =
     let open struct
       module type S = sig
@@ -274,24 +299,39 @@ end = struct
     end in
     let (T { cmp = (module S); map }) =
       let make_map_raise_duplicate_key
-        (type cmp)
-        (module S : S with type comparator_witness = cmp)
-        alist
+            (type cmp)
+            ((module S) : (module S with type comparator_witness = cmp))
+            alist
         =
         match Map.of_alist (module S) alist with
         | `Ok map -> map
         | `Duplicate_key (_ : S.t) ->
           let duplicate_keys =
-            List.map alist ~f:(fun (k, (_ : 'a)) -> k, k)
-            |> Map.of_alist_multi (module S)
-            |> Map.filter ~f:(function
-                 | [] | [ _ ] -> false
-                 | _ :: _ :: _ -> true)
-            |> Map.data
+            Map.data
+              (Map.filter
+                 ~f:(function
+                   | [] | _ :: [] -> false
+                   | _ :: _ :: _ -> true)
+                 (Map.of_alist_multi
+                    (module S)
+                    (List.map alist ~f:(fun (k, (_ : 'a)) -> k, k))))
           in
           raise_s
-            [%message
-              "Command.Spec.Arg_type.of_alist_exn" (duplicate_keys : string list list)]
+            (let ppx_sexp_message () =
+               Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                     "Command.Spec.Arg_type.of_alist_exn"
+                 ; Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "duplicate_keys"
+                     ; ((fun x__004_ ->
+                          sexp_of_list (sexp_of_list sexp_of_string) x__004_)
+                          [@merlin.hide])
+                         duplicate_keys
+                     ]
+                 ]
+                 [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+             in
+             (ppx_sexp_message () [@nontail]))
       in
       let make cmp = T { cmp; map = make_map_raise_duplicate_key cmp alist } in
       if case_sensitive then make (module String) else make (module String.Caseless)
@@ -304,8 +344,6 @@ end = struct
           match S.is_prefix name ~prefix with
           | false -> None
           | true ->
-            (* Bash completion will not accept [Foo] as a completion for [f]. So we need
-               to match the capitalization given. *)
             let suffix = String.subo name ~pos:(String.length prefix) in
             let name = prefix ^ suffix in
             Some name)
@@ -318,14 +356,12 @@ end = struct
          | false -> None
          | true ->
            (match
-              Map.to_alist map
-              |> List.filter ~f:(fun (name, _) -> S.is_prefix name ~prefix:arg)
+              List.filter
+                ~f:(fun (name, _) -> S.is_prefix name ~prefix:arg)
+                (Map.to_alist map)
             with
-            | [ (_singleton_key, v) ] -> Some v
-            | [] | _ :: _ :: _ ->
-              (* In the two-or-more case we could provide filtered help text, but it's
-                 more generally useful to list all the options, which we do below. *)
-              None))
+            | (_singleton_key, v) :: [] -> Some v
+            | [] | _ :: _ :: _ -> None))
     in
     create'
       ~extra_doc:
@@ -333,31 +369,36 @@ end = struct
           (if list_values_in_help
            then (
              let values = String.concat ~sep:", " (Map.keys map) in
-             Some [%string "(can be: %{values})"])
+             Some
+               (Ppx_string_runtime.For_string.concat
+                  [ Ppx_string_runtime.For_string.of_string "(can be: "
+                  ; values
+                  ; Ppx_string_runtime.For_string.of_string ")"
+                  ] [@merlin.hide]))
            else None))
       ?key
       ~complete
       (fun arg ->
-        match find arg with
-        | Some v -> v
-        | None ->
-          let valid_arguments_extra =
-            if case_sensitive then "" else " (case insensitive)"
-          in
-          failwithf
-            "valid arguments%s: {%s}"
-            valid_arguments_extra
-            (String.concat ~sep:"," (Map.keys map))
-            ())
+         match find arg with
+         | Some v -> v
+         | None ->
+           let valid_arguments_extra =
+             if case_sensitive then "" else " (case insensitive)"
+           in
+           failwithf
+             "valid arguments%s: {%s}"
+             valid_arguments_extra
+             (String.concat ~sep:"," (Map.keys map))
+             ())
   ;;
 
   let of_alist_exn
-    ?accept_unique_prefixes
-    ?(case_sensitive = true)
-    ?list_values_in_help
-    ?auto_complete
-    ?key
-    alist
+        ?accept_unique_prefixes
+        ?(case_sensitive = true)
+        ?list_values_in_help
+        ?auto_complete
+        ?key
+        alist
     =
     associative
       ?accept_unique_prefixes
@@ -369,12 +410,12 @@ end = struct
   ;;
 
   let of_map
-    ?accept_unique_prefixes
-    ?case_sensitive
-    ?list_values_in_help
-    ?auto_complete
-    ?key
-    map
+        ?accept_unique_prefixes
+        ?case_sensitive
+        ?list_values_in_help
+        ?auto_complete
+        ?key
+        map
     =
     of_alist_exn
       ?accept_unique_prefixes
@@ -386,13 +427,13 @@ end = struct
   ;;
 
   let enumerated
-    (type t)
-    ?accept_unique_prefixes
-    ?case_sensitive
-    ?list_values_in_help
-    ?auto_complete
-    ?key
-    (module E : Enumerable_stringable with type t = t)
+        (type t)
+        ?accept_unique_prefixes
+        ?case_sensitive
+        ?list_values_in_help
+        ?auto_complete
+        ?key
+        ((module E) : (module Enumerable_stringable with type t = t))
     =
     of_alist_exn
       ?accept_unique_prefixes
@@ -400,18 +441,17 @@ end = struct
       ?list_values_in_help
       ?auto_complete
       ?key
-      (let%map.List t = E.all in
-       E.to_string t, t)
+      (List.Let_syntax.Let_syntax.map E.all ~f:(fun t -> E.to_string t, t))
   ;;
 
   let enumerated_sexpable
-    (type t)
-    ?accept_unique_prefixes
-    ?case_sensitive
-    ?list_values_in_help
-    ?auto_complete
-    ?key
-    (module E : Enumerable_sexpable with type t = t)
+        (type t)
+        ?accept_unique_prefixes
+        ?case_sensitive
+        ?list_values_in_help
+        ?auto_complete
+        ?key
+        ((module E) : (module Enumerable_sexpable with type t = t))
     =
     enumerated
       ?accept_unique_prefixes
@@ -422,24 +462,24 @@ end = struct
       (module struct
         include E
 
-        let to_string t = Sexp.to_string [%sexp (t : E.t)]
+        let to_string t = Sexp.to_string ((E.sexp_of_t [@merlin.hide]) t)
       end)
   ;;
 
   let bool = enumerated ~list_values_in_help:false (module Bool)
 
   let comma_separated
-    ?(allow_empty = false)
-    ?key
-    ?(strip_whitespace = false)
-    ?(unique_values = false)
-    t
+        ?(allow_empty = false)
+        ?key
+        ?(strip_whitespace = false)
+        ?(unique_values = false)
+        t
     =
     let strip = if strip_whitespace then fun str -> String.strip str else Fn.id in
     let complete =
       Option.map t.complete ~f:(fun complete_elt env ~part ->
         let prefixes, suffix =
-          match String.split part ~on:',' |> List.rev with
+          match List.rev (String.split part ~on:',') with
           | [] -> [], part
           | hd :: tl -> List.rev tl, hd
         in
@@ -447,9 +487,7 @@ end = struct
           if not unique_values
           then fun (_ : string) -> true
           else (
-            let seen_already =
-              prefixes |> List.map ~f:strip |> Set.of_list (module String)
-            in
+            let seen_already = Set.of_list (module String) (List.map ~f:strip prefixes) in
             fun choice -> not (Set.mem seen_already (strip choice)))
         in
         let choices =
@@ -457,11 +495,7 @@ end = struct
             List.filter (complete_elt env ~part:suffix) ~f:(fun choice ->
               (not (String.mem choice ',')) && is_allowed choice)
           with
-          (* If there is exactly one choice to auto-complete, add a second choice with
-             a trailing comma so that auto-completion will go to the end but bash
-             won't add a space.  If there are multiple choices, or a single choice
-             that must be final, there is no need to add a dummy option. *)
-          | [ choice ] -> [ choice; choice ^ "," ]
+          | choice :: [] -> [ choice; choice ^ "," ]
           | choices -> choices
         in
         List.map choices ~f:(fun choice -> String.concat ~sep:"," (prefixes @ [ choice ])))
@@ -503,6 +537,63 @@ module Flag = struct
       }
     [@@deriving compare, enumerate, sexp_of]
 
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let compare =
+        (fun a__006_ b__007_ ->
+           if Stdlib.( == ) a__006_ b__007_
+           then 0
+           else (
+             match compare_bool a__006_.at_least_once b__007_.at_least_once with
+             | 0 -> compare_bool a__006_.at_most_once b__007_.at_most_once
+             | n -> n)
+         : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let all =
+        (let enumerate__008_ = [ false; true ] in
+         let enumerate__009_ = [ false; true ] in
+         let rec loop acc enumerate__012_ enumerate__013_ =
+           match enumerate__012_, enumerate__013_ with
+           | _, [] -> Ppx_enumerate_lib.List.rev acc
+           | enumerate__010_ :: enumerate__014_, enumerate__011_ :: _ ->
+             loop
+               ({ at_least_once = enumerate__010_; at_most_once = enumerate__011_ } :: acc)
+               enumerate__014_
+               enumerate__013_
+           | [], _ :: enumerate__014_ -> loop acc enumerate__008_ enumerate__014_
+         in
+         loop [] enumerate__008_ enumerate__009_
+         : t list)
+      ;;
+
+      let _ = all
+
+      let sexp_of_t =
+        (fun { at_least_once = at_least_once__016_; at_most_once = at_most_once__018_ } ->
+           let bnds__015_ = ([] : _ Stdlib.List.t) in
+           let bnds__015_ =
+             let arg__019_ = sexp_of_bool at_most_once__018_ in
+             (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "at_most_once"; arg__019_ ]
+              :: bnds__015_
+              : _ Stdlib.List.t)
+           in
+           let bnds__015_ =
+             let arg__017_ = sexp_of_bool at_least_once__016_ in
+             (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "at_least_once"; arg__017_ ]
+              :: bnds__015_
+              : _ Stdlib.List.t)
+           in
+           Sexplib0.Sexp.List bnds__015_
+         : t -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let to_help_string = Shape.Num_occurrences.to_help_string
 
     let to_help_string_deprecated { at_least_once; at_most_once = _ } flag_name =
@@ -526,9 +617,6 @@ module Flag = struct
       { name : string
       ; aliases : string list
       ; aliases_excluded_from_help : string list
-          (* [aliases_excluded_from_help] are aliases that don't show up in -help output.
-         Currently they're only used for double-dash built-in flags like --help and
-         --version. *)
       ; action : action
       ; doc : string
       ; num_occurrences : Num_occurrences.t
@@ -569,17 +657,16 @@ module Flag = struct
         Num_occurrences.to_help_string_deprecated t.num_occurrences x
       ;;
 
-      (* flag help in the format of the old command. used for injection *)
       let help
-        ({ name
-         ; doc
-         ; aliases
-         ; action
-         ; num_occurrences = _
-         ; check_available = _
-         ; name_matching = _
-         ; aliases_excluded_from_help = _
-         } as t)
+            ({ name
+             ; doc
+             ; aliases
+             ; action
+             ; num_occurrences = _
+             ; check_available = _
+             ; name_matching = _
+             ; aliases_excluded_from_help = _
+             } as t)
         =
         if String.is_prefix doc ~prefix:" "
         then
@@ -589,21 +676,21 @@ module Flag = struct
           let { Doc.arg_doc; doc } = Doc.parse ~action ~doc in
           (wrap_if_optional t (Doc.concat ~name ~arg_doc), doc)
           :: List.map aliases ~f:(fun x ->
-               ( wrap_if_optional t (Doc.concat ~name:x ~arg_doc)
-               , sprintf "same as \"%s\"" name )))
+            ( wrap_if_optional t (Doc.concat ~name:x ~arg_doc)
+            , sprintf "same as \"%s\"" name )))
       ;;
     end
 
     let align
-      ({ name
-       ; doc
-       ; aliases
-       ; action
-       ; num_occurrences = _
-       ; check_available = _
-       ; name_matching = _
-       ; aliases_excluded_from_help = _
-       } as t)
+          ({ name
+           ; doc
+           ; aliases
+           ; action
+           ; num_occurrences = _
+           ; check_available = _
+           ; name_matching = _
+           ; aliases_excluded_from_help = _
+           } as t)
       : Shape.Flag_info.t
       =
       let { Doc.arg_doc; doc } = Doc.parse ~action ~doc in
@@ -617,9 +704,12 @@ module Flag = struct
       with
       | `Duplicate_key flag -> failwithf "multiple flags named %s" flag ()
       | `Ok map ->
-        List.concat_map flags ~f:(fun flag -> flag.name :: flag.aliases)
-        |> List.find_a_dup ~compare:[%compare: string]
-        |> Option.iter ~f:(fun x -> failwithf "multiple flags or aliases named %s" x ());
+        Option.iter
+          ~f:(fun x -> failwithf "multiple flags or aliases named %s" x ())
+          (List.find_a_dup
+             ~compare:(fun (a__020_ : string) ((b__021_ : string) [@merlin.hide]) ->
+               (compare_string a__020_ b__021_ [@merlin.hide]))
+             (List.concat_map flags ~f:(fun flag -> flag.name :: flag.aliases)));
         map
     ;;
   end
@@ -673,7 +763,7 @@ module Flag = struct
   ;;
 
   let required_value ?default arg_type name num_occurrences =
-    let key = Env.Key.create ~name [%sexp_of: _] in
+    let key = Env.Key.create ~name ((fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide]) in
     let read env =
       match Env.find env key with
       | Some v -> Parsing_outcome.return_with_arg v
@@ -684,7 +774,7 @@ module Flag = struct
            Parsing_outcome.error
              ~has_arg:false
              (`Missing_required_flags
-               (Error.of_string (sprintf "missing required flag: %s" name))))
+                 (Error.of_string (sprintf "missing required flag: %s" name))))
     in
     let write env arg = write_option name key env arg in
     arg_flag name arg_type read write num_occurrences
@@ -697,7 +787,7 @@ module Flag = struct
   ;;
 
   let optional arg_type name =
-    let key = Env.Key.create ~name [%sexp_of: _] in
+    let key = Env.Key.create ~name ((fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide]) in
     let read env =
       match Env.find env key with
       | None -> Parsing_outcome.return_no_arg None
@@ -708,7 +798,7 @@ module Flag = struct
   ;;
 
   let no_arg_general ~is_required ~key_value ~deprecated_hook name =
-    let key = Env.Key.create ~name [%sexp_of: unit] in
+    let key = Env.Key.create ~name (sexp_of_unit [@merlin.hide]) in
     let read env =
       match Env.mem env key with
       | true -> Parsing_outcome.return_with_arg true
@@ -718,7 +808,7 @@ module Flag = struct
           Parsing_outcome.error
             ~has_arg:false
             (`Missing_required_flags
-              (Error.of_string (sprintf "missing required flag: %s" name)))
+                (Error.of_string (sprintf "missing required flag: %s" name)))
         else Parsing_outcome.return_no_arg false
     in
     let write env =
@@ -780,7 +870,10 @@ module Flag = struct
   ;;
 
   let listed arg_type name =
-    let key = Env.With_default.Key.create ~default:[] ~name [%sexp_of: _ list] in
+    let key =
+      Env.With_default.Key.create ~default:[] ~name ((fun x__022_ ->
+        sexp_of_list (fun _ -> Sexplib0.Sexp.Atom "_") x__022_) [@merlin.hide])
+    in
     let read env =
       match List.rev (Env.With_default.find env key) with
       | [] -> Parsing_outcome.return_no_arg []
@@ -791,7 +884,10 @@ module Flag = struct
   ;;
 
   let one_or_more_as_pair arg_type name =
-    let key = Env.With_default.Key.create ~default:[] ~name [%sexp_of: _ list] in
+    let key =
+      Env.With_default.Key.create ~default:[] ~name ((fun x__023_ ->
+        sexp_of_list (fun _ -> Sexplib0.Sexp.Atom "_") x__023_) [@merlin.hide])
+    in
     let read env =
       match List.rev (Env.With_default.find env key) with
       | first :: rest -> Parsing_outcome.return_with_arg (first, rest)
@@ -799,18 +895,21 @@ module Flag = struct
         Parsing_outcome.error
           ~has_arg:false
           (`Missing_required_flags
-            (Error.of_string (sprintf "missing required flag: %s" name)))
+              (Error.of_string (sprintf "missing required flag: %s" name)))
     in
     let write env arg = Env.With_default.change env key ~f:(fun q -> arg :: q) in
     arg_flag name arg_type read write Num_occurrences.at_least_once
   ;;
 
   let one_or_more_as_list arg_type =
-    one_or_more_as_pair arg_type |> map_flag ~f:(fun (x, xs) -> x :: xs)
+    map_flag ~f:(fun (x, xs) -> x :: xs) (one_or_more_as_pair arg_type)
   ;;
 
   let escape_general ~complete ~deprecated_hook name =
-    let key = Env.Key.create ~name [%sexp_of: string list] in
+    let key =
+      Env.Key.create ~name ((fun x__024_ -> sexp_of_list sexp_of_string x__024_)
+        [@merlin.hide])
+    in
     let action env cmd_line = Env.set env ~key ~data:cmd_line in
     let read env =
       match Env.find env key with
@@ -835,11 +934,7 @@ module Flag = struct
   let no_arg_abort ~exit _name =
     { action = No_arg (fun _ -> Nothing.unreachable_code (exit ()))
     ; num_occurrences = Num_occurrences.at_most_once
-    ; read =
-        (fun _ ->
-          (* We know that the flag wasn't passed here because if it was passed
-              then the [action] would have called [exit]. *)
-          Parsing_outcome.return_no_arg ())
+    ; read = (fun _ -> Parsing_outcome.return_no_arg ())
     ; extra_doc = Lazy.from_val None
     }
   ;;
@@ -910,10 +1005,10 @@ end = struct
   ;;
 
   let to_string_dots t =
-    (match t with
-     | [] -> []
-     | last :: init -> last :: List.map init ~f:(Fn.const "."))
-    |> to_string
+    to_string
+      (match t with
+       | [] -> []
+       | last :: init -> last :: List.map init ~f:(Fn.const "."))
   ;;
 
   let is_empty = List.is_empty
@@ -973,7 +1068,7 @@ module Anons = struct
     let one name = One name
 
     let many = function
-      | Zero -> Zero (* strange, but not non-sense *)
+      | Zero -> Zero
       | t ->
         if not (is_fixed_arity t)
         then
@@ -985,12 +1080,12 @@ module Anons = struct
     ;;
 
     let maybe = function
-      | Zero -> Zero (* strange, but not non-sense *)
+      | Zero -> Zero
       | t -> Maybe t
     ;;
 
     let maybe_idempotent = function
-      | Zero -> Zero (* strange, but not non-sense *)
+      | Zero -> Zero
       | Maybe t -> Maybe t
       | Many t -> Many t
       | t -> Maybe t
@@ -1048,9 +1143,7 @@ module Anons = struct
 
     module Consume_result : sig
       type nonrec 'a t =
-        { (* If emacs highlights [parser] as if it were a keyword, that's only because
-             [parser] was a keyword in camlp4. [parser] is a regular name in OCaml. *)
-          parser : 'a Basic.t
+        { parser : 'a Basic.t
         ; parse_flags : bool
         ; update_env : Env.t -> Env.t
         }
@@ -1069,11 +1162,7 @@ module Anons = struct
       type 'a t =
         | Done of (Env.t -> 'a)
         | More of 'a more
-        (* A [Test] will (generally) return a [Done _] value if there is no more input and
-           a [More] parser to use if there is any more input. *)
         | Test of (more:bool -> 'a t)
-        (* If we're only completing, we can't pull values out, but we can still step through
-           [t]s (which may have completion set up). *)
         | Only_for_completion of packed list
         | Stop_parsing of 'a t
 
@@ -1099,29 +1188,24 @@ module Anons = struct
       ;;
 
       let pack_for_completion = function
-        | Done _ -> [] (* won't complete or consume anything *)
+        | Done _ -> []
         | (More _ | Test _ | Stop_parsing _) as x -> [ Packed x ]
         | Only_for_completion ps -> ps
       ;;
 
       let rec ( <*> ) t_left t_right =
         match t_left, t_right with
-        (* [Done] *)
         | Done f, Done x ->
           Done
             (fun env ->
               let f_outcome = f env in
               let x_outcome = x env in
               f_outcome x_outcome)
-        (* next step [More] *)
         | More more, _ -> parse_more more ~f:(fun tl -> tl <*> t_right)
         | Done _, More more -> parse_more more ~f:(fun tr -> t_left <*> tr)
-        (* next step [Only_for_completion] *)
         | Only_for_completion _, _ | Done _, Only_for_completion _ ->
           Only_for_completion (pack_for_completion t_left @ pack_for_completion t_right)
-        (* next step [Stop_parsing] *)
         | Stop_parsing tl, tr | (Done _ as tl), Stop_parsing tr -> Stop_parsing (tl <*> tr)
-        (* next step [Test] *)
         | Test test, _ -> Test (fun ~more -> test ~more <*> t_right)
         | Done _, Test test -> Test (fun ~more -> t_left <*> test ~more)
       ;;
@@ -1152,10 +1236,7 @@ module Anons = struct
         match Arg_type.parse arg_type anon with
         | Error error ->
           if for_completion
-          then
-            (* we don't *really* care about this value, so just put in a dummy value so
-               completion can continue *)
-            { parser = Only_for_completion []; update_env = Fn.id }
+          then { parser = Only_for_completion []; update_env = Fn.id }
           else
             die "failed to parse %s value %S\n%s" name anon (Error.to_string_hum error) ()
         | Ok v ->
@@ -1180,7 +1261,7 @@ module Anons = struct
                 Parsing_outcome.error
                   ~has_arg:false
                   (`Missing_required_flags
-                    (Error.of_string (sprintf "missing anonymous argument: %s" name)))))
+                      (Error.of_string (sprintf "missing anonymous argument: %s" name)))))
     ;;
 
     let maybe t =
@@ -1203,11 +1284,7 @@ module Anons = struct
       | Done a -> a env
       | Stop_parsing t -> final_value t env
       | Test f -> final_value (f ~more:false) env
-      | More _ ->
-        (* this doesn't happen because all occurrences of [More] are protected
-           by [Test], which means there will always be an extra argument to give
-           before requesting the final value *)
-        assert false
+      | More _ -> assert false
       | Only_for_completion _ ->
         failwith "BUG: asked for final value when doing completion"
     ;;
@@ -1291,12 +1368,10 @@ module Anons = struct
   ;;
 
   let normalize str =
-    (* Verify the string is not empty or surrounded by whitespace *)
     let strlen = String.length str in
     if strlen = 0 then failwith "Empty anonymous argument name provided";
     if String.( <> ) (String.strip str) str
     then failwithf "argument name %S has surrounding whitespace" str ();
-    (* If the string contains special surrounding characters, don't do anything *)
     let has_special_chars =
       let special_chars =
         Set.of_list (module Char) [ '<'; '>'; '['; ']'; '('; ')'; '{'; '}' ]
@@ -1347,6 +1422,31 @@ module Cmdline = struct
     | Complete of string
   [@@deriving compare]
 
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let rec compare =
+      (fun a__025_ b__026_ ->
+         if Stdlib.( == ) a__025_ b__026_
+         then 0
+         else (
+           match a__025_, b__026_ with
+           | Nil, Nil -> 0
+           | Nil, _ -> -1
+           | _, Nil -> 1
+           | Cons (_a__027_, _a__029_), Cons (_b__028_, _b__030_) ->
+             (match compare_string _a__027_ _b__028_ with
+              | 0 -> compare _a__029_ _b__030_
+              | n -> n)
+           | Cons _, _ -> -1
+           | _, Cons _ -> 1
+           | Complete _a__031_, Complete _b__032_ -> compare_string _a__031_ _b__032_)
+       : t -> (t[@merlin.hide]) -> int)
+    ;;
+
+    let _ = compare
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let of_list args = List.fold_right args ~init:Nil ~f:(fun arg args -> Cons (arg, args))
 
   let rec to_list = function
@@ -1386,9 +1486,43 @@ let normalize key_type key =
   assert_no_underscores key_type key;
   match key_type with
   | Key_type.Flag ->
-    if String.equal key "-" then failwithf !"invalid %{Key_type} name: %S" key_type key ();
+    if String.equal key "-"
+    then
+      failwithf
+        ((Format
+            ( String_literal
+                ( "invalid "
+                , Custom
+                    ( Custom_succ Custom_zero
+                    , (fun () _custom_printf__033_ ->
+                        Key_type.to_string _custom_printf__033_)
+                    , String_literal (" name: ", Caml_string (No_padding, End_of_format))
+                    ) )
+            , "invalid %{Key_type} name: %S" )
+         : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+         [@merlin.hide])
+        key_type
+        key
+        ();
     if String.exists key ~f:Char.is_whitespace
-    then failwithf !"invalid %{Key_type} name (contains whitespace): %S" key_type key ();
+    then
+      failwithf
+        ((Format
+            ( String_literal
+                ( "invalid "
+                , Custom
+                    ( Custom_succ Custom_zero
+                    , (fun () _custom_printf__034_ ->
+                        Key_type.to_string _custom_printf__034_)
+                    , String_literal
+                        ( " name (contains whitespace): "
+                        , Caml_string (No_padding, End_of_format) ) ) )
+            , "invalid %{Key_type} name (contains whitespace): %S" )
+         : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+         [@merlin.hide])
+        key_type
+        key
+        ();
     if String.is_prefix ~prefix:"-" key then key else "-" ^ key
   | Key_type.Subcommand -> String.lowercase key
 ;;
@@ -1443,11 +1577,10 @@ module Command_base = struct
   end
 
   let formatted_flags t =
-    Map.data t.flags
-    |> List.map ~f:Flag.Internal.align
-    (* this sort puts optional flags after required ones *)
-    |> List.sort ~compare:(fun a b -> String.compare a.name b.name)
-    |> Shape.Flag_help_display.sort
+    Shape.Flag_help_display.sort
+      (List.sort
+         ~compare:(fun a b -> String.compare a.name b.name)
+         (List.map ~f:Flag.Internal.align (Map.data t.flags)))
   ;;
 
   let shape t : Shape.Base_info.t =
@@ -1465,9 +1598,9 @@ module Command_base = struct
   let normalized_args = ref None
 
   let indent_by_2 str =
-    String.split ~on:'\n' str
-    |> List.map ~f:(fun line -> "  " ^ line)
-    |> String.concat ~sep:"\n"
+    String.concat
+      ~sep:"\n"
+      (List.map ~f:(fun line -> "  " ^ line) (String.split ~on:'\n' str))
   ;;
 
   let get_flag_and_action t arg =
@@ -1493,8 +1626,6 @@ module Command_base = struct
     match action with
     | Print_info_and_quit info ->
       let completing = Cmdline.ends_in_complete args in
-      (* If we're doing completion, version/help info aren't useful completion
-         responses. *)
       if completing
       then env, args
       else (
@@ -1520,13 +1651,13 @@ module Command_base = struct
   ;;
 
   let rec run_cmdline
-    t
-    env
-    parser
-    (cmdline : Cmdline.t)
-    ~for_completion
-    ~parse_flags
-    ~normalized_args
+            t
+            env
+            parser
+            (cmdline : Cmdline.t)
+            ~for_completion
+            ~parse_flags
+            ~normalized_args
     =
     match cmdline with
     | Nil ->
@@ -1547,10 +1678,7 @@ module Command_base = struct
         | false -> arg, args, false
         | true ->
           (match arg, args with
-           (* the '-anon' flag is here as an escape hatch in case you have an
-              anonymous argument that starts with a hyphen. *)
            | "-anon", Cons (arg, args) -> arg, args, false
-           (* support the common Unix convention where "-" means stdin *)
            | "-", _ -> arg, args, false
            | _, _ -> arg, args, String.is_prefix arg ~prefix:"-")
       in
@@ -1586,7 +1714,7 @@ module Command_base = struct
       let exn_str =
         match exn with
         | Failed_to_parse_command_line msg -> msg
-        | _ -> Sexp.to_string_hum [%sexp (exn : exn)]
+        | _ -> Sexp.to_string_hum ((sexp_of_exn [@merlin.hide]) exn)
       in
       let verbose = Option.value verbose_on_parse_error ~default:true in
       let error_msg =
@@ -1606,21 +1734,24 @@ module Command_base = struct
   ;;
 
   let run
-    t
-    env
-    ~when_parsing_succeeds
-    ~path
-    ~args
-    ~verbose_on_parse_error
-    ~help_text
-    ~on_failure
+        t
+        env
+        ~when_parsing_succeeds
+        ~path
+        ~args
+        ~verbose_on_parse_error
+        ~help_text
+        ~on_failure
     =
     let for_completion = Cmdline.ends_in_complete args in
     let env =
-      env
-      |> Env.set ~key:path_key ~data:path
-      |> Env.set ~key:args_key ~data:(Cmdline.to_list args)
-      |> Env.set ~key:help_key ~data:help_text
+      Env.set
+        ~key:help_key
+        ~data:help_text
+        (Env.set
+           ~key:args_key
+           ~data:(Cmdline.to_list args)
+           (Env.set ~key:path_key ~data:path env))
     in
     match
       Result.try_with (fun () ->
@@ -1662,8 +1793,6 @@ module Command_base = struct
       { f =
           (fun () ->
             return (fun f x () ->
-              (* order of evaluation here affects in what order the users' callbacks
-                  are evaluated, so it's important to call [f] before [x] *)
               let f_outcome = f () in
               let x_outcome = x () in
               Parsing_outcome.apply f_outcome x_outcome)
@@ -1708,7 +1837,6 @@ module Command_base = struct
     let args : string list t = lookup args_key
     let help : string Lazy.t t = lookup help_key
 
-    (* This is only used internally, for the help command. *)
     let env =
       { f = (fun () -> Anons.Parser.Basic.from_env (fun env -> env) >>| wrap_value)
       ; flags = (fun () -> [])
@@ -1745,7 +1873,7 @@ module Command_base = struct
     end
 
     let escape_anon ~final_anon =
-      Anons.escape (t2 final_anon (sequence ("ARG" %: string))) |> anon
+      anon (Anons.escape (t2 final_anon (sequence ("ARG" %: string))))
     ;;
 
     include struct
@@ -1767,12 +1895,12 @@ module Command_base = struct
       let required = required
 
       let flag_internal
-        ?(aliases = [])
-        ?full_flag_required
-        name
-        mode
-        ~doc
-        ~aliases_excluded_from_help
+            ?(aliases = [])
+            ?full_flag_required
+            name
+            mode
+            ~doc
+            ~aliases_excluded_from_help
         =
         let normalize flag = normalize Key_type.Flag flag in
         let name = normalize name in
@@ -1796,7 +1924,10 @@ module Command_base = struct
                 ; aliases_excluded_from_help
                 ; doc =
                     (match force extra_doc with
-                     | Some extra_doc -> [%string "%{doc} %{extra_doc}"]
+                     | Some extra_doc ->
+                       Ppx_string_runtime.For_string.concat
+                         [ doc; Ppx_string_runtime.For_string.of_string " "; extra_doc ]
+                       [@merlin.hide]
                      | None -> doc)
                 ; action
                 ; num_occurrences
@@ -1811,18 +1942,34 @@ module Command_base = struct
       let flag = flag_internal ~aliases_excluded_from_help:[]
 
       let flag_optional_with_default_doc
-        ?aliases
-        ?full_flag_required
-        name
-        arg_type
-        sexp_of_default
-        ~default
-        ~doc
+            ?aliases
+            ?full_flag_required
+            name
+            arg_type
+            sexp_of_default
+            ~default
+            ~doc
         =
         let doc =
           match sexp_of_default default with
           | Sexp.Atom "_" -> doc
-          | default_sexp -> sprintf !"%s (default: %{Sexp})" doc default_sexp
+          | default_sexp ->
+            sprintf
+              ((Format
+                  ( String
+                      ( No_padding
+                      , String_literal
+                          ( " (default: "
+                          , Custom
+                              ( Custom_succ Custom_zero
+                              , (fun () _custom_printf__035_ ->
+                                  Sexp.to_string _custom_printf__035_)
+                              , Char_literal (')', End_of_format) ) ) )
+                  , "%s (default: %{Sexp})" )
+               : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+               [@merlin.hide])
+              doc
+              default_sexp
         in
         flag
           ?aliases
@@ -1871,21 +2018,21 @@ module Command_base = struct
             let outcome = f () in
             Parsing_outcome.introduce_missing_required_flags
               (Parsing_outcome.map outcome ~f:(function
-                | None ->
-                  Error
-                    (`Missing_required_flags
-                      (Error.of_string "[optional_to_required] got a [None] result"))
-                | Some v -> Ok v)))
+                 | None ->
+                   Error
+                     (`Missing_required_flags
+                         (Error.of_string "[optional_to_required] got a [None] result"))
+                 | Some v -> Ok v)))
       }
     ;;
 
     include Applicative.Make (struct
-      type nonrec 'a t = 'a t
+        type nonrec 'a t = 'a t
 
-      let return = return
-      let apply = apply
-      let map = `Custom map
-    end)
+        let return = return
+        let apply = apply
+        let map = `Custom map
+      end)
 
     let arg_names t =
       let flags = Flag.Internal.create (t.flags ()) in
@@ -1906,6 +2053,15 @@ module Command_base = struct
       module Choice_name : sig
         type t [@@deriving compare, sexp_of]
 
+        include sig
+          [@@@ocaml.warning "-32"]
+
+          include Ppx_compare_lib.Comparable.S with type t := t
+
+          val sexp_of_t : t -> Sexplib0.Sexp.t
+        end
+        [@@ocaml.doc "@inline"] [@@merlin.hide]
+
         include Comparator.S with type t := t
 
         val to_string : t -> string
@@ -1920,7 +2076,38 @@ module Command_base = struct
             }
           [@@deriving compare]
 
-          let sexp_of_t t = [%sexp (t.all_args : string list)]
+          include struct
+            let _ = fun (_ : t) -> ()
+
+            let compare =
+              (fun a__036_ b__037_ ->
+                 if Stdlib.( == ) a__036_ b__037_
+                 then 0
+                 else (
+                   match
+                     compare_list
+                       (fun a__038_ (b__039_ [@merlin.hide]) ->
+                          (compare_string a__038_ b__039_ [@merlin.hide]))
+                       a__036_.all_args
+                       b__037_.all_args
+                   with
+                   | 0 ->
+                     compare_list
+                       (fun a__040_ (b__041_ [@merlin.hide]) ->
+                          (compare_string a__040_ b__041_ [@merlin.hide]))
+                       a__036_.required_args
+                       b__037_.required_args
+                   | n -> n)
+               : t -> (t[@merlin.hide]) -> int)
+            ;;
+
+            let _ = compare
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+          let sexp_of_t t =
+            ((fun x__042_ -> sexp_of_list sexp_of_string x__042_) [@merlin.hide])
+              t.all_args
+          ;;
         end
 
         include T
@@ -1932,17 +2119,27 @@ module Command_base = struct
           let names_with_commas = List.filter names ~f:(fun s -> String.contains s ',') in
           if not (List.is_empty names_with_commas)
           then
-            Error.create
-              ~here:[%here]
-              "For simplicity, [Command.Spec.choose_one] does not support names with \
-               commas."
-              names_with_commas
-              [%sexp_of: string list]
-            |> Error.raise;
+            Error.raise
+              (Error.create
+                 ~here:
+                   { Ppx_here_lib.pos_fname = "command.ml.before-ppx"
+                   ; pos_lnum = 1936
+                   ; pos_cnum = 57357
+                   ; pos_bol = 57337
+                   }
+                 "For simplicity, [Command.Spec.choose_one] does not support names with \
+                  commas."
+                 names_with_commas
+                 ((fun x__043_ -> sexp_of_list sexp_of_string x__043_) [@merlin.hide]));
           match names with
           | [] ->
             raise_s
-              [%message "[choose_one] expects choices to read command-line arguments."]
+              (let ppx_sexp_message () =
+                 Ppx_sexp_conv_lib.Conv.sexp_of_string
+                   "[choose_one] expects choices to read command-line arguments."
+                   [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+               in
+               (ppx_sexp_message () [@nontail]))
           | _ :: _ -> { all_args = names; required_args }
         ;;
 
@@ -1958,7 +2155,7 @@ module Command_base = struct
           | _ :: _ as l -> Some (String.concat ~sep:"," l)
         ;;
 
-        let list_to_string ts = List.map ts ~f:to_string |> String.concat ~sep:"\n  "
+        let list_to_string ts = String.concat ~sep:"\n  " (List.map ts ~f:to_string)
       end
 
       module If_nothing_chosen = struct
@@ -1969,10 +2166,11 @@ module Command_base = struct
       end
 
       let choose_one_non_optional
-        (type a b)
-        ?(new_behavior = true)
-        (ts : a param list)
-        ~(if_nothing_chosen : (a, b) If_nothing_chosen.t)
+            (type a)
+            (type b)
+            ?(new_behavior = true)
+            (ts : a param list)
+            ~(if_nothing_chosen : (a, b) If_nothing_chosen.t)
         =
         let fix_flag t =
           if new_behavior
@@ -2005,85 +2203,114 @@ module Command_base = struct
             ; flags =
                 (fun () ->
                   List.map (t.flags ()) ~f:(fun flag_internal ->
-                    flag_internal |> fix_num_occurrences |> fix_doc))
+                    fix_doc (fix_num_occurrences flag_internal)))
             })
           else t
         in
         match
-          List.map ts ~f:(fun t -> Choice_name.create_exn t, fix_flag t)
-          |> Map.of_alist (module Choice_name)
+          Map.of_alist
+            (module Choice_name)
+            (List.map ts ~f:(fun t -> Choice_name.create_exn t, fix_flag t))
         with
         | `Duplicate_key name ->
-          Error.create
-            ~here:[%here]
-            "[Command.Spec.choose_one] called with duplicate name"
-            name
-            [%sexp_of: Choice_name.t]
-          |> Error.raise
+          Error.raise
+            (Error.create
+               ~here:
+                 { Ppx_here_lib.pos_fname = "command.ml.before-ppx"
+                 ; pos_lnum = 2018
+                 ; pos_cnum = 60213
+                 ; pos_bol = 60195
+                 }
+               "[Command.Spec.choose_one] called with duplicate name"
+               name
+               (Choice_name.sexp_of_t [@merlin.hide]))
         | `Ok ts ->
-          Map.fold ts ~init:(return []) ~f:(fun ~key:name ~data:t acc ->
-            map2
-              acc
-              (recover_from_missing_required_flags t)
-              ~f:(fun acc { result = value; has_arg } ->
-              match has_arg with
-              | false -> acc
-              | true -> (name, value) :: acc))
-          |> map ~f:(fun value_list ->
-               let arg_counter = List.length value_list in
-               let missing_flag_error fmt =
-                 ksprintf
-                   (fun msg () -> Error (`Missing_required_flags (Error.of_string msg)))
-                   fmt
-               in
-               let more_than_one_error passed =
-                 die
-                   !"Cannot pass more than one of these: \n\
-                    \  %{Choice_name.list_to_string}"
-                   (List.map passed ~f:fst)
-                   ()
-               and success_list, error_list =
-                 List.partition_map value_list ~f:(function
-                   | name, Ok value -> First (name, value)
-                   | name, Error err -> Second (name, err))
-               in
-               match success_list with
-               | _ :: _ :: _ as passed -> more_than_one_error passed
-               | [ (_, (value : a)) ] ->
-                 if arg_counter > 1
-                 then more_than_one_error value_list
-                 else
-                   Ok
-                     (match if_nothing_chosen with
-                      | Default_to (_ : a) -> (value : b)
-                      | Raise -> (value : b)
-                      | Return_none -> (Some value : b))
-               | [] ->
-                 (match error_list with
-                  | [ (name, `Missing_required_flags err) ] ->
-                    Error
-                      (`Missing_required_flags
-                        (Error.of_string
-                           (sprintf
-                              "Not all flags in group \"%s\" are given: %s"
-                              (Choice_name.to_string name)
-                              (Error.to_string_hum err))))
-                  | _ ->
-                    (match if_nothing_chosen with
-                     | Default_to value -> Ok value
-                     | Return_none -> Ok None
-                     | Raise ->
-                       missing_flag_error
-                         !"Must pass one of these:\n  %{Choice_name.list_to_string}"
-                         (Map.keys ts)
-                         ())))
-          |> introduce_missing_required_flags
+          introduce_missing_required_flags
+            (map
+               ~f:(fun value_list ->
+                 let arg_counter = List.length value_list in
+                 let missing_flag_error fmt =
+                   ksprintf
+                     (fun msg () -> Error (`Missing_required_flags (Error.of_string msg)))
+                     fmt
+                 in
+                 let more_than_one_error passed =
+                   die
+                     ((Format
+                         ( String_literal
+                             ( "Cannot pass more than one of these: \n  "
+                             , Custom
+                                 ( Custom_succ Custom_zero
+                                 , (fun () _custom_printf__044_ ->
+                                     Choice_name.list_to_string _custom_printf__044_)
+                                 , End_of_format ) )
+                         , "Cannot pass more than one of these: \n\
+                           \  %{Choice_name.list_to_string}" )
+                      : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                      [@merlin.hide])
+                     (List.map passed ~f:fst)
+                     ()
+                 and success_list, error_list =
+                   List.partition_map value_list ~f:(function
+                     | name, Ok value -> First (name, value)
+                     | name, Error err -> Second (name, err))
+                 in
+                 match success_list with
+                 | _ :: _ :: _ as passed -> more_than_one_error passed
+                 | (_, (value : a)) :: [] ->
+                   if arg_counter > 1
+                   then more_than_one_error value_list
+                   else
+                     Ok
+                       (match if_nothing_chosen with
+                        | Default_to (_ : a) -> (value : b)
+                        | Raise -> (value : b)
+                        | Return_none -> (Some value : b))
+                 | [] ->
+                   (match error_list with
+                    | (name, `Missing_required_flags err) :: [] ->
+                      Error
+                        (`Missing_required_flags
+                            (Error.of_string
+                               (sprintf
+                                  "Not all flags in group \"%s\" are given: %s"
+                                  (Choice_name.to_string name)
+                                  (Error.to_string_hum err))))
+                    | _ ->
+                      (match if_nothing_chosen with
+                       | Default_to value -> Ok value
+                       | Return_none -> Ok None
+                       | Raise ->
+                         missing_flag_error
+                           ((Format
+                               ( String_literal
+                                   ( "Must pass one of these:\n  "
+                                   , Custom
+                                       ( Custom_succ Custom_zero
+                                       , (fun () _custom_printf__045_ ->
+                                           Choice_name.list_to_string _custom_printf__045_)
+                                       , End_of_format ) )
+                               , "Must pass one of these:\n\
+                                 \  %{Choice_name.list_to_string}" )
+                            : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+                            [@merlin.hide])
+                           (Map.keys ts)
+                           ())))
+               (Map.fold ts ~init:(return []) ~f:(fun ~key:name ~data:t acc ->
+                  map2
+                    acc
+                    (recover_from_missing_required_flags t)
+                    ~f:(fun acc { result = value; has_arg } ->
+                      match has_arg with
+                      | false -> acc
+                      | true -> (name, value) :: acc))))
       ;;
 
       let choose_one
-        (type a b)
-        (ts : a option param list)
-        ~(if_nothing_chosen : (a, b) If_nothing_chosen.t)
+            (type a)
+            (type b)
+            (ts : a option param list)
+            ~(if_nothing_chosen : (a, b) If_nothing_chosen.t)
         =
         choose_one_non_optional
           ~new_behavior:false
@@ -2114,11 +2341,19 @@ module Command_base = struct
 
     let and_arg_name t =
       match arg_names t with
-      | [ name ] -> map t ~f:(fun value -> value, name)
+      | name :: [] -> map t ~f:(fun value -> value, name)
       | names ->
         raise_s
-          [%message
-            "[and_arg_name] expects exactly one name, got" ~_:(names : string list)]
+          (let ppx_sexp_message () =
+             Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                   "[and_arg_name] expects exactly one name, got"
+               ; ((fun x__046_ -> sexp_of_list sexp_of_string x__046_) [@merlin.hide])
+                   names
+               ]
+               [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+           in
+           (ppx_sexp_message () [@nontail]))
     ;;
 
     let parse { flags; usage = _; f } args =
@@ -2127,7 +2362,7 @@ module Command_base = struct
       run
         { summary = ""
         ; readme = None
-        ; flags = flags () |> Flag.Internal.create
+        ; flags = Flag.Internal.create (flags ())
         ; anons =
             (fun () ->
               let open Anons.Parser.Basic.For_opening in
@@ -2150,9 +2385,16 @@ module Command_base = struct
             exn
             ~for_completion:(_ : bool)
             ~path:(_ : Path.t)
-            ~verbose_on_parse_error:(_ : bool option)
-            -> result := Some (Error (Error.of_exn exn)));
-      Option.value_exn ~here:[%here] !result
+            ~verbose_on_parse_error:(_ : bool option) ->
+          result := Some (Error (Error.of_exn exn)));
+      Option.value_exn
+        ~here:
+          { Ppx_here_lib.pos_fname = "command.ml.before-ppx"
+          ; pos_lnum = 2155
+          ; pos_cnum = 65381
+          ; pos_bol = 65352
+          }
+        !result
     ;;
   end
 
@@ -2165,9 +2407,6 @@ module Command_base = struct
     let ( +> ) t1 p2 = Param.map2 t1 p2 ~f:(fun f1 p2 x -> (f1 x) p2)
     let ( +< ) t1 p2 = Param.map2 p2 t1 ~f:(fun p2 f1 x -> f1 (x p2))
     let step f = Param.return f
-
-    (* Ideally this would be [let empty = Param.return Fn.id], but unfortunately that
-       doesn't compile because of the value restriction *)
     let empty = Param.empty_spec
     let const x = Param.return x
     let map = Param.map
@@ -2226,12 +2465,12 @@ module Command_base = struct
       let flag_optional_with_default_doc = Param.flag_optional_with_default_doc
 
       include Applicative.Make (struct
-        type nonrec 'a t = 'a Param.t
+          type nonrec 'a t = 'a Param.t
 
-        let return = Param.return
-        let apply = apply
-        let map = `Custom map
-      end)
+          let return = Param.return
+          let apply = apply
+          let map = `Custom map
+        end)
 
       let pair = Param.both
     end
@@ -2315,8 +2554,7 @@ module Exec = struct
   type t =
     { summary : string
     ; readme : (unit -> string) option
-    ; (* If [path_to_exe] is relative, interpret w.r.t. [working_dir] *)
-      working_dir : string
+    ; working_dir : string
     ; path_to_exe : string
     ; child_subcommand : string list
     ; env : env option
@@ -2332,8 +2570,6 @@ module Exec = struct
   ;;
 end
 
-(* A proxy command is the structure of an Exec command obtained by running it in a
-   special way *)
 module Proxy = struct
   module Kind = struct
     type 'a t =
@@ -2492,11 +2728,11 @@ let exec ~summary ?readme ?(child_subcommand = []) ?env ~path_to_exe () =
 let of_lazy thunk = Lazy thunk
 
 let rec proxy_of_sexpable
-  sexpable
-  ~working_dir
-  ~path_to_exe
-  ~child_subcommand
-  ~path_to_subcommand
+          sexpable
+          ~working_dir
+          ~path_to_exe
+          ~child_subcommand
+          ~path_to_subcommand
   : Proxy.t
   =
   let kind =
@@ -2510,11 +2746,11 @@ let rec proxy_of_sexpable
   { working_dir; path_to_exe; path_to_subcommand; child_subcommand; kind }
 
 and kind_of_sexpable
-  sexpable
-  ~working_dir
-  ~path_to_exe
-  ~child_subcommand
-  ~path_to_subcommand
+      sexpable
+      ~working_dir
+      ~path_to_exe
+      ~child_subcommand
+      ~path_to_subcommand
   =
   match (sexpable : Shape.Sexpable.t) with
   | Base b -> Proxy.Kind.Base b
@@ -2556,18 +2792,18 @@ module Version_info (Version_util : Version_util) = struct
   let command ~version ~build_info =
     basic
       ~summary:"print version information"
-      Command_base.Param.(
-        return (fun version_flag build_info_flag ->
-          if build_info_flag
-          then print_build_info ~build_info
-          else if version_flag
-          then print_version ~version
-          else (
-            print_build_info ~build_info;
-            print_version ~version);
-          exit 0)
-        <*> flag "-version" no_arg ~doc:" print the version of this build"
-        <*> flag "-build-info" no_arg ~doc:" print build info for this build")
+      (let open Command_base.Param in
+       return (fun version_flag build_info_flag ->
+         if build_info_flag
+         then print_build_info ~build_info
+         else if version_flag
+         then print_version ~version
+         else (
+           print_build_info ~build_info;
+           print_version ~version);
+         exit 0)
+       <*> flag "-version" no_arg ~doc:" print the version of this build"
+       <*> flag "-build-info" no_arg ~doc:" print build info for this build")
   ;;
 
   let rec add ~version ~build_info unversioned =
@@ -2613,37 +2849,136 @@ module Version_info (Version_util : Version_util) = struct
   let default_version = lazy (normalize_version_lines Version_util.version_list)
 
   let default_build_info =
-    lazy
-      (* lazy to avoid loading all the time zone stuff at toplevel *)
-      (Version_util.reprint_build_info Version_util.Time.sexp_of_t)
+    lazy (Version_util.reprint_build_info Version_util.Time.sexp_of_t)
   ;;
 end
 
-let%test_module "Version_info" =
-  (module struct
-    module Version_info = Version_info (struct
-      let version_list = [ "hg://some/path_0xdeadbeef"; "ssh://a/path_8badf00d" ]
-      let reprint_build_info to_sexp = Sexp.to_string (to_sexp ())
+let () =
+  Ppx_inline_test_lib.test_module
+    ~config:(module Inline_test_config)
+    ~descr:(lazy "Version_info")
+    ~tags:[]
+    ~filename:"command.ml.before-ppx"
+    ~line_number:2622
+    ~start_pos:0
+    ~end_pos:752
+    (fun () ->
+       let module M = struct
+         module Version_info = Version_info (struct
+             let version_list = [ "hg://some/path_0xdeadbeef"; "ssh://a/path_8badf00d" ]
+             let reprint_build_info to_sexp = Sexp.to_string (to_sexp ())
 
-      module Time = struct
-        type t = unit [@@deriving sexp_of]
-      end
-    end)
+             module Time = struct
+               type t = unit [@@deriving sexp_of]
 
-    let%expect_test "print version where multiple repos are used" =
-      Version_info.print_version ~version:Version_info.default_version;
-      [%expect
-        {|
-        hg://some/path_0xdeadbeef
-        ssh://a/path_8badf00d
-        |}]
-    ;;
+               include struct
+                 let _ = fun (_ : t) -> ()
+                 let sexp_of_t = (sexp_of_unit : t -> Sexplib0.Sexp.t)
+                 let _ = sexp_of_t
+               end [@@ocaml.doc "@inline"] [@@merlin.hide]
+             end
+           end)
 
-    let%expect_test "print build info" =
-      Version_info.print_build_info ~build_info:(lazy "some build info");
-      [%expect {| some build info |}]
-    ;;
-  end)
+         let () =
+           match Ppx_inline_test_lib.testing with
+           | `Not_testing -> ()
+           | `Testing _ ->
+             let module Ppx_expect_test_block =
+               Ppx_expect_runtime.Make_test_block (Expect_test_config)
+             in
+             Ppx_expect_test_block.run_suite
+               ~filename_rel_to_project_root:"command.ml.before-ppx"
+               ~line_number:2633
+               ~location:{ start_bol = 79612; start_pos = 79616; end_pos = 79853 }
+               ~trailing_loc:{ start_bol = 79842; start_pos = 79853; end_pos = 79853 }
+               ~body_loc:{ start_bol = 79612; start_pos = 79616; end_pos = 79853 }
+               ~formatting_flexibility:
+                 (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                    Ppx_expect_runtime.Expect_node_formatting.default)
+               ~expected_exn:None
+               ~trailing_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 1)
+               ~exn_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 2)
+               ~description:(Some "print version where multiple repos are used")
+               ~tags:[]
+               ~inline_test_config:(module Inline_test_config)
+               ~expectations:
+                 ([ ( Ppx_expect_runtime.Expectation_id.of_int_exn 0
+                    , Ppx_expect_runtime.Test_node.Create.expect
+                        ~formatting_flexibility:
+                          (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                           .Flexible_modulo
+                             Ppx_expect_runtime.Expect_node_formatting.default)
+                        ~located_payload:
+                          (Some
+                             ( { contents =
+                                   "\n\
+                                   \        hg://some/path_0xdeadbeef\n\
+                                   \        ssh://a/path_8badf00d\n\
+                                   \        "
+                               ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                               }
+                             , { start_bol = 79767; start_pos = 79775; end_pos = 79852 }
+                             ))
+                        ~node_loc:
+                          { start_bol = 79752; start_pos = 79758; end_pos = 79853 } )
+                  ]
+                 [@merlin.hide])
+               (fun () ->
+                  Version_info.print_version ~version:Version_info.default_version;
+                  Ppx_expect_test_block.run_test
+                    ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 0)
+                  [@merlin.hide])
+         ;;
+
+         let () =
+           match Ppx_inline_test_lib.testing with
+           | `Not_testing -> ()
+           | `Testing _ ->
+             let module Ppx_expect_test_block =
+               Ppx_expect_runtime.Make_test_block (Expect_test_config)
+             in
+             Ppx_expect_test_block.run_suite
+               ~filename_rel_to_project_root:"command.ml.before-ppx"
+               ~line_number:2642
+               ~location:{ start_bol = 79862; start_pos = 79866; end_pos = 80014 }
+               ~trailing_loc:{ start_bol = 79977; start_pos = 80014; end_pos = 80014 }
+               ~body_loc:{ start_bol = 79862; start_pos = 79866; end_pos = 80014 }
+               ~formatting_flexibility:
+                 (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                    Ppx_expect_runtime.Expect_node_formatting.default)
+               ~expected_exn:None
+               ~trailing_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 4)
+               ~exn_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 5)
+               ~description:(Some "print build info")
+               ~tags:[]
+               ~inline_test_config:(module Inline_test_config)
+               ~expectations:
+                 ([ ( Ppx_expect_runtime.Expectation_id.of_int_exn 3
+                    , Ppx_expect_runtime.Test_node.Create.expect
+                        ~formatting_flexibility:
+                          (Ppx_expect_runtime.Expect_node_formatting.Flexibility
+                           .Flexible_modulo
+                             Ppx_expect_runtime.Expect_node_formatting.default)
+                        ~located_payload:
+                          (Some
+                             ( { contents = " some build info "
+                               ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                               }
+                             , { start_bol = 79977; start_pos = 79992; end_pos = 80013 }
+                             ))
+                        ~node_loc:
+                          { start_bol = 79977; start_pos = 79983; end_pos = 80014 } )
+                  ]
+                 [@merlin.hide])
+               (fun () ->
+                  Version_info.print_build_info ~build_info:(lazy "some build info");
+                  Ppx_expect_test_block.run_test
+                    ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 3)
+                  [@merlin.hide])
+         ;;
+       end
+       in
+       ())
 ;;
 
 let rec summary = function
@@ -2665,7 +3000,7 @@ module Deprecated = struct
   let summary = summary
 
   let rec get_flag_names = function
-    | Base base -> base.Command_base.flags |> Map.keys
+    | Base base -> Map.keys base.Command_base.flags
     | Lazy thunk -> get_flag_names (Lazy.force thunk)
     | Group _ | Exec _ -> assert false
   ;;
@@ -2690,31 +3025,19 @@ module Deprecated = struct
         else [ base_help ]
       | Group { summary; subcommands; readme = _; body = _ } ->
         (s ^ cmd, summary)
-        :: (Lazy.force subcommands
-            |> List.sort ~compare:Command_base.Deprecated.subcommand_cmp_fst
-            |> List.concat_map ~f:(fun (cmd', t) -> help_recursive_rec ~cmd:cmd' t new_s)
-           )
-      | Exec _ ->
-        (* Command.exec does not support deprecated commands *)
-        []
+        :: List.concat_map
+             ~f:(fun (cmd', t) -> help_recursive_rec ~cmd:cmd' t new_s)
+             (List.sort
+                ~compare:Command_base.Deprecated.subcommand_cmp_fst
+                (Lazy.force subcommands))
+      | Exec _ -> []
     in
     help_recursive_rec ~cmd t s
   ;;
 end
 
-(* This script works in both bash (via readarray) and zsh (via read -A).  If you change
-   it, please test in both bash and zsh.  It does not work tcsh (different function
-   syntax). *)
 let autocomplete_function ~argv_0 ~pid =
-  let fname =
-    (* Note: we pad the pid to a deterministic length, as in 2023 it was determined that
-       if multiple invocations occurred at the same time of requesting these functions to
-       be written to the same file (e.g. 2 shells opening at /exactly/ the right time)
-       there would be bad extra bytes left over in the written file, so making it,
-       deterministic in length irrespective of the pid is important. Given that pids don't
-       exceed 65536, 10 digits should give us lots of breathing room. *)
-    sprintf "_jsautocom_%010d" pid
-  in
+  let fname = sprintf "_jsautocom_%010d" pid in
   sprintf
     "function %s {\n\
     \  export COMP_CWORD\n\
@@ -2733,21 +3056,59 @@ let autocomplete_function ~argv_0 ~pid =
     argv_0
 ;;
 
-let%expect_test "Demonstrate [autocomplete_function]" =
-  autocomplete_function ~argv_0:"<argv_0>" ~pid:12345 |> print_endline;
-  [%expect
-    {|
-    function _jsautocom_0000012345 {
-      export COMP_CWORD
-      COMP_WORDS[0]=<argv_0>
-      if type readarray > /dev/null
-      then readarray -t COMPREPLY < <("${COMP_WORDS[@]}")
-      else IFS="
-    " read -d "" -A COMPREPLY < <("${COMP_WORDS[@]}")
-      fi
-    }
-    complete -F _jsautocom_0000012345 <argv_0>
-    |}]
+let () =
+  match Ppx_inline_test_lib.testing with
+  | `Not_testing -> ()
+  | `Testing _ ->
+    let module Ppx_expect_test_block =
+      Ppx_expect_runtime.Make_test_block (Expect_test_config)
+    in
+    Ppx_expect_test_block.run_suite
+      ~filename_rel_to_project_root:"command.ml.before-ppx"
+      ~line_number:2736
+      ~location:{ start_bol = 82879; start_pos = 82879; end_pos = 83349 }
+      ~trailing_loc:{ start_bol = 83342; start_pos = 83349; end_pos = 83349 }
+      ~body_loc:{ start_bol = 82879; start_pos = 82879; end_pos = 83349 }
+      ~formatting_flexibility:
+        (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+           Ppx_expect_runtime.Expect_node_formatting.default)
+      ~expected_exn:None
+      ~trailing_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 7)
+      ~exn_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 8)
+      ~description:(Some "Demonstrate [autocomplete_function]")
+      ~tags:[]
+      ~inline_test_config:(module Inline_test_config)
+      ~expectations:
+        ([ ( Ppx_expect_runtime.Expectation_id.of_int_exn 6
+           , Ppx_expect_runtime.Test_node.Create.expect
+               ~formatting_flexibility:
+                 (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                    Ppx_expect_runtime.Expect_node_formatting.default)
+               ~located_payload:
+                 (Some
+                    ( { contents =
+                          "\n\
+                          \    function _jsautocom_0000012345 {\n\
+                          \      export COMP_CWORD\n\
+                          \      COMP_WORDS[0]=<argv_0>\n\
+                          \      if type readarray > /dev/null\n\
+                          \      then readarray -t COMPREPLY < <(\"${COMP_WORDS[@]}\")\n\
+                          \      else IFS=\"\n\
+                          \    \" read -d \"\" -A COMPREPLY < <(\"${COMP_WORDS[@]}\")\n\
+                          \      fi\n\
+                          \    }\n\
+                          \    complete -F _jsautocom_0000012345 <argv_0>\n\
+                          \    "
+                      ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                      }
+                    , { start_bol = 83018; start_pos = 83022; end_pos = 83348 } ))
+               ~node_loc:{ start_bol = 83007; start_pos = 83009; end_pos = 83349 } )
+         ]
+        [@merlin.hide])
+      (fun () ->
+         print_endline (autocomplete_function ~argv_0:"<argv_0>" ~pid:12345);
+         Ppx_expect_test_block.run_test
+           ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 6) [@merlin.hide])
 ;;
 
 module For_unix (For_unix_with_string_env_var : For_unix with type env_var := string) =
@@ -2755,9 +3116,6 @@ struct
   module Version_info = Version_info (For_unix_with_string_env_var.Version_util)
 
   module For_unix_with_command_env_var : For_unix with type env_var := Env_var.t = struct
-    (* We force access to env vars to go through [Command_env_var] so that we can keep an
-       accurate enumeration of the variables we use. *)
-
     include For_unix_with_string_env_var
 
     module Unix = struct
@@ -2797,19 +3155,13 @@ struct
 
   open For_unix_with_command_env_var
 
-  (* Clear the setting of environment variable associated with command-line
-     completion and recursive help so that subprocesses don't see them.
-
-     Use [unsafe_getenv] so setuid-root programs can still read environment variables.
-     There is no security risk here because the values are only used as triggers to dump
-     out command information. *)
   let getenv_and_clear var =
     let value = Unix.unsafe_getenv var in
     if Option.is_some value then Unix.unsetenv var;
     value
   ;;
 
-  let maybe_comp_cword () = getenv_and_clear comp_cword |> Option.map ~f:Int.of_string
+  let maybe_comp_cword () = Option.map ~f:Int.of_string (getenv_and_clear comp_cword)
 
   let set_comp_cword new_value =
     let new_value = Int.to_string new_value in
@@ -2824,9 +3176,6 @@ struct
       let args = t.child_subcommand @ args in
       let env = t.env in
       Option.iter maybe_new_comp_cword ~f:(fun n ->
-        (* The logic for tracking [maybe_new_comp_cword] doesn't take into account whether
-           this exec specifies a child subcommand. If it does, COMP_CWORD needs to be set
-           higher to account for the arguments used to specify the child subcommand. *)
         set_comp_cword (n + List.length t.child_subcommand));
       Nothing.unreachable_code
         (For_unix_with_string_env_var.Unix.exec ?env ~prog ~argv:(prog :: args) ())
@@ -2837,34 +3186,39 @@ struct
     include Shape.Sexpable
 
     let read_stdout_and_stderr (process_info : Unix.Process_info.t) =
-      (* We need to read each of stdout and stderr in a separate thread to avoid deadlocks
-         if the child process decides to wait for a read on one before closing the other.
-         Buffering may hide this problem until output is "sufficiently large". *)
       let start_reading descr info =
         let output = ref None in
         let thread =
           Thread.create
             ~on_uncaught_exn:`Print_to_stderr
             (fun () ->
-              let result =
-                Result.try_with (fun () ->
-                  descr |> Unix.in_channel_of_descr |> In_channel.input_all)
-              in
-              output := Some result)
+               let result =
+                 Result.try_with (fun () ->
+                   In_channel.input_all (Unix.in_channel_of_descr descr))
+               in
+               output := Some result)
             ()
         in
         Staged.stage (fun () ->
           Thread.join thread;
           Unix.close descr;
           match !output with
-          | None -> raise_s [%message "BUG failed to read" (info : Info.t)]
+          | None ->
+            raise_s
+              (let ppx_sexp_message () =
+                 Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Conv.sexp_of_string "BUG failed to read"
+                   ; Ppx_sexp_conv_lib.Sexp.List
+                       [ Ppx_sexp_conv_lib.Sexp.Atom "info"
+                       ; (Info.sexp_of_t [@merlin.hide]) info
+                       ]
+                   ]
+                   [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+               in
+               (ppx_sexp_message () [@nontail]))
           | Some (Ok output) -> output
           | Some (Error exn) -> raise exn)
       in
-      (* We might hang forever trying to join the reading threads if the child process keeps
-         the file descriptor open. Not handling this because I think we've never seen it
-         in the wild despite running vulnerable code for years. *)
-      (* We have to start both threads before joining any of them. *)
       let finish_stdout = start_reading process_info.stdout (Info.of_string "stdout") in
       let finish_stderr = start_reading process_info.stderr (Info.of_string "stderr") in
       Staged.unstage finish_stdout (), Staged.unstage finish_stderr ()
@@ -2878,22 +3232,32 @@ struct
           ~args:child_subcommand
           ~env:
             (let help_sexp =
-               supported_versions |> Set.sexp_of_m__t (module Int) |> Sexp.to_string
+               Sexp.to_string (Set.sexp_of_m__t (module Int) supported_versions)
              in
              `Extend [ COMMAND_OUTPUT_HELP_SEXP, help_sexp ])
       in
       Unix.close process_info.stdin;
       let stdout, stderr = read_stdout_and_stderr process_info in
       Unix.wait process_info.pid;
-      (* Now we've killed all the processes and threads we made. *)
-      match stdout |> Sexplib.Sexp.of_string |> Versioned.t_of_sexp |> of_versioned with
+      match of_versioned (Versioned.t_of_sexp (Sexplib.Sexp.of_string stdout)) with
       | exception exn ->
         raise_s
-          [%message
-            "cannot parse command shape"
-              ~_:(exn : exn)
-              (stdout : string)
-              (stderr : string)]
+          (let ppx_sexp_message () =
+             Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Conv.sexp_of_string "cannot parse command shape"
+               ; (sexp_of_exn [@merlin.hide]) exn
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "stdout"
+                   ; (sexp_of_string [@merlin.hide]) stdout
+                   ]
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "stderr"
+                   ; (sexp_of_string [@merlin.hide]) stderr
+                   ]
+               ]
+               [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+           in
+           (ppx_sexp_message () [@nontail]))
       | t -> t
     ;;
 
@@ -2919,12 +3283,12 @@ struct
   end
 
   let proxy_of_exe ~working_dir path_to_exe child_subcommand =
-    Sexpable.of_external ~working_dir ~path_to_exe ~child_subcommand
-    |> proxy_of_sexpable
-         ~working_dir
-         ~path_to_exe
-         ~child_subcommand
-         ~path_to_subcommand:[]
+    proxy_of_sexpable
+      ~working_dir
+      ~path_to_exe
+      ~child_subcommand
+      ~path_to_subcommand:[]
+      (Sexpable.of_external ~working_dir ~path_to_exe ~child_subcommand)
   ;;
 
   let rec shape_of_proxy proxy : Shape.t = shape_of_proxy_kind proxy.Proxy.kind
@@ -2959,40 +3323,41 @@ struct
       let string_of_path = if expand_dots then Path.to_string else Path.to_string_dots in
       let gather_group path acc subcommands =
         let filtered_subcommands =
-          (* Only show the [help] subcommand at top-level. *)
           if Path.is_empty path
           then subcommands
           else List.Assoc.remove ~equal:String.( = ) subcommands "help"
         in
-        filtered_subcommands
-        |> List.stable_sort ~compare:(fun a b -> help_screen_compare (fst a) (fst b))
-        |> List.fold ~init:acc ~f:(fun acc (subcommand, shape) ->
-             let path = Path.append path ~subcommand in
-             let name = string_of_path path in
-             let doc = Shape.get_summary shape in
-             let acc = { Shape.Flag_info.name; doc; aliases = [] } :: acc in
-             if recursive then loop path acc shape else acc)
+        List.fold
+          ~init:acc
+          ~f:(fun acc (subcommand, shape) ->
+            let path = Path.append path ~subcommand in
+            let name = string_of_path path in
+            let doc = Shape.get_summary shape in
+            let acc = { Shape.Flag_info.name; doc; aliases = [] } :: acc in
+            if recursive then loop path acc shape else acc)
+          (List.stable_sort
+             ~compare:(fun a b -> help_screen_compare (fst a) (fst b))
+             filtered_subcommands)
       in
       match shape with
       | Exec (_, shape) ->
-        (* If the executable being called doesn't use [Core.Command], then sexp extraction
-           will fail. *)
         (try loop path acc (shape ()) with
          | _ -> acc)
       | Group g -> gather_group path acc (Lazy.force g.subcommands)
       | Basic b ->
         if flags
         then
-          b.flags
-          |> List.filter ~f:(fun fmt -> String.( <> ) fmt.name "[-help]")
-          |> List.fold ~init:acc ~f:(fun acc fmt ->
-               let path = Path.append path ~subcommand:fmt.name in
-               let fmt = { fmt with name = string_of_path path } in
-               fmt :: acc)
+          List.fold
+            ~init:acc
+            ~f:(fun acc fmt ->
+              let path = Path.append path ~subcommand:fmt.name in
+              let fmt = { fmt with name = string_of_path path } in
+              fmt :: acc)
+            (List.filter ~f:(fun fmt -> String.( <> ) fmt.name "[-help]") b.flags)
         else acc
       | Lazy thunk -> loop path acc (Lazy.force thunk)
     in
-    loop Path.empty [] shape |> List.rev
+    List.rev (loop Path.empty [] shape)
   ;;
 
   let group_or_exec_help_text ~flags ~path ~summary ~readme ~format_list =
@@ -3039,79 +3404,84 @@ struct
   let help_subcommand ~summary ~readme =
     basic
       ~summary:"explain a given subcommand (perhaps recursively)"
-      Command_base.Param.(
-        return (fun recursive flags expand_dots path (env : Env.t) cmd_opt () ->
-          let subs =
-            match Env.find env subs_key with
-            | Some subs -> subs
-            | None -> assert false
-            (* maintained by [dispatch] *)
-          in
-          let path =
-            let path = Path.pop_help path in
-            Option.fold cmd_opt ~init:path ~f:(fun path subcommand ->
-              Path.append path ~subcommand)
-          in
-          let path, shape =
-            match cmd_opt with
-            | None ->
-              let subcommands = List.Assoc.map subs ~f:shape |> Lazy.from_val in
-              let readme = Option.map readme ~f:(fun readme -> readme ()) in
-              path, Shape.Group { readme; summary; subcommands }
-            | Some cmd ->
-              (match
-                 lookup_expand
-                   (List.Assoc.map subs ~f:(fun x -> x, `Prefix))
-                   cmd
-                   Subcommand
-               with
-               | Error e ->
-                 die
-                   "unknown subcommand %s for command %s: %s"
-                   cmd
-                   (Path.to_string path)
-                   e
-                   ()
-               | Ok (possibly_expanded_name, t) ->
-                 (* Fix the unexpanded value *)
-                 let path =
-                   Path.replace_first ~from:cmd ~to_:possibly_expanded_name path
-                 in
-                 path, shape t)
-          in
-          print_endline (help_for_shape shape path ~recursive ~flags ~expand_dots))
-        <*> flag "-recursive" no_arg ~doc:" show subcommands of subcommands, etc."
-        <*> flag "-flags" no_arg ~doc:" show flags as well in recursive help"
-        <*> flag "-expand-dots" no_arg ~doc:" expand subcommands in recursive help"
-        <*> path
-        <*> env
-        <*> anon (maybe ("SUBCOMMAND" %: string)))
+      (let open Command_base.Param in
+       return (fun recursive flags expand_dots path (env : Env.t) cmd_opt () ->
+         let subs =
+           match Env.find env subs_key with
+           | Some subs -> subs
+           | None -> assert false
+         in
+         let path =
+           let path = Path.pop_help path in
+           Option.fold cmd_opt ~init:path ~f:(fun path subcommand ->
+             Path.append path ~subcommand)
+         in
+         let path, shape =
+           match cmd_opt with
+           | None ->
+             let subcommands = Lazy.from_val (List.Assoc.map subs ~f:shape) in
+             let readme = Option.map readme ~f:(fun readme -> readme ()) in
+             path, Shape.Group { readme; summary; subcommands }
+           | Some cmd ->
+             (match
+                lookup_expand
+                  (List.Assoc.map subs ~f:(fun x -> x, `Prefix))
+                  cmd
+                  Subcommand
+              with
+              | Error e ->
+                die
+                  "unknown subcommand %s for command %s: %s"
+                  cmd
+                  (Path.to_string path)
+                  e
+                  ()
+              | Ok (possibly_expanded_name, t) ->
+                let path =
+                  Path.replace_first ~from:cmd ~to_:possibly_expanded_name path
+                in
+                path, shape t)
+         in
+         print_endline (help_for_shape shape path ~recursive ~flags ~expand_dots))
+       <*> flag "-recursive" no_arg ~doc:" show subcommands of subcommands, etc."
+       <*> flag "-flags" no_arg ~doc:" show flags as well in recursive help"
+       <*> flag "-expand-dots" no_arg ~doc:" expand subcommands in recursive help"
+       <*> path
+       <*> env
+       <*> anon (maybe ("SUBCOMMAND" %: string)))
   ;;
 
   let dump_autocomplete_function () =
-    autocomplete_function ~argv_0:Stdlib.Sys.argv.(0) ~pid:(Unix.getpid () |> Pid.to_int)
-    |> printf "%s"
+    printf
+      "%s"
+      (autocomplete_function
+         ~argv_0:Stdlib.Sys.argv.(0)
+         ~pid:(Pid.to_int (Unix.getpid ())))
   ;;
 
   let dump_help_sexp ~supported_versions t ~path_to_subcommand =
-    Set.inter Sexpable.supported_versions supported_versions
-    |> Set.max_elt
-    |> function
-    | None ->
-      Error.create
-        ~here:[%here]
-        "Couldn't choose a supported help output version for Command.exec from the given \
-         supported versions."
-        Sexpable.supported_versions
-        (Set.sexp_of_m__t (module Int))
-      |> Error.raise
-    | Some version_to_use ->
-      sexpable_shape t
-      |> Sexpable.find ~path_to_subcommand
-      |> Sexpable.to_versioned ~version_to_use
-      |> Sexpable.Versioned.sexp_of_t
-      |> Sexp.to_string
-      |> print_string
+    (function
+      | None ->
+        Error.raise
+          (Error.create
+             ~here:
+               { Ppx_here_lib.pos_fname = "command.ml.before-ppx"
+               ; pos_lnum = 3102
+               ; pos_cnum = 96616
+               ; pos_bol = 96602
+               }
+             "Couldn't choose a supported help output version for Command.exec from the \
+              given supported versions."
+             Sexpable.supported_versions
+             (Set.sexp_of_m__t (module Int)))
+      | Some version_to_use ->
+        print_string
+          (Sexp.to_string
+             (Sexpable.Versioned.sexp_of_t
+                (Sexpable.to_versioned
+                   ~version_to_use
+                   (Sexpable.find ~path_to_subcommand (sexpable_shape t))))))
+      (Set.max_elt (Set.inter Sexpable.supported_versions supported_versions))
   ;;
 
   let handle_environment t ~argv =
@@ -3120,7 +3490,7 @@ struct
     | cmd :: args ->
       Option.iter (getenv_and_clear COMMAND_OUTPUT_HELP_SEXP) ~f:(fun version ->
         let supported_versions =
-          Sexplib.Sexp.of_string version |> Set.m__t_of_sexp (module Int)
+          Set.m__t_of_sexp (module Int) (Sexplib.Sexp.of_string version)
         in
         dump_help_sexp ~supported_versions t ~path_to_subcommand:args;
         exit 0);
@@ -3203,17 +3573,17 @@ struct
   ;;
 
   let rec dispatch
-    t
-    env
-    ~extend
-    ~path
-    ~args
-    ~maybe_new_comp_cword
-    ~version
-    ~build_info
-    ~verbose_on_parse_error
-    ~when_parsing_succeeds
-    ~complete_subcommands
+            t
+            env
+            ~extend
+            ~path
+            ~args
+            ~maybe_new_comp_cword
+            ~version
+            ~build_info
+            ~verbose_on_parse_error
+            ~when_parsing_succeeds
+            ~complete_subcommands
     =
     match t with
     | Lazy thunk ->
@@ -3294,9 +3664,7 @@ struct
                (sprintf "missing subcommand for command %s" (Path.to_string path))
            | Some body -> body ~path:(Path.parts_exe_basename path))
         | Cons (sub, rest) ->
-          (* Match for flags recognized when subcommands are expected next *)
           (match sub with
-           (* Recognized at the top level command only *)
            | ("-version" | "--version") when Path.length path = 1 ->
              if completing
              then skip rest
@@ -3309,7 +3677,6 @@ struct
              else (
                Version_info.print_build_info ~build_info;
                exit 0)
-           (* Recognized everywhere *)
            | "-help" | "--help" ->
              if completing
              then skip rest
@@ -3329,15 +3696,16 @@ struct
            | (_ : string) -> resolve sub rest)
         | Complete part ->
           let subs =
-            Lazy.force subs
-            |> List.map ~f:fst
-            |> List.filter ~f:(fun name -> String.is_prefix name ~prefix:part)
-            |> List.sort ~compare:String.compare
+            List.sort
+              ~compare:String.compare
+              (List.filter
+                 ~f:(fun name -> String.is_prefix name ~prefix:part)
+                 (List.map ~f:fst (Lazy.force subs)))
           in
           (match complete_subcommands with
            | Some f ->
              let subcommands =
-               shape t |> Shape.fully_forced |> Shape.Fully_forced.expanded_subcommands
+               Shape.Fully_forced.expanded_subcommands (Shape.fully_forced (shape t))
              in
              (match f ~path:(Path.parts path) ~part subcommands with
               | None -> exit 1
@@ -3352,15 +3720,15 @@ struct
   ;;
 
   let run
-    ?(add_validate_parsing_flag = false)
-    ?verbose_on_parse_error
-    ?version
-    ?build_info
-    ?(argv = Array.to_list Stdlib.Sys.argv)
-    ?extend
-    ?(when_parsing_succeeds = Fn.id)
-    ?complete_subcommands
-    t
+        ?(add_validate_parsing_flag = false)
+        ?verbose_on_parse_error
+        ?version
+        ?build_info
+        ?(argv = Array.to_list Stdlib.Sys.argv)
+        ?extend
+        ?(when_parsing_succeeds = Fn.id)
+        ?complete_subcommands
+        t
     =
     let build_info =
       match build_info with
@@ -3371,12 +3739,9 @@ struct
       match version with
       | None -> Version_info.default_version
       | Some v ->
-        (* [version] was space delimited at some point and newline delimited
-           at another.  We always print one (repo, revision) pair per line
-           and ensure sorted order *)
         lazy
           (Version_info.normalize_version_lines
-             (String.split v ~on:' ' |> List.concat_map ~f:(String.split ~on:'\n')))
+             (List.concat_map ~f:(String.split ~on:'\n') (String.split v ~on:' ')))
     in
     Exn.handle_uncaught_and_exit (fun () ->
       let t = Version_info.add t ~version ~build_info in
@@ -3510,13 +3875,12 @@ let basic_or_error ~summary ?readme param =
   basic
     ~summary
     ?readme
-    (let%map run = param in
-     fun () ->
+    (Let_syntax.map param ~f:(fun run () ->
        match run () with
        | Ok () -> ()
        | Error e ->
          Stdio.prerr_endline (Error.to_string_hum e);
-         exit 1)
+         exit 1))
 ;;
 
 module For_telemetry = struct
@@ -3537,10 +3901,14 @@ module Private = struct
     include Spec
 
     let to_string_for_choose_one param =
-      Command_base.Param.Choose_one.Choice_name.(create_exn param |> to_string)
+      let open Command_base.Param.Choose_one.Choice_name in
+      to_string (create_exn param)
     ;;
   end
 end
 
 let run = `Use_Command_unix
 let shape = `Use_Command_unix
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

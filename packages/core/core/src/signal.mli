@@ -1,8 +1,16 @@
-(** Signal handlers. *)
+[@@@ocaml.text " Signal handlers. "]
 
 open! Import
 
 type t [@@deriving bin_io, sexp]
+
+include sig
+  [@@@ocaml.warning "-32"]
+
+  include Bin_prot.Binable.S with type t := t
+  include Sexplib0.Sexpable.S with type t := t
+end
+[@@ocaml.doc "@inline"] [@@merlin.hide]
 
 include Comparable.S with type t := t
 include Hashable.S with type t := t
@@ -10,128 +18,110 @@ include Stringable.S with type t := t
 
 val equal : t -> t -> bool
 
-(** [of_caml_int] constructs a [Signal.t] given an OCaml internal signal number.  This is
-    only for the use of the [Core_unix] module. *)
 val of_caml_int : int -> t
+[@@ocaml.doc
+  " [of_caml_int] constructs a [Signal.t] given an OCaml internal signal number.  This is\n\
+  \    only for the use of the [Core_unix] module. "]
 
 val to_caml_int : t -> int
 
-(** [to_string t] returns a human-readable name: "sigabrt", "sigalrm", ... *)
 val to_string : t -> string
+[@@ocaml.doc
+  " [to_string t] returns a human-readable name: \"sigabrt\", \"sigalrm\", ... "]
 
-(** The behaviour of the system if a signal is received by a process.
-    See include/linux/kernel.h in the Linux kernel source tree (not the file
-    /usr/include/linux/kernel.h). *)
 type sys_behavior =
-  [ `Continue (** Continue the process if it is currently stopped *)
-  | `Dump_core (** Terminate the process and dump core *)
-  | `Ignore (** Ignore the signal *)
-  | `Stop (** Stop (suspend) the process *)
-  | `Terminate (** Terminate the process *)
+  [ `Continue [@ocaml.doc " Continue the process if it is currently stopped "]
+  | `Dump_core [@ocaml.doc " Terminate the process and dump core "]
+  | `Ignore [@ocaml.doc " Ignore the signal "]
+  | `Stop [@ocaml.doc " Stop (suspend) the process "]
+  | `Terminate [@ocaml.doc " Terminate the process "]
   ]
+[@@ocaml.doc
+  " The behaviour of the system if a signal is received by a process.\n\
+  \    See include/linux/kernel.h in the Linux kernel source tree (not the file\n\
+  \    /usr/include/linux/kernel.h). "]
 [@@deriving sexp]
 
-(**
-   Queries the default system behavior for a signal.
-*)
+include sig
+  [@@@ocaml.warning "-32"]
+
+  val sexp_of_sys_behavior : sys_behavior -> Sexplib0.Sexp.t
+  val sys_behavior_of_sexp : Sexplib0.Sexp.t -> sys_behavior
+  val __sys_behavior_of_sexp__ : Sexplib0.Sexp.t -> sys_behavior
+end
+[@@ocaml.doc "@inline"] [@@merlin.hide]
+
 val default_sys_behavior : t -> sys_behavior
+[@@ocaml.doc "\n   Queries the default system behavior for a signal.\n"]
 
-(** [handle_default t] is [set t `Default]. *)
-val handle_default : t -> unit
+val handle_default : t -> unit [@@ocaml.doc " [handle_default t] is [set t `Default]. "]
 
-(** [ignore t] is [set t `Ignore]. *)
-val ignore : t -> unit
+val ignore : t -> unit [@@ocaml.doc " [ignore t] is [set t `Ignore]. "]
 
-(** Specific signals, along with their default behavior and meaning. *)
+[@@@ocaml.text " Specific signals, along with their default behavior and meaning. "]
 
-(** [Dump_core]  Abnormal termination                           *)
-val abrt : t
+val abrt : t [@@ocaml.doc " [Dump_core]  Abnormal termination                           "]
 
-(** [Terminate]  Timeout                                        *)
-val alrm : t
+val alrm : t [@@ocaml.doc " [Terminate]  Timeout                                        "]
 
-(** [Dump_core]  Bus error                                      *)
-val bus : t
+val bus : t [@@ocaml.doc " [Dump_core]  Bus error                                      "]
 
-(** [Ignore]     Child process terminated                       *)
-val chld : t
+val chld : t [@@ocaml.doc " [Ignore]     Child process terminated                       "]
 
-(** [Continue]   Continue                                       *)
-val cont : t
+val cont : t [@@ocaml.doc " [Continue]   Continue                                       "]
 
-(** [Dump_core]  Arithmetic exception                           *)
-val fpe : t
+val fpe : t [@@ocaml.doc " [Dump_core]  Arithmetic exception                           "]
 
-(** [Terminate]  Hangup on controlling terminal                 *)
-val hup : t
+val hup : t [@@ocaml.doc " [Terminate]  Hangup on controlling terminal                 "]
 
-(** [Dump_core]  Invalid hardware instruction                   *)
-val ill : t
+val ill : t [@@ocaml.doc " [Dump_core]  Invalid hardware instruction                   "]
 
-(** [Terminate]  Interactive interrupt (ctrl-C)                 *)
-val int : t
+val int : t [@@ocaml.doc " [Terminate]  Interactive interrupt (ctrl-C)                 "]
 
-(** [Terminate]  Termination (cannot be ignored)                *)
-val kill : t
+val kill : t [@@ocaml.doc " [Terminate]  Termination (cannot be ignored)                "]
 
-(** [Terminate]  Broken pipe                                    *)
-val pipe : t
+val pipe : t [@@ocaml.doc " [Terminate]  Broken pipe                                    "]
 
-(** [Terminate]  Pollable event                                 *)
-val poll : t
+val poll : t [@@ocaml.doc " [Terminate]  Pollable event                                 "]
 
-(** [Terminate]  Profiling interrupt                            *)
-val prof : t
+val prof : t [@@ocaml.doc " [Terminate]  Profiling interrupt                            "]
 
-(** [Dump_core]  Interactive termination                        *)
-val quit : t
+val quit : t [@@ocaml.doc " [Dump_core]  Interactive termination                        "]
 
-(** [Dump_core]  Invalid memory reference                       *)
-val segv : t
+val segv : t [@@ocaml.doc " [Dump_core]  Invalid memory reference                       "]
 
-(** [Dump_core]  Bad argument to routine                        *)
-val sys : t
+val sys : t [@@ocaml.doc " [Dump_core]  Bad argument to routine                        "]
 
-(** [Stop]       Stop                                           *)
-val stop : t
+val stop : t [@@ocaml.doc " [Stop]       Stop                                           "]
 
-(** [Terminate]  Termination                                    *)
-val term : t
+val term : t [@@ocaml.doc " [Terminate]  Termination                                    "]
 
-(** [Dump_core]  Trace/breakpoint trap                          *)
-val trap : t
+val trap : t [@@ocaml.doc " [Dump_core]  Trace/breakpoint trap                          "]
 
-(** [Stop]       Interactive stop                               *)
-val tstp : t
+val tstp : t [@@ocaml.doc " [Stop]       Interactive stop                               "]
 
-(** [Stop]       Terminal read from background process          *)
-val ttin : t
+val ttin : t [@@ocaml.doc " [Stop]       Terminal read from background process          "]
 
-(** [Stop]       Terminal write from background process         *)
-val ttou : t
+val ttou : t [@@ocaml.doc " [Stop]       Terminal write from background process         "]
 
-(** [Ignore]     Urgent condition on socket                     *)
-val urg : t
+val urg : t [@@ocaml.doc " [Ignore]     Urgent condition on socket                     "]
 
-(** [Terminate]  Application-defined signal 1                   *)
-val usr1 : t
+val usr1 : t [@@ocaml.doc " [Terminate]  Application-defined signal 1                   "]
 
-(** [Terminate]  Application-defined signal 2                   *)
-val usr2 : t
+val usr2 : t [@@ocaml.doc " [Terminate]  Application-defined signal 2                   "]
 
-(** [Terminate]  Timeout in virtual time                        *)
 val vtalrm : t
+[@@ocaml.doc " [Terminate]  Timeout in virtual time                        "]
 
-(** [Dump_core]  Timeout in cpu time                            *)
-val xcpu : t
+val xcpu : t [@@ocaml.doc " [Dump_core]  Timeout in cpu time                            "]
 
-(** [Dump_core]  File size limit exceeded                       *)
-val xfsz : t
+val xfsz : t [@@ocaml.doc " [Dump_core]  File size limit exceeded                       "]
 
-(** [Ignore]     No-op; can be used to test whether the target
-    process exists and the current process has
-    permission to signal it                        *)
 val zero : t
+[@@ocaml.doc
+  " [Ignore]     No-op; can be used to test whether the target\n\
+  \    process exists and the current process has\n\
+  \    permission to signal it                        "]
 
 type pid_spec = [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
@@ -141,39 +131,22 @@ type sigprocmask_command = [ `Use_Signal_unix ]
 val can_send_to : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
 val of_system_int : [ `Use_Signal_unix ]
-  [@@deprecated "[since 2021-04] Use [Signal_unix]"]
+[@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
 val send : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 val send_exn : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 val send_i : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
 val sexp_of_pid_spec : [ `Use_Signal_unix ]
-  [@@deprecated "[since 2021-04] Use [Signal_unix]"]
+[@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
 val sigpending : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 val sigprocmask : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 val sigsuspend : [ `Use_Signal_unix ] [@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
 val to_system_int : [ `Use_Signal_unix ]
-  [@@deprecated "[since 2021-04] Use [Signal_unix]"]
+[@@deprecated "[since 2021-04] Use [Signal_unix]"]
 
-(** The [Expert] module contains functions that novice users should avoid, due to their
-    complexity.
-
-    An OCaml signal handler can run at any time, which introduces all the semantic
-    complexities of multithreading.  It is much easier to use Async's signal handling, see
-    {!Async_unix.Signal}, which does not involve multithreading, and runs user code as
-    ordinary Async jobs.  Also, beware that there can only be a single OCaml signal
-    handler for any signal, so handling a signal with a [Core] signal handler will
-    interfere if Async is attempting to handle the same signal.
-
-    All signal handler functions are called with [Exn.handle_uncaught_and_exit], to
-    prevent the signal handler from raising, because raising from a signal handler could
-    raise to any allocation or GC point in any thread, which would be impossible to
-    reason about.
-
-    If you do use [Core] signal handlers, you should strive to make the signal handler
-    perform a simple idempotent action, like setting a ref. *)
 module Expert : sig
   type behavior =
     [ `Default
@@ -182,24 +155,67 @@ module Expert : sig
     ]
   [@@deriving sexp_of]
 
-  (** [signal t] sets the behavior of the system on receipt of signal [t] and returns the
-      behavior previously associated with [t].  If [t] is not available on your system,
-      [signal] raises. *)
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_behavior : behavior -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val signal : t -> behavior -> behavior
+  [@@ocaml.doc
+    " [signal t] sets the behavior of the system on receipt of signal [t] and returns the\n\
+    \      behavior previously associated with [t].  If [t] is not available on your \
+     system,\n\
+    \      [signal] raises. "]
 
-  (** [set t b] is [ignore (signal t b)]. *)
-  val set : t -> behavior -> unit
+  val set : t -> behavior -> unit [@@ocaml.doc " [set t b] is [ignore (signal t b)]. "]
 
-  (** [handle t f] is [set t (`Handle f)]. *)
   val handle : t -> (t -> unit) -> unit
+  [@@ocaml.doc " [handle t f] is [set t (`Handle f)]. "]
 end
+[@@ocaml.doc
+  " The [Expert] module contains functions that novice users should avoid, due to their\n\
+  \    complexity.\n\n\
+  \    An OCaml signal handler can run at any time, which introduces all the semantic\n\
+  \    complexities of multithreading.  It is much easier to use Async's signal \
+   handling, see\n\
+  \    {!Async_unix.Signal}, which does not involve multithreading, and runs user code as\n\
+  \    ordinary Async jobs.  Also, beware that there can only be a single OCaml signal\n\
+  \    handler for any signal, so handling a signal with a [Core] signal handler will\n\
+  \    interfere if Async is attempting to handle the same signal.\n\n\
+  \    All signal handler functions are called with [Exn.handle_uncaught_and_exit], to\n\
+  \    prevent the signal handler from raising, because raising from a signal handler \
+   could\n\
+  \    raise to any allocation or GC point in any thread, which would be impossible to\n\
+  \    reason about.\n\n\
+  \    If you do use [Core] signal handlers, you should strive to make the signal handler\n\
+  \    perform a simple idempotent action, like setting a ref. "]
 
 module Stable : sig
   module V2 : sig
     type nonrec t = t [@@deriving bin_io, compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Bin_prot.Binable.S with type t := t
+      include Ppx_compare_lib.Comparable.S with type t := t
+      include Sexplib0.Sexpable.S with type t := t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   module V1 : sig
     type nonrec t = t [@@deriving bin_io, compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Bin_prot.Binable.S with type t := t
+      include Ppx_compare_lib.Comparable.S with type t := t
+      include Sexplib0.Sexpable.S with type t := t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 end

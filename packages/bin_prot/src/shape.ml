@@ -1,6 +1,5 @@
 include Bin_shape
 
-(* new base shapes *)
 let bin_shape_unit = basetype (Uuid.of_string "unit") []
 let bin_shape_bool = basetype (Uuid.of_string "bool") []
 let bin_shape_string = basetype (Uuid.of_string "string") []
@@ -33,15 +32,11 @@ let bin_shape_network32_int = basetype (Uuid.of_string "network32_int") []
 let bin_shape_network32_int32 = basetype (Uuid.of_string "network32_int32") []
 let bin_shape_network64_int = basetype (Uuid.of_string "network64_int") []
 let bin_shape_network64_int64 = basetype (Uuid.of_string "network64_int64") []
-
-(* new shape constructors *)
 let bin_shape_ref x = basetype (Uuid.of_string "ref") [ x ]
 let bin_shape_option x = basetype (Uuid.of_string "option") [ x ]
 let bin_shape_list x = basetype (Uuid.of_string "list") [ x ]
 let bin_shape_array x = basetype (Uuid.of_string "array") [ x ]
 let bin_shape_hashtbl x y = basetype (Uuid.of_string "hashtbl") [ x; y ]
-
-(* shape-constructor aliases *)
 let bin_shape_lazy x = x
 let bin_shape_pair x y = tuple [ x; y ]
 let bin_shape_triple x y z = tuple [ x; y; z ]

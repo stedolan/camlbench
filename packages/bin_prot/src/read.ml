@@ -1,8 +1,3 @@
-(* Read_ml: reading values from the binary protocol using (mostly) OCaml. *)
-
-(* Note: the code is this file is carefully written to avoid unnecessary allocations. When
-   touching this code, be sure to run the benchmarks to check for regressions. *)
-
 open Bigarray
 open Common
 include Read_intf.Definitions
@@ -15,8 +10,6 @@ let unsafe_get8_signed buf pos =
   if c >= 128 then c - 256 else c
 ;;
 
-(*$ open Bin_prot_cinaps $*)
-
 let arch_sixtyfour = Sys.word_size = 64
 let arch_big_endian = Sys.big_endian
 let max_int_int32 = if arch_sixtyfour then Int32.max_int else Int32.of_int max_int
@@ -24,29 +17,32 @@ let min_int_int32 = if arch_sixtyfour then Int32.min_int else Int32.of_int min_i
 let max_int_int64 = Int64.of_int max_int
 let min_int_int64 = Int64.of_int min_int
 
-let[@inline always] safe_int_of_int32 pos x =
+let safe_int_of_int32 pos x =
   if arch_sixtyfour
   then Int32.to_int x
   else if x >= min_int_int32 && x <= max_int_int32
   then Int32.to_int x
   else raise_read_error ReadError.Int_overflow pos
+[@@inline always]
 ;;
 
-let[@inline always] safe_int_of_int64 pos x =
+let safe_int_of_int64 pos x =
   if x >= min_int_int64 && x <= max_int_int64
   then Int64.to_int x
   else raise_read_error ReadError.Int_overflow pos
+[@@inline always]
 ;;
 
 let safe_nativeint_of_int64 =
   if arch_sixtyfour
   then fun _pos x -> Int64.to_nativeint x
   else
-    fun [@inline always] pos x ->
-    if x >= Int64.of_nativeint Nativeint.min_int
-       && x <= Int64.of_nativeint Nativeint.max_int
-    then Int64.to_nativeint x
-    else raise_read_error ReadError.Int_overflow pos
+    (fun pos x ->
+      if
+        x >= Int64.of_nativeint Nativeint.min_int
+        && x <= Int64.of_nativeint Nativeint.max_int
+      then Int64.to_nativeint x
+      else raise_read_error ReadError.Int_overflow pos) [@inline always]
 ;;
 
 external unsafe_get16 : buf -> int -> int = "%caml_bigstring_get16u"
@@ -119,8 +115,6 @@ let safe_bin_read_int16 buf ~pos_ref ~pos =
   let next = pos + 2 in
   check_next buf next;
   pos_ref := next;
-  (* Can be above next line (no errors possible with 16bit).
-     This should improve the generated code. *)
   unsafe_get16le_signed buf pos
 ;;
 
@@ -128,7 +122,6 @@ let safe_bin_read_int32 buf ~pos_ref ~pos =
   let next = pos + 4 in
   check_next buf next;
   pos_ref := next;
-  (* No error possible either. *)
   unsafe_get32le buf pos
 ;;
 
@@ -136,7 +129,6 @@ let safe_bin_read_int64 buf ~pos_ref ~pos =
   let next = pos + 8 in
   check_next buf next;
   pos_ref := next;
-  (* No error possible either. *)
   unsafe_get64le buf pos
 ;;
 
@@ -199,22 +191,18 @@ let safe_bin_read_nat0_32 =
       check_next buf next;
       pos_ref := next;
       let n = Int32.to_int (unsafe_get32le buf pos) in
-      if n >= 0
-      then Nat0.unsafe_of_int n
-      else
-        (* Erase the upper bits that were set to 1 during the int32 -> int conversion. *)
-        Nat0.unsafe_of_int (n land mask_32bit))
+      if n >= 0 then Nat0.unsafe_of_int n else Nat0.unsafe_of_int (n land mask_32bit))
   else
     fun buf ~pos_ref ~pos ->
-    let next = pos + 4 in
-    check_next buf next;
-    let n = unsafe_get32le buf pos in
-    if n >= 0l && n <= max_int_int32
-    then (
-      let n = Nat0.unsafe_of_int (Int32.to_int n) in
-      pos_ref := next;
-      n)
-    else raise_read_error ReadError.Nat0_overflow !pos_ref
+      let next = pos + 4 in
+      check_next buf next;
+      let n = unsafe_get32le buf pos in
+      if n >= 0l && n <= max_int_int32
+      then (
+        let n = Nat0.unsafe_of_int (Int32.to_int n) in
+        pos_ref := next;
+        n)
+      else raise_read_error ReadError.Nat0_overflow !pos_ref
 ;;
 
 let safe_bin_read_nat0_64 buf ~pos_ref ~pos =
@@ -232,22 +220,16 @@ let safe_bin_read_nat0_64 buf ~pos_ref ~pos =
 let bin_read_nat0 buf ~pos_ref =
   let pos = safe_get_pos buf pos_ref in
   assert_pos pos;
-  match unsafe_get buf pos with
-  | '\x00'..'\x7f' as ch ->
-    pos_ref := pos + 1;
-    Nat0.unsafe_of_int (Char.code ch)
-  | (*$ Code.char INT16 *)'\xfe'(*$*) ->
-    safe_bin_read_nat0_16 buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT32 *)'\xfd'(*$*) ->
-    safe_bin_read_nat0_32 buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT64 *)'\xfc'(*$*) ->
-    if arch_sixtyfour then
-      safe_bin_read_nat0_64 buf ~pos_ref ~pos:(pos + 1)
-    else
-      raise_read_error ReadError.Nat0_overflow pos
-  | _ ->
-    raise_read_error ReadError.Nat0_code pos
-[@@ocamlformat "disable"]
+  (match unsafe_get buf pos with
+   | '\000'..'\127' as ch ->
+       (pos_ref := (pos + 1); Nat0.unsafe_of_int (Char.code ch))
+   | '\254' -> safe_bin_read_nat0_16 buf ~pos_ref ~pos:(pos + 1)
+   | '\253' -> safe_bin_read_nat0_32 buf ~pos_ref ~pos:(pos + 1)
+   | '\252' ->
+       if arch_sixtyfour
+       then safe_bin_read_nat0_64 buf ~pos_ref ~pos:(pos + 1)
+       else raise_read_error ReadError.Nat0_overflow pos
+   | _ -> raise_read_error ReadError.Nat0_code pos)[@@ocamlformat "disable"]
 
 let bin_read_bytes buf ~pos_ref =
   let start_pos = !pos_ref in
@@ -277,24 +259,16 @@ let bin_read_char buf ~pos_ref =
 let bin_read_int buf ~pos_ref =
   let pos = safe_get_pos buf pos_ref in
   assert_pos pos;
-  match unsafe_get buf pos with
-  | '\x00'..'\x7f' as ch ->
-    pos_ref := pos + 1;
-    Char.code ch
-  | (*$ Code.char NEG_INT8 *)'\xff'(*$*) ->
-    safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT16 *)'\xfe'(*$*) ->
-    safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT32 *)'\xfd'(*$*) ->
-    safe_bin_read_int32_as_int buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT64 *)'\xfc'(*$*) ->
-    if arch_sixtyfour then
-      safe_bin_read_int64_as_int buf ~pos_ref ~pos:(pos + 1)
-    else
-      raise_read_error ReadError.Int_overflow pos
-  | _ ->
-    raise_read_error ReadError.Int_code pos
-[@@ocamlformat "disable"]
+  (match unsafe_get buf pos with
+   | '\000'..'\127' as ch -> (pos_ref := (pos + 1); Char.code ch)
+   | '\255' -> safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1)
+   | '\254' -> safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1)
+   | '\253' -> safe_bin_read_int32_as_int buf ~pos_ref ~pos:(pos + 1)
+   | '\252' ->
+       if arch_sixtyfour
+       then safe_bin_read_int64_as_int buf ~pos_ref ~pos:(pos + 1)
+       else raise_read_error ReadError.Int_overflow pos
+   | _ -> raise_read_error ReadError.Int_code pos)[@@ocamlformat "disable"]
 
 let bin_read_float buf ~pos_ref =
   let pos = safe_get_pos buf pos_ref in
@@ -302,64 +276,49 @@ let bin_read_float buf ~pos_ref =
   let next = pos + 8 in
   check_next buf next;
   pos_ref := next;
-  (* No error possible either. *)
   Int64.float_of_bits (unsafe_get64le buf pos)
 ;;
 
 let bin_read_int32 buf ~pos_ref =
   let pos = safe_get_pos buf pos_ref in
   assert_pos pos;
-  match unsafe_get buf pos with
-  | '\x00'..'\x7f' as ch ->
-    pos_ref := pos + 1;
-    Int32.of_int (Char.code ch)
-  | (*$ Code.char NEG_INT8 *)'\xff'(*$*) ->
-    Int32.of_int (safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1))
-  | (*$ Code.char INT16 *)'\xfe'(*$*) ->
-    Int32.of_int (safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1))
-  | (*$ Code.char INT32 *)'\xfd'(*$*) ->
-    safe_bin_read_int32 buf ~pos_ref ~pos:(pos + 1)
-  | _ ->
-    raise_read_error ReadError.Int32_code pos
-[@@ocamlformat "disable"]
+  (match unsafe_get buf pos with
+   | '\000'..'\127' as ch ->
+       (pos_ref := (pos + 1); Int32.of_int (Char.code ch))
+   | '\255' ->
+       Int32.of_int (safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1))
+   | '\254' -> Int32.of_int (safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1))
+   | '\253' -> safe_bin_read_int32 buf ~pos_ref ~pos:(pos + 1)
+   | _ -> raise_read_error ReadError.Int32_code pos)[@@ocamlformat "disable"]
 
 let bin_read_int64 buf ~pos_ref =
   let pos = safe_get_pos buf pos_ref in
   assert_pos pos;
-  match unsafe_get buf pos with
-  | '\x00'..'\x7f' as ch ->
-    pos_ref := pos + 1;
-    Int64.of_int (Char.code ch)
-  | (*$ Code.char NEG_INT8 *)'\xff'(*$*) ->
-    Int64.of_int (safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1))
-  | (*$ Code.char INT16 *)'\xfe'(*$*) ->
-    Int64.of_int (safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1))
-  | (*$ Code.char INT32 *)'\xfd'(*$*) ->
-    safe_bin_read_int32_as_int64 buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT64 *)'\xfc'(*$*) ->
-    safe_bin_read_int64 buf ~pos_ref ~pos:(pos + 1)
-  | _ ->
-    raise_read_error ReadError.Int64_code pos
-[@@ocamlformat "disable"]
+  (match unsafe_get buf pos with
+   | '\000'..'\127' as ch ->
+       (pos_ref := (pos + 1); Int64.of_int (Char.code ch))
+   | '\255' ->
+       Int64.of_int (safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1))
+   | '\254' -> Int64.of_int (safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1))
+   | '\253' -> safe_bin_read_int32_as_int64 buf ~pos_ref ~pos:(pos + 1)
+   | '\252' -> safe_bin_read_int64 buf ~pos_ref ~pos:(pos + 1)
+   | _ -> raise_read_error ReadError.Int64_code pos)[@@ocamlformat "disable"]
 
 let bin_read_nativeint buf ~pos_ref =
   let pos = safe_get_pos buf pos_ref in
   assert_pos pos;
-  match unsafe_get buf pos with
-  | '\x00'..'\x7f' as ch ->
-    pos_ref := pos + 1;
-    Nativeint.of_int (Char.code ch)
-  | (*$ Code.char NEG_INT8 *)'\xff'(*$*) ->
-    Nativeint.of_int (safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1))
-  | (*$ Code.char INT16 *)'\xfe'(*$*) ->
-    Nativeint.of_int (safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1))
-  | (*$ Code.char INT32 *)'\xfd'(*$*) ->
-    safe_bin_read_int32_as_nativeint buf ~pos_ref ~pos:(pos + 1)
-  | (*$ Code.char INT64 *)'\xfc'(*$*) when arch_sixtyfour ->
-    safe_bin_read_int64_as_nativeint buf ~pos_ref ~pos:(pos + 1)
-  | _ ->
-    raise_read_error ReadError.Nativeint_code pos
-[@@ocamlformat "disable"]
+  (match unsafe_get buf pos with
+   | '\000'..'\127' as ch ->
+       (pos_ref := (pos + 1); Nativeint.of_int (Char.code ch))
+   | '\255' ->
+       Nativeint.of_int (safe_bin_read_neg_int8 buf ~pos_ref ~pos:(pos + 1))
+   | '\254' ->
+       Nativeint.of_int (safe_bin_read_int16 buf ~pos_ref ~pos:(pos + 1))
+   | '\253' -> safe_bin_read_int32_as_nativeint buf ~pos_ref ~pos:(pos + 1)
+   | '\252' when arch_sixtyfour ->
+       safe_bin_read_int64_as_nativeint buf ~pos_ref ~pos:(pos + 1)
+   | _ -> raise_read_error ReadError.Nativeint_code pos)[@@ocamlformat
+                                                          "disable"]
 
 let bin_read_ref bin_read_el buf ~pos_ref =
   let el = bin_read_el buf ~pos_ref in
@@ -423,7 +382,7 @@ let max_float_array_length =
   if arch_sixtyfour then Sys.max_array_length else Sys.max_array_length / 2
 ;;
 
-let[@inline always] bin_read_float_array_gen ~create ~blit buf ~pos_ref =
+let bin_read_float_array_gen ~create ~blit buf ~pos_ref =
   let pos = !pos_ref in
   let len = (bin_read_nat0 buf ~pos_ref :> int) in
   if len > max_float_array_length then raise_read_error ReadError.Array_too_long pos;
@@ -435,6 +394,7 @@ let[@inline always] bin_read_float_array_gen ~create ~blit buf ~pos_ref =
   blit ~src_pos:pos buf ~dst_pos:0 arr ~len;
   pos_ref := next;
   arr
+[@@inline always]
 ;;
 
 let bin_read_floatarray buf ~pos_ref =
@@ -575,11 +535,9 @@ let bin_read_variant_int buf ~pos_ref =
   let next = pos + 4 in
   check_next buf next;
   let n = unsafe_get32le buf pos in
-  (* [n] must contain an integer already encoded, i.e. [n = 2 * k + 1]. *)
   if Int32.logand n 1l = 0l
   then raise (Read_error (ReadError.Variant_tag, pos))
   else (
-    (* We shift it by one bit to the right se we get back [2 * k + 1] in the end. *)
     pos_ref := next;
     Int32.to_int (Int32.shift_right n 1))
 ;;
