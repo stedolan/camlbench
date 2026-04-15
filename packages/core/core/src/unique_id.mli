@@ -5,7 +5,7 @@ open Unique_id_intf
 
 module type Id = Id
 
-module Int : () -> Id with type t = private int
+module Int : functor () -> Id with type t = private int
 [@@ocaml.doc
   " An abstract unique identifier based on ordinary OCaml integers.  Be careful, this may\n\
   \    easily overflow on 32-bit platforms!  [Int63] is a safer choice for portability.\n\n\
@@ -22,5 +22,5 @@ module Int : () -> Id with type t = private int
    id,\n\
   \    even amongst different runs and different machines. "]
 
-module Int63 : () -> Id with type t = private Int63.t
+module Int63 : functor () -> Id with type t = private Int63.t
 [@@ocaml.doc " An abstract unique identifier based on 63 bit integers. "]

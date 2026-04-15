@@ -21,7 +21,7 @@ val eprintf : ('r, unit, string, unit) format4 -> 'r
   " [eprintf message arg1 ... argn] prints to stderr [message], with sprintf-style format\n\
   \    characters instantiated, followed by a newline and flush. "]
 
-module Make : () -> sig
+module Make : functor () -> sig
   val check_invariant : bool ref
   [@@ocaml.doc " Whether the invariants are called on each invocation. "]
 

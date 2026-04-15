@@ -92,7 +92,7 @@ let unquoted_start =
   unquoted # ['#' '|'] | '#' unquoted # ['|'] | '|' unquoted # ['#']
 
 rule main buf = parse
-  | lf | dos_newline { found_newline lexbuf 0;
+  | lf | dos_newline | '\r' { found_newline lexbuf 0;
                        main buf lexbuf }
   | blank+ { main buf lexbuf }
   | (';' (_ # lf_cr)*) as text { Token.comment text ~main buf lexbuf }
@@ -195,6 +195,7 @@ and scan_string buf start = parse
         scan_string buf start lexbuf
       }
   | eof
+  | '\\' eof
       {
         let msg =
           sprintf
@@ -234,7 +235,7 @@ and scan_block_comment buf locs = parse
         | _ :: (_ :: _ as t) -> scan_block_comment buf t lexbuf
         | [] -> assert false  (* impossible *)
       }
-  | eof
+  | eof | '|'+ eof | '#'+ eof
       {
         match locs with
         | [] -> assert false

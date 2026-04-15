@@ -377,6 +377,8 @@ and read_ext e = parse
   | eof
       { lexer_error lexbuf "End of file within #ext ... #endext" }
 
+  | _ { failwith "lexing: empty token" }
+
 and ocaml_token e = parse
     "__LINE__"
       { e.line_start <- false;
@@ -636,6 +638,7 @@ and eval_string e = parse
   | eof
       { lexer_error lexbuf "Unterminated string literal" }
 
+  | _ { failwith "lexing: empty token" }
 
 and quotation e = parse
     ">>"
@@ -675,6 +678,8 @@ and quotation e = parse
 
   | eof
       { lexer_error lexbuf "Unterminated quotation" }
+
+  | _ { failwith "lexing: empty token" }
 
 and test_token e = parse
     "true"    { TRUE }
@@ -750,6 +755,8 @@ and int_tuple_content = parse
 
   | space* (([^',' ')']#space)+ as s) space* ")" space* eof
                       { [Int64.of_string s] }
+
+  | eof | _ { failwith "lexing: empty token" }
 
 (* -------------------------------------------------------------------------- *)
 

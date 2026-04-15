@@ -13,3 +13,4 @@ let neg = '-' body_with_suffix
 rule parse_hex = parse
 | neg                     { Neg body }
 | pos                     { Pos body }
+| eof | _ { failwith "lexing: empty token" }

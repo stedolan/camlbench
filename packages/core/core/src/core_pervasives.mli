@@ -236,7 +236,7 @@ external ( / ) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%divint"
   \    less than or equal to the real quotient of [x] by [y].  Moreover,\n\
   \    [(- x) / y = x / (- y) = - (x / y)].  "]
 
-external \#mod : (int[@local_opt]) -> (int[@local_opt]) -> int = "%modint"
+external (mod) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%modint"
 [@@ocaml.doc
   " Integer remainder.  If [y] is not zero, the result\n\
   \    of [x mod y] satisfies the following properties:\n\
@@ -261,32 +261,32 @@ val min_int : int
 
 [@@@ocaml.text " {7 Bitwise operations} "]
 
-external \#land : (int[@local_opt]) -> (int[@local_opt]) -> int = "%andint"
+external (land) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%andint"
 [@@ocaml.doc " Bitwise logical and. "]
 
-external \#lor : (int[@local_opt]) -> (int[@local_opt]) -> int = "%orint"
+external (lor) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%orint"
 [@@ocaml.doc " Bitwise logical or. "]
 
-external \#lxor : (int[@local_opt]) -> (int[@local_opt]) -> int = "%xorint"
+external (lxor) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%xorint"
 [@@ocaml.doc " Bitwise logical exclusive or. "]
 
 val lnot : int -> int [@@ocaml.doc " Bitwise logical negation. "]
 
-external \#lsl : (int[@local_opt]) -> (int[@local_opt]) -> int = "%lslint"
+external (lsl) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%lslint"
 [@@ocaml.doc
   " [n lsl m] shifts [n] to the left by [m] bits.\n\
   \    The result is unspecified if [m < 0] or [m >= bitsize],\n\
   \    where [bitsize] is [32] on a 32-bit platform and\n\
   \    [64] on a 64-bit platform. "]
 
-external \#lsr : (int[@local_opt]) -> (int[@local_opt]) -> int = "%lsrint"
+external (lsr) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%lsrint"
 [@@ocaml.doc
   " [n lsr m] shifts [n] to the right by [m] bits.\n\
   \    This is a logical shift: zeroes are inserted regardless of\n\
   \    the sign of [n].\n\
   \    The result is unspecified if [m < 0] or [m >= bitsize]. "]
 
-external \#asr : (int[@local_opt]) -> (int[@local_opt]) -> int = "%asrint"
+external (asr) : (int[@local_opt]) -> (int[@local_opt]) -> int = "%asrint"
 [@@ocaml.doc
   " [n asr m] shifts [n] to the right by [m] bits.\n\
   \    This is an arithmetic shift: the sign bit of [n] is replicated.\n\
