@@ -37,11 +37,8 @@ let arg_type = create_arg_type Fn.id
 external realpath : string -> string = "core_unix_realpath"
 
 let random_letter =
-  let prng_key = Domain.DLS.new_key Stdlib.Random.State.make_self_init in
   let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" in
-  fun () ->
-    let prng = Domain.DLS.get prng_key in
-    letters.[Stdlib.Random.State.int prng (String.length letters)]
+  fun () -> letters.[Stdlib.Random.int (String.length letters)]
 ;;
 
 let retry ~in_dir ~prefix ~suffix f =

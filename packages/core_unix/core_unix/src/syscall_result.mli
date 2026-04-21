@@ -18,7 +18,7 @@ type 'a t = private int
 module type S = Syscall_result_intf.S with type 'a syscall_result := 'a t
 module type Arg = Syscall_result_intf.Arg
 
-module Make : functor (M : Arg) -> () -> S with type ok_value := M.t
+module Make : functor (M : Arg) -> functor () -> S with type ok_value := M.t
 module Int : S with type ok_value := int
 module Unit : S with type ok_value := unit
 module File_descr : S with type ok_value := File_descr.t
