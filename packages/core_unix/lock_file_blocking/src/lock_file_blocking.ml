@@ -14,8 +14,6 @@ let () =
 open! Core
 module Unix = Core_unix
 
-[%%import "config.h"]
-
 let flock fd ~exclusive =
   let flock_command =
     match exclusive with
@@ -33,19 +31,7 @@ let lockf ?(mode = Unix.F_TLOCK) fd =
   | _ -> false
 ;;
 
-[%%ifdef JSC_LINUX_EXT]
-
-let lock fd =
-  let flocked = flock fd ~exclusive:true in
-  let lockfed = lockf fd in
-  flocked && lockfed
-;;
-
-[%%else]
-
 let lock = flock ~exclusive:true
-
-[%%endif]
 
 let create
       ?(message = Pid.to_string (Unix.getpid ()))

@@ -12,16 +12,7 @@ open! Core
 module IR = Int_repr
 open! Iobuf_intf
 
-[%%import "include.mlh"]
-[%%if UNSAFE_IS_SAFE]
-
 let unsafe_is_safe = true
-
-[%%else]
-
-let unsafe_is_safe = false
-
-[%%endif]
 
 module type Accessors_common = Accessors_common
 module type Accessors_read = Accessors_read

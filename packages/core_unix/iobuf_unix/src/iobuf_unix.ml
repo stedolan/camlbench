@@ -11,8 +11,6 @@ let () =
     "iobuf_unix.ml.before-ppx"
 ;;
 
-[%%import "config.h"]
-
 open! Core
 open! Iobuf
 module Unix = Core_unix
@@ -101,66 +99,6 @@ let recvfrom_assume_fd_is_nonblocking t fd =
   sockaddr
 ;;
 
-[%%ifdef JSC_RECVMMSG]
-
-module Recvmmsg_context = struct
-  type ctx
-
-  external unsafe_ctx : ([> write ], seek) t array -> ctx = "iobuf_recvmmsg_ctx"
-
-  let ctx ts =
-    if Array.for_all ts ~f:(fun t -> length t = capacity t)
-    then unsafe_ctx ts
-    else
-      raise_s
-        (Ppx_sexp_conv_lib.Sexp.List
-           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
-               "Recvmmsg_context.create: all buffers must be reset"
-           ; ((fun x__003_ ->
-                sexp_of_array
-                  (sexp_of_t_with_shallow_sexp
-                     (fun _ -> Sexplib0.Sexp.Atom "_")
-                     (fun _ -> Sexplib0.Sexp.Atom "_"))
-                  x__003_) [@merlin.hide])
-               ts
-           ])
-  ;;
-
-  type nonrec t =
-    { iobufs : (read_write, seek) t array
-    ; bstrs : Bigstring.t array
-    ; ctx : ctx
-    }
-
-  let create iobufs =
-    { iobufs; bstrs = Array.map iobufs ~f:(fun buf -> Expert.buf buf); ctx = ctx iobufs }
-  ;;
-end
-
-external unsafe_recvmmsg_assume_fd_is_nonblocking
-  :  File_descr.t
-  -> (read_write, seek) t array
-  -> Recvmmsg_context.ctx
-  -> Unix.Syscall_result.Int.t
-  = "iobuf_recvmmsg_assume_fd_is_nonblocking_stub"
-[@@noalloc]
-
-let recvmmsg_assume_fd_is_nonblocking fd { Recvmmsg_context.iobufs; ctx; _ } =
-  unsafe_recvmmsg_assume_fd_is_nonblocking fd iobufs ctx
-;;
-
-let recvmmsg_assume_fd_is_nonblocking =
-  match
-    Unix.Syscall_result.Int.to_result
-      (let fd = File_descr.of_int (-1) in
-       recvmmsg_assume_fd_is_nonblocking fd (Recvmmsg_context.create [||]))
-  with
-  | Error ENOSYS -> Or_error.unimplemented "Iobuf.recvmmsg_assume_fd_is_nonblocking"
-  | _ -> Ok recvmmsg_assume_fd_is_nonblocking
-;;
-
-[%%else]
-
 module Recvmmsg_context = struct
   type t = unit
 
@@ -170,8 +108,6 @@ end
 let recvmmsg_assume_fd_is_nonblocking =
   Or_error.unimplemented "Iobuf.recvmmsg_assume_fd_is_nonblocking"
 ;;
-
-[%%endif]
 
 let unsafe_sent t result =
   if Syscall_result.Int.is_ok result

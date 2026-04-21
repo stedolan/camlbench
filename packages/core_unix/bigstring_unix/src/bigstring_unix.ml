@@ -11,8 +11,6 @@ let () =
     "bigstring_unix.ml.before-ppx"
 ;;
 
-[%%import "config.h"]
-
 open! Core
 module Unix = Core_unix
 module Syscall_result = Unix.Syscall_result
@@ -227,74 +225,12 @@ let pwrite_assume_fd_is_nonblocking fd ~offset ?(pos = 0) ?len bstr =
   unsafe_pwrite_assume_fd_is_nonblocking fd ~offset ~pos ~len bstr
 ;;
 
-[%%ifdef JSC_MSG_NOSIGNAL]
-[%%define JSC_NOSIGPIPE]
-[%%endif]
-[%%ifdef JSC_SO_NOSIGPIPE]
-[%%define JSC_NOSIGPIPE]
-[%%endif]
-[%%ifdef JSC_NOSIGPIPE]
-
-external unsafe_really_send_no_sigpipe
-  :  Unix.File_descr.t
-  -> pos:int
-  -> len:int
-  -> t
-  -> unit
-  = "bigstring_really_send_no_sigpipe_stub"
-
-let really_send_no_sigpipe fd ?(pos = 0) ?len bstr =
-  let len = get_opt_len bstr ~pos len in
-  check_args ~loc:"really_send_no_sigpipe" ~pos ~len bstr;
-  unsafe_really_send_no_sigpipe fd ~pos ~len bstr
-;;
-
-external unsafe_send_nonblocking_no_sigpipe
-  :  Unix.File_descr.t
-  -> pos:int
-  -> len:int
-  -> t
-  -> Syscall_result.Int.t
-  = "bigstring_send_nonblocking_no_sigpipe_stub"
-[@@noalloc]
-
-let send_nonblocking_no_sigpipe fd ?(pos = 0) ?len bstr =
-  let len = get_opt_len bstr ~pos len in
-  check_args ~loc:"send_nonblocking_no_sigpipe" ~pos ~len bstr;
-  unsafe_send_nonblocking_no_sigpipe fd ~pos ~len bstr
-;;
-
-external unsafe_sendto_nonblocking_no_sigpipe
-  :  Unix.File_descr.t
-  -> pos:int
-  -> len:int
-  -> t
-  -> Unix.sockaddr
-  -> Syscall_result.Int.t
-  = "bigstring_sendto_nonblocking_no_sigpipe_stub"
-
-let sendto_nonblocking_no_sigpipe fd ?(pos = 0) ?len bstr sockaddr =
-  let len = get_opt_len bstr ~pos len in
-  check_args ~loc:"sendto_nonblocking_no_sigpipe" ~pos ~len bstr;
-  unsafe_sendto_nonblocking_no_sigpipe fd ~pos ~len bstr sockaddr
-;;
-
-let really_send_no_sigpipe = Ok really_send_no_sigpipe
-let send_nonblocking_no_sigpipe = Ok send_nonblocking_no_sigpipe
-let sendto_nonblocking_no_sigpipe = Ok sendto_nonblocking_no_sigpipe
-let unsafe_really_send_no_sigpipe = Ok unsafe_really_send_no_sigpipe
-let unsafe_send_nonblocking_no_sigpipe = Ok unsafe_send_nonblocking_no_sigpipe
-
-[%%else]
-
 let u = Or_error.unimplemented
 let really_send_no_sigpipe = u "Bigstring.really_send_no_sigpipe"
 let send_nonblocking_no_sigpipe = u "Bigstring.send_nonblocking_no_sigpipe"
 let sendto_nonblocking_no_sigpipe = u "Bigstring.sendto_nonblocking_no_sigpipe"
 let unsafe_really_send_no_sigpipe = u "Bigstring.unsafe_really_send_no_sigpipe"
 let unsafe_send_nonblocking_no_sigpipe = u "Bigstring.unsafe_send_nonblocking_no_sigpipe"
-
-[%%endif]
 
 external unsafe_write
   :  Unix.File_descr.t
@@ -380,43 +316,6 @@ let really_output oc ?(pos = 0) ?len bstr =
   ignore (unsafe_output oc ~min_len:len ~pos ~len bstr : int)
 ;;
 
-[%%ifdef JSC_RECVMMSG]
-
-external unsafe_recvmmsg_assume_fd_is_nonblocking
-  :  Unix.File_descr.t
-  -> t Unix.IOVec.t array
-  -> int
-  -> Unix.sockaddr array option
-  -> int array
-  -> int
-  = "bigstring_recvmmsg_assume_fd_is_nonblocking_stub"
-
-let recvmmsg_assume_fd_is_nonblocking fd ?count ?srcs iovecs ~lens =
-  let loc = "recvmmsg_assume_fd_is_nonblocking" in
-  let count = get_iovec_count loc iovecs count in
-  (match srcs with
-   | None -> ()
-   | Some a -> if count > Array.length a then invalid_arg (loc ^ ": count > n_srcs"));
-  if count > Array.length lens then invalid_arg (loc ^ ": count > n_lens");
-  unsafe_recvmmsg_assume_fd_is_nonblocking fd iovecs count srcs lens
-;;
-
-let unsafe_recvmmsg_assume_fd_is_nonblocking = Ok unsafe_recvmmsg_assume_fd_is_nonblocking
-
-let recvmmsg_assume_fd_is_nonblocking =
-  let ok = Ok recvmmsg_assume_fd_is_nonblocking in
-  try
-    assert (
-      recvmmsg_assume_fd_is_nonblocking (Unix.File_descr.of_int (-1)) [||] ~lens:[||] = 0);
-    ok
-  with
-  | Unix.Unix_error (ENOSYS, _, _) ->
-    Or_error.unimplemented "Bigstring.recvmmsg_assume_fd_is_nonblocking"
-  | _ -> ok
-;;
-
-[%%else]
-
 let unsafe_recvmmsg_assume_fd_is_nonblocking =
   Or_error.unimplemented "Bigstring.unsafe_recvmmsg_assume_fd_is_nonblocking"
 ;;
@@ -425,31 +324,6 @@ let recvmmsg_assume_fd_is_nonblocking =
   Or_error.unimplemented "Bigstring.recvmmsg_assume_fd_is_nonblocking"
 ;;
 
-[%%endif]
-[%%ifdef JSC_MSG_NOSIGNAL]
-
-external unsafe_sendmsg_nonblocking_no_sigpipe
-  :  Unix.File_descr.t
-  -> t Unix.IOVec.t array
-  -> int
-  -> int
-  = "bigstring_sendmsg_nonblocking_no_sigpipe_stub"
-
-let unsafe_sendmsg_nonblocking_no_sigpipe fd iovecs count =
-  let res = unsafe_sendmsg_nonblocking_no_sigpipe fd iovecs count in
-  if res = -1 then None else Some res
-;;
-
-let sendmsg_nonblocking_no_sigpipe fd ?count iovecs =
-  let count = get_iovec_count "sendmsg_nonblocking_no_sigpipe" iovecs count in
-  unsafe_sendmsg_nonblocking_no_sigpipe fd iovecs count
-;;
-
-let sendmsg_nonblocking_no_sigpipe = Ok sendmsg_nonblocking_no_sigpipe
-let unsafe_sendmsg_nonblocking_no_sigpipe = Ok unsafe_sendmsg_nonblocking_no_sigpipe
-
-[%%else]
-
 let sendmsg_nonblocking_no_sigpipe =
   Or_error.unimplemented "Bigstring.sendmsg_nonblocking_no_sigpipe"
 ;;
@@ -457,8 +331,6 @@ let sendmsg_nonblocking_no_sigpipe =
 let unsafe_sendmsg_nonblocking_no_sigpipe =
   Or_error.unimplemented "Bigstring.unsafe_sendmsg_nonblocking_no_sigpipe"
 ;;
-
-[%%endif]
 
 let map_file ~shared fd size =
   Bigarray.array1_of_genarray (Unix.map_file fd Bigarray.char c_layout ~shared [| size |])

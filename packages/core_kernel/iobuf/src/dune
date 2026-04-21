@@ -5,9 +5,3 @@
 ;; (preprocessor_deps include.mlh)
 ;; (preprocess (pps ppx_jane ppx_optcomp))
 )
-
-(rule
- (targets include.mlh)
- (deps)
- (action
-  (bash "echo \"[%%define UNSAFE_IS_SAFE true]\" > %{targets}")))

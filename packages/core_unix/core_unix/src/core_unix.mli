@@ -2192,8 +2192,6 @@ val sendto_substring
 
 [@@@ocaml.text " {6 Socket options} "]
 
-[%%if ocaml_version >= (4, 12, 0)]
-
 type socket_bool_option =
   | SO_DEBUG [@ocaml.doc " Record debugging information "]
   | SO_BROADCAST [@ocaml.doc " Permit sending of broadcast messages "]
@@ -2218,30 +2216,6 @@ include sig
   val socket_bool_option_of_sexp : Sexplib0.Sexp.t -> socket_bool_option
 end
 [@@ocaml.doc "@inline"] [@@merlin.hide]
-
-[%%else]
-
-type socket_bool_option =
-  | SO_DEBUG
-  | SO_BROADCAST
-  | SO_REUSEADDR
-  | SO_KEEPALIVE
-  | SO_DONTROUTE
-  | SO_OOBINLINE
-  | SO_ACCEPTCONN
-  | TCP_NODELAY
-  | IPV6_ONLY
-[@@deriving sexp]
-
-include sig
-  [@@@ocaml.warning "-32"]
-
-  val sexp_of_socket_bool_option : socket_bool_option -> Sexplib0.Sexp.t
-  val socket_bool_option_of_sexp : Sexplib0.Sexp.t -> socket_bool_option
-end
-[@@ocaml.doc "@inline"] [@@merlin.hide]
-
-[%%endif]
 
 type socket_int_option =
   | SO_SNDBUF [@ocaml.doc " Size of send buffer "]

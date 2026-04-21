@@ -11,8 +11,6 @@ let () =
     "core_unix.ml.before-ppx"
 ;;
 
-[%%import "config.h"]
-
 open! Core
 open! Import
 open Stable_witness.Export
@@ -378,25 +376,8 @@ module RLimit = struct
   let file_size = File_size
   let num_file_descriptors = Num_file_descriptors
   let stack = Stack
-
-  [%%ifdef JSC_RLIMIT_AS]
-
-  let virtual_memory = Ok Virtual_memory
-
-  [%%else]
-
   let virtual_memory = Or_error.unimplemented "RLIMIT_AS is not supported on this system"
-
-  [%%endif]
-  [%%ifdef JSC_RLIMIT_NICE]
-
-  let nice = Ok Nice
-
-  [%%else]
-
   let nice = Or_error.unimplemented "RLIMIT_NICE is not supported on this system"
-
-  [%%endif]
 
   let resource_of_sexp sexp =
     match resource_of_sexp sexp with
@@ -1245,108 +1226,7 @@ end
 external fnmatch : Fnmatch_flags.t -> pat:string -> string -> bool = "core_unix_fnmatch"
 
 let fnmatch ?flags ~pat fname = fnmatch (Fnmatch_flags.make flags) ~pat fname
-
-[%%ifdef JSC_WORDEXP]
-
-module Wordexp_flags = struct
-  type _flag =
-    [ `No_cmd
-    | `Show_err
-    | `Undef
-    ]
-  [@@deriving sexp]
-
-  include struct
-    let _ = fun (_ : _flag) -> ()
-
-    let ___flag_of_sexp__ =
-      (let error_source__101_ = "core_unix.ml.before-ppx.Wordexp_flags._flag" in
-       function
-       | Sexplib0.Sexp.Atom atom__097_ as _sexp__099_ ->
-         (match atom__097_ with
-          | "No_cmd" -> `No_cmd
-          | "Show_err" -> `Show_err
-          | "Undef" -> `Undef
-          | _ -> Sexplib0.Sexp_conv_error.no_variant_match ())
-       | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom atom__097_ :: _) as _sexp__099_ ->
-         (match atom__097_ with
-          | "No_cmd" ->
-            Sexplib0.Sexp_conv_error.ptag_no_args error_source__101_ _sexp__099_
-          | "Show_err" ->
-            Sexplib0.Sexp_conv_error.ptag_no_args error_source__101_ _sexp__099_
-          | "Undef" ->
-            Sexplib0.Sexp_conv_error.ptag_no_args error_source__101_ _sexp__099_
-          | _ -> Sexplib0.Sexp_conv_error.no_variant_match ())
-       | Sexplib0.Sexp.List (Sexplib0.Sexp.List _ :: _) as sexp__098_ ->
-         Sexplib0.Sexp_conv_error.nested_list_invalid_poly_var
-           error_source__101_
-           sexp__098_
-       | Sexplib0.Sexp.List [] as sexp__098_ ->
-         Sexplib0.Sexp_conv_error.empty_list_invalid_poly_var
-           error_source__101_
-           sexp__098_
-       : Sexplib0.Sexp.t -> _flag)
-    ;;
-
-    let _ = ___flag_of_sexp__
-
-    let _flag_of_sexp =
-      (let error_source__103_ = "core_unix.ml.before-ppx.Wordexp_flags._flag" in
-       fun sexp__102_ ->
-         try ___flag_of_sexp__ sexp__102_ with
-         | Sexplib0.Sexp_conv_error.No_variant_match ->
-           Sexplib0.Sexp_conv_error.no_matching_variant_found
-             error_source__103_
-             sexp__102_
-       : Sexplib0.Sexp.t -> _flag)
-    ;;
-
-    let _ = _flag_of_sexp
-
-    let sexp_of__flag =
-      (function
-       | `No_cmd -> Sexplib0.Sexp.Atom "No_cmd"
-       | `Show_err -> Sexplib0.Sexp.Atom "Show_err"
-       | `Undef -> Sexplib0.Sexp.Atom "Undef"
-       : _flag -> Sexplib0.Sexp.t)
-    ;;
-
-    let _ = sexp_of__flag
-  end [@@ocaml.doc "@inline"] [@@merlin.hide]
-
-  let flag_to_internal = function
-    | `No_cmd -> 0
-    | `Show_err -> 1
-    | `Undef -> 2
-  ;;
-
-  type t = int32 [@@deriving sexp]
-
-  include struct
-    let _ = fun (_ : t) -> ()
-    let t_of_sexp = (int32_of_sexp : Sexplib0.Sexp.t -> t)
-    let _ = t_of_sexp
-    let sexp_of_t = (sexp_of_int32 : t -> Sexplib0.Sexp.t)
-    let _ = sexp_of_t
-  end [@@ocaml.doc "@inline"] [@@merlin.hide]
-
-  external internal_make : int array -> t = "core_unix_wordexp_make_flags"
-
-  let make = function
-    | None | Some [] -> Int32.zero
-    | Some flags -> internal_make (Array.map ~f:flag_to_internal (Array.of_list flags))
-  ;;
-end
-
-external wordexp : Wordexp_flags.t -> string -> string array = "core_unix_wordexp"
-
-let wordexp = Ok (fun ?flags str -> wordexp (Wordexp_flags.make flags) str)
-
-[%%else]
-
 let wordexp = Or_error.unimplemented "Unix.wordexp"
-
-[%%endif]
 
 module Utsname = struct
   module Stable = struct
@@ -3586,18 +3466,9 @@ let getppid_exn () =
 
 module Thread_id = Int
 
-[%%if JSC_THREAD_ID_METHOD > 0]
-
 external gettid : unit -> Thread_id.t = "core_unix_gettid"
 
 let gettid = Ok gettid
-
-[%%else]
-
-let gettid = Or_error.unimplemented "gettid is not supported on this system"
-
-[%%endif]
-
 let nice i = improve (fun () -> Unix.nice i) (fun () -> [ "priority", Int.sexp_of_t i ])
 let stdin = Unix.stdin
 let stdout = Unix.stdout
@@ -4495,16 +4366,7 @@ let src_dst f ~src ~dst =
 
 let unlink = unary_filename Unix.unlink
 let rename = src_dst Unix.rename
-
-[%%if ocaml_version >= (4, 08, 0)]
-
 let unix_link ~src ~dst = Unix.link ~src ~dst ?follow:None
-
-[%%else]
-
-let unix_link ~src ~dst = Unix.link ~src ~dst
-
-[%%endif]
 
 let link ?(force = false) ~target ~link_name () =
   improve
@@ -5406,42 +5268,12 @@ module Clock = struct
     | Process_thread
     | Custom of underlying
 
-  [%%ifdef JSC_POSIX_TIMERS]
-  [%%ifdef JSC_ARCH_SIXTYFOUR]
-
   external getres : t -> Int63.t = "caml_clock_getres" [@@noalloc]
   external gettime : t -> Int63.t = "caml_clock_gettime" [@@noalloc]
 
-  [%%ifdef JSC_CLOCK_GETCPUCLOCKID]
-
-  external get_cpuclock_for : Pid.t -> underlying = "caml_clock_getcpuclockid"
-
-  let get_cpuclock_for = Ok get_cpuclock_for
-
-  [%%else]
-
   let get_cpuclock_for = Or_error.unimplemented "Unix.Clock.get_cpuclock_for"
-
-  [%%endif]
-  [%%else]
-
-  external getres : t -> Int63.t = "caml_clock_getres"
-  external gettime : t -> Int63.t = "caml_clock_gettime"
-
-  let get_cpuclock_for = Or_error.unimplemented "Unix.Clock.get_cpuclock_for"
-
-  [%%endif]
-
   let getres = Ok getres
   let gettime = Ok gettime
-
-  [%%else]
-
-  let getres = Or_error.unimplemented "Unix.Clock.getres"
-  let gettime = Or_error.unimplemented "Unix.Clock.gettime"
-  let get_cpuclock_for = Or_error.unimplemented "Unix.Clock.get_cpuclock_for"
-
-  [%%endif]
 end
 
 type tm = Unix.tm =
@@ -5632,7 +5464,7 @@ let mktime = Unix.mktime
 let alarm = Unix.alarm
 let sleep = Unix.sleep
 let times = Unix.times
-let utimes = Unix.utimes
+let utimes s ~access ~modif = Unix.utimes s ~access ~modif
 
 external strptime
   :  allow_trailing_input:bool
@@ -7879,17 +7711,7 @@ let sendto fd ~buf ~pos ~len ~mode ~addr =
        ])
 ;;
 
-[%%if ocaml_version >= (4, 05, 0)]
-
 let unix_sendto_substring = Unix.sendto_substring
-
-[%%else]
-
-let unix_sendto_substring fd ~buf ~pos ~len ~mode addr =
-  Unix.sendto_substring fd ~bug:buf ~pos ~len ~mode addr
-;;
-
-[%%endif]
 
 let sendto_substring fd ~buf ~pos ~len ~mode ~addr =
   improve
@@ -7902,8 +7724,6 @@ let sendto_substring fd ~buf ~pos ~len ~mode ~addr =
        ; "addr", sexp_of_sockaddr addr
        ])
 ;;
-
-[%%if ocaml_version >= (4, 12, 0)]
 
 type socket_bool_option = Unix.socket_bool_option =
   | SO_DEBUG
@@ -7982,83 +7802,6 @@ include struct
 
   let _ = sexp_of_socket_bool_option
 end [@@ocaml.doc "@inline"] [@@merlin.hide]
-
-[%%else]
-
-type socket_bool_option = Unix.socket_bool_option =
-  | SO_DEBUG
-  | SO_BROADCAST
-  | SO_REUSEADDR
-  | SO_KEEPALIVE
-  | SO_DONTROUTE
-  | SO_OOBINLINE
-  | SO_ACCEPTCONN
-  | TCP_NODELAY
-  | IPV6_ONLY
-[@@deriving sexp]
-
-include struct
-  let _ = fun (_ : socket_bool_option) -> ()
-
-  let socket_bool_option_of_sexp =
-    (let error_source__646_ = "core_unix.ml.before-ppx.socket_bool_option" in
-     function
-     | Sexplib0.Sexp.Atom ("sO_DEBUG" | "SO_DEBUG") -> SO_DEBUG
-     | Sexplib0.Sexp.Atom ("sO_BROADCAST" | "SO_BROADCAST") -> SO_BROADCAST
-     | Sexplib0.Sexp.Atom ("sO_REUSEADDR" | "SO_REUSEADDR") -> SO_REUSEADDR
-     | Sexplib0.Sexp.Atom ("sO_KEEPALIVE" | "SO_KEEPALIVE") -> SO_KEEPALIVE
-     | Sexplib0.Sexp.Atom ("sO_DONTROUTE" | "SO_DONTROUTE") -> SO_DONTROUTE
-     | Sexplib0.Sexp.Atom ("sO_OOBINLINE" | "SO_OOBINLINE") -> SO_OOBINLINE
-     | Sexplib0.Sexp.Atom ("sO_ACCEPTCONN" | "SO_ACCEPTCONN") -> SO_ACCEPTCONN
-     | Sexplib0.Sexp.Atom ("tCP_NODELAY" | "TCP_NODELAY") -> TCP_NODELAY
-     | Sexplib0.Sexp.Atom ("iPV6_ONLY" | "IPV6_ONLY") -> IPV6_ONLY
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_DEBUG" | "SO_DEBUG") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_BROADCAST" | "SO_BROADCAST") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_REUSEADDR" | "SO_REUSEADDR") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_KEEPALIVE" | "SO_KEEPALIVE") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_DONTROUTE" | "SO_DONTROUTE") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_OOBINLINE" | "SO_OOBINLINE") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("sO_ACCEPTCONN" | "SO_ACCEPTCONN") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("tCP_NODELAY" | "TCP_NODELAY") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("iPV6_ONLY" | "IPV6_ONLY") :: _) as
-       sexp__647_ -> Sexplib0.Sexp_conv_error.stag_no_args error_source__646_ sexp__647_
-     | Sexplib0.Sexp.List (Sexplib0.Sexp.List _ :: _) as sexp__645_ ->
-       Sexplib0.Sexp_conv_error.nested_list_invalid_sum error_source__646_ sexp__645_
-     | Sexplib0.Sexp.List [] as sexp__645_ ->
-       Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__646_ sexp__645_
-     | sexp__645_ ->
-       Sexplib0.Sexp_conv_error.unexpected_stag error_source__646_ sexp__645_
-     : Sexplib0.Sexp.t -> socket_bool_option)
-  ;;
-
-  let _ = socket_bool_option_of_sexp
-
-  let sexp_of_socket_bool_option =
-    (function
-     | SO_DEBUG -> Sexplib0.Sexp.Atom "SO_DEBUG"
-     | SO_BROADCAST -> Sexplib0.Sexp.Atom "SO_BROADCAST"
-     | SO_REUSEADDR -> Sexplib0.Sexp.Atom "SO_REUSEADDR"
-     | SO_KEEPALIVE -> Sexplib0.Sexp.Atom "SO_KEEPALIVE"
-     | SO_DONTROUTE -> Sexplib0.Sexp.Atom "SO_DONTROUTE"
-     | SO_OOBINLINE -> Sexplib0.Sexp.Atom "SO_OOBINLINE"
-     | SO_ACCEPTCONN -> Sexplib0.Sexp.Atom "SO_ACCEPTCONN"
-     | TCP_NODELAY -> Sexplib0.Sexp.Atom "TCP_NODELAY"
-     | IPV6_ONLY -> Sexplib0.Sexp.Atom "IPV6_ONLY"
-     : socket_bool_option -> Sexplib0.Sexp.t)
-  ;;
-
-  let _ = sexp_of_socket_bool_option
-end [@@ocaml.doc "@inline"] [@@merlin.hide]
-
-[%%endif]
 
 include struct
   [@@@alert "-deprecated"]

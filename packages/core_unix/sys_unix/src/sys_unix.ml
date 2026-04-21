@@ -74,15 +74,13 @@ include struct
 
   let catch_break = catch_break
 
-  [%%if flambda_backend]
+  module With_async_exns = struct
+    let with_async_exns f = f ()
 
-  let with_async_exns = with_async_exns
+    include Sys
+  end
 
-  [%%else]
-
-  let with_async_exns f = f ()
-
-  [%%endif]
+  let with_async_exns = With_async_exns.with_async_exns
 end
 
 exception Command_failed_with_status of Int.t * String.t [@@deriving sexp]
@@ -135,26 +133,12 @@ let home_directory () =
   | None -> (Unix.getpwuid (Unix.geteuid ())).pw_dir
 ;;
 
-[%%if ocaml_version < (4, 09, 0)]
-
-let override_argv args =
-  let len = Array.length args in
-  assert (len <= Array.length Sys.argv);
-  Array.blit ~src:args ~src_pos:0 ~dst:Sys.argv ~dst_pos:0 ~len;
-  (Stdlib.Obj.truncate [@ocaml.alert "-deprecated"]) (Obj.repr Sys.argv) len;
-  Arg.current := 0
-;;
-
-[%%else]
-
 external caml_sys_modify_argv : string array -> unit = "caml_sys_modify_argv"
 
 let override_argv new_argv =
   caml_sys_modify_argv new_argv;
   Arg.current := 0
 ;;
-
-[%%endif]
 
 let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
 let () = Ppx_expect_runtime.Current_file.unset ()

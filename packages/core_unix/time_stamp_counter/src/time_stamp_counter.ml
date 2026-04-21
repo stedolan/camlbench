@@ -11,8 +11,6 @@ let () =
     "time_stamp_counter.ml.before-ppx"
 ;;
 
-[%%import "config.h"]
-
 open! Core
 open Poly
 open! Import
@@ -160,8 +158,6 @@ let add t s = Int63.( + ) t s
 let of_int63 t = t
 let to_int63 t = t
 let zero = Int63.zero
-
-[%%ifdef JSC_ARCH_SIXTYFOUR]
 
 external rdtsc : unit -> (int64[@unboxed]) = "caml_rdtsc" "caml_rdtsc_unboxed"
 [@@noalloc] [@@builtin]
@@ -920,83 +916,6 @@ module Calibrator = struct
   end
 end
 
-[%%else]
-
-external now : unit -> tsc = "tsc_get"
-
-module Calibrator = struct
-  type t = unit [@@deriving bin_io, sexp]
-
-  include struct
-    let _ = fun (_ : t) -> ()
-
-    let bin_shape_t =
-      let _group =
-        Bin_prot.Shape.group
-          (Bin_prot.Shape.Location.of_string "time_stamp_counter.ml.before-ppx:399:2")
-          [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_unit ]
-      in
-      (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
-    ;;
-
-    let _ = bin_shape_t
-    let bin_size_t : t Bin_prot.Size.sizer = bin_size_unit
-    let _ = bin_size_t
-    let bin_write_t : t Bin_prot.Write.writer = bin_write_unit
-    let _ = bin_write_t
-
-    let bin_writer_t =
-      ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
-    ;;
-
-    let _ = bin_writer_t
-    let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_unit__
-    let _ = __bin_read_t__
-    let bin_read_t : t Bin_prot.Read.reader = bin_read_unit
-    let _ = bin_read_t
-
-    let bin_reader_t =
-      ({ read = bin_read_t; vtag_read = __bin_read_t__ } : _ Bin_prot.Type_class.reader)
-    ;;
-
-    let _ = bin_reader_t
-
-    let bin_t =
-      ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
-       : _ Bin_prot.Type_class.t)
-    ;;
-
-    let _ = bin_t
-    let t_of_sexp = (unit_of_sexp : Sexplib0.Sexp.t -> t)
-    let _ = t_of_sexp
-    let sexp_of_t = (sexp_of_unit : t -> Sexplib0.Sexp.t)
-    let _ = sexp_of_t
-  end [@@ocaml.doc "@inline"] [@@merlin.hide]
-
-  let tsc_to_seconds_since_epoch _t tsc = Int63.to_float tsc *. 1e-9
-  let tsc_to_nanos_since_epoch _t tsc = tsc
-  let create_using ~tsc:_ ~time:_ ~samples:_ = ()
-  let create () = ()
-  let initialize _t _samples = ()
-  let calibrate_using _t ~tsc:_ ~time:_ ~am_initializing:_ = ()
-  let calibrate _ = ()
-  let t = lazy (create ())
-
-  let cpu_mhz =
-    Or_error.unimplemented
-      "Time_stamp_counter.Calibrator.cpu_mhz is not defined for 32-bit platforms"
-  ;;
-
-  module Private = struct
-    let create_using = create_using
-    let calibrate_using = calibrate_using
-    let initialize = initialize
-    let nanos_per_cycle _ = 1.
-  end
-end
-
-[%%endif]
-
 module Span = struct
   include Int63
 
@@ -1004,8 +923,6 @@ module Span = struct
     let of_int63 t = t
     let to_int63 t = t
   end
-
-  [%%ifdef JSC_ARCH_SIXTYFOUR]
 
   let to_ns t ~(calibrator : Calibrator.t) =
     (Float.int63_round_nearest_exn [@inlined hint])
@@ -1031,13 +948,6 @@ module Span = struct
          in
          (ppx_sexp_message () [@nontail]))
   ;;
-
-  [%%else]
-
-  let to_ns t ~calibrator:_ = t
-  let of_ns ns ~calibrator:_ = ns
-
-  [%%endif]
 
   let to_time_ns_span t ~calibrator = Time_ns.Span.of_int63_ns (to_ns t ~calibrator)
   let of_time_ns_span span ~calibrator = of_ns (Time_ns.Span.to_int63_ns span) ~calibrator
