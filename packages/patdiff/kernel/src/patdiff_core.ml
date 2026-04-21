@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"patdiff_core.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "patdiff_core.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 include Patdiff_core_intf
@@ -10,21 +23,27 @@ include struct
   let default_word_big_enough = default_word_big_enough
 end
 
-(* Strip whitespace from a string by stripping and replacing with spaces *)
-let ws_rex = Re.compile Re.(rep1 space)
-let ws_rex_anchored = Re.compile Re.(seq [ bol; rep space; eol ])
+let ws_rex =
+  Re.compile
+    (let open Re in
+     rep1 space)
+;;
+
+let ws_rex_anchored =
+  Re.compile
+    (let open Re in
+     seq [ bol; rep space; eol ])
+;;
+
 let ws_sub = " "
 let remove_ws s = String.strip (Re.replace_string ws_rex s ~by:ws_sub)
 let is_ws = Re.execp ws_rex_anchored
 
-(* This regular expression describes the delimiters on which to split the string *)
 let words_rex =
   let open Re in
   let delim = set {|"{}[]#,.;()_|} in
   let punct = rep1 (set {|=`+-/!@$%^&*:|<>|}) in
   let space = rep1 space in
-  (* We don't want to split up ANSI color sequences, so let's make sure they get through
-     intact. *)
   let ansi_sgr_sequence =
     let esc = char '\027' in
     seq [ esc; char '['; rep (alt [ char ';'; digit ]); char 'm' ]
@@ -32,41 +51,78 @@ let words_rex =
   compile (alt [ delim; punct; space; ansi_sgr_sequence ])
 ;;
 
-(* Split a string into a list of string options delimited by words_rex
-   (delimiters included) *)
 let split s ~keep_ws =
   let s = if keep_ws then s else String.rstrip s in
   if String.is_empty s && keep_ws
   then [ "" ]
   else
-    Re.split_full words_rex s
-    |> List.filter_map ~f:(fun token ->
-         let string =
-           match token with
-           | `Delim d -> Re.Group.get d 0
-           | `Text t -> t
-         in
-         if String.is_empty string then None else Some string)
+    List.filter_map
+      ~f:(fun token ->
+        let string =
+          match token with
+          | `Delim d -> Re.Group.get d 0
+          | `Text t -> t
+        in
+        if String.is_empty string then None else Some string)
+      (Re.split_full words_rex s)
 ;;
 
-(* This function ensures that the tokens passed to Patience diff do not include
-   whitespace.  Whitespace is appended to words, and then removed by [~transform] later
-   on. The point is to make the semantic cleanup go well -- we don't want whitespace
-   matches to "count" as part of the length of a match. *)
 let whitespace_ignorant_split s =
   if String.is_empty s
   then []
   else (
     let istext s = not (Re.execp ws_rex s) in
-    split s ~keep_ws:false
-    |> List.group ~break:(fun split_result1 _ -> istext split_result1)
-    |> List.map ~f:String.concat)
+    List.map
+      ~f:String.concat
+      (List.group
+         ~break:(fun split_result1 _ -> istext split_result1)
+         (split s ~keep_ws:false)))
 ;;
 
 include struct
-  let%expect_test _ =
-    print_s ([%sexp_of: string list] (split ~keep_ws:true ""));
-    [%expect {| ("") |}]
+  let () =
+    match Ppx_inline_test_lib.testing with
+    | `Not_testing -> ()
+    | `Testing _ ->
+      let module Ppx_expect_test_block =
+        Ppx_expect_runtime.Make_test_block (Expect_test_config)
+      in
+      Ppx_expect_test_block.run_suite
+        ~filename_rel_to_project_root:"patdiff_core.ml.before-ppx"
+        ~line_number:67
+        ~location:{ start_bol = 2161; start_pos = 2163; end_pos = 2271 }
+        ~trailing_loc:{ start_bol = 2247; start_pos = 2271; end_pos = 2271 }
+        ~body_loc:{ start_bol = 2161; start_pos = 2163; end_pos = 2271 }
+        ~formatting_flexibility:
+          (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+             Ppx_expect_runtime.Expect_node_formatting.default)
+        ~expected_exn:None
+        ~trailing_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 1)
+        ~exn_test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 2)
+        ~description:None
+        ~tags:[]
+        ~inline_test_config:(module Inline_test_config)
+        ~expectations:
+          ([ ( Ppx_expect_runtime.Expectation_id.of_int_exn 0
+             , Ppx_expect_runtime.Test_node.Create.expect
+                 ~formatting_flexibility:
+                   (Ppx_expect_runtime.Expect_node_formatting.Flexibility.Flexible_modulo
+                      Ppx_expect_runtime.Expect_node_formatting.default)
+                 ~located_payload:
+                   (Some
+                      ( { contents = " (\"\") "
+                        ; tag = (T (Tag "") : Ppx_expect_runtime.Delimiter.t)
+                        }
+                      , { start_bol = 2247; start_pos = 2260; end_pos = 2270 } ))
+                 ~node_loc:{ start_bol = 2247; start_pos = 2251; end_pos = 2271 } )
+           ]
+          [@merlin.hide])
+        (fun () ->
+           print_s
+             (((fun x__001_ -> sexp_of_list sexp_of_string x__001_) [@merlin.hide])
+                (split ~keep_ws:true ""));
+           Ppx_expect_test_block.run_test
+             ~test_id:(Ppx_expect_runtime.Expectation_id.of_int_exn 0) [@merlin.hide])
   ;;
 end
 
@@ -169,7 +225,6 @@ module Make (Output_impls : Output_impls) = struct
       else (
         match line.[i] with
         | ' ' -> loop line len (i + 1) (n + 1)
-        (* tabs count for 4 spaces *)
         | '\t' -> loop line len (i + 1) (n + 4)
         | _ -> n, i)
     in
@@ -179,33 +234,6 @@ module Make (Output_impls : Output_impls) = struct
   let score_line (side : [ `left | `right ]) line1 line2 : int =
     let i1, start_of_1 = indentation line1 in
     let i2, start_of_2 = indentation line2 in
-    (* Order of priority is roughly:
-       1. low indentation for second line
-       2. lower indentation for second line than first
-       3. bonus points for certain patterns at the (non-whitespace) start of the line
-
-       But it isn’t priority, we just add things. So a failure case may cause us to pick a
-       boundary like this:
-       {v
-               (some subfield)))
-        ------------- BOUNDARY ----------------
-          (other_field .))
-         ((new entry)
-          ....)
-       v}
-       instead of between other_field and new entry.
-
-       We try to counteract that for the case where the line below the boundary starts
-       with e.g. ‘;;’ by removing the ‘decreasing indentation bonus’ in that case.
-       Plausibly we could do something by taking into account the count of closing parens
-       minus opening parens.
-
-       A secondary issue is that [line1] or [line2] may be entirely whitespace which can
-       be misleading (e.g. editors will typically remove indentation from pure-whitespace
-       lines) and cause us to miss good information (e.g. for an added function we would
-       like to have bonus points for the boundaries being just before ‘let ...’ and just
-       after ‘;;’ but typically there is some whitespace added to be put before/after the
-       function instead and that is what we score) *)
     let some_lines_are_blank = String.length line1 = 0 || String.length line2 = 0 in
     let base_score =
       let i2 = if some_lines_are_blank then max i1 i2 else i2 in
@@ -215,30 +243,17 @@ module Make (Output_impls : Output_impls) = struct
       if some_lines_are_blank
       then 0
       else
-        (if i1 = i2
-            (* This funky thing hopefully us to prefer a diff like ‘end [ module ... end ]’
-           to one like ‘[ end module ... ] end’, where [] marks the boundary of the
-           diff. *)
-         then (
-           match side with
-           | `left -> 1
-           | `right -> 0)
-         else i1 - i2)
-        |> Int.clamp_exn ~min:(-2) ~max:3
+        Int.clamp_exn
+          ~min:(-2)
+          ~max:3
+          (if i1 = i2
+           then (
+             match side with
+             | `left -> 1
+             | `right -> 0)
+           else i1 - i2)
     in
     let bonus_for_chars =
-      (* [bonus n line sides str] returns [n] if a bonus score applies, or 0 otherwise.
-
-         [line] can be [`above] or [`below].  [sides] can be [`left], [`right], or [`any].
-
-         The bonus score applies if [str] is found at the beginning of the line
-         immediately [`above] or [`below] the boundary of the inserted/deleted region.
-
-         If [sides] is [`left] or [`right], the bonus score only applies to that boundary
-         of the diff region.
-
-         So for example, [bonus 5 `above `any "</"] would add a bonus score of 5 if either
-         boundary is immediately before a closing XML tag. *)
       let bonus n line sides str =
         let line, i =
           match line with
@@ -250,18 +265,16 @@ module Make (Output_impls : Output_impls) = struct
           if String.is_substring_at line ~substring:str ~pos:i then n else 0
         | _ -> 0
       in
-      bonus 1 `below `any "((" (* start of record bonus *)
+      bonus 1 `below `any "(("
       + bonus 3 `below `any "("
       + bonus 1 `above `right "}"
       + bonus (-1) `below `any "}"
       + bonus 1 `below `any "{"
-      (* XML. Big bonus here as we prefer to break between </ and < despite equal
-         indentation. *)
       + bonus 5 `above `any "</"
-      + bonus (-4) `below `left "</" (* discount for starting diff on a </...> *)
+      + bonus (-4) `below `left "</"
       + bonus 3 `below `any "<"
-      + bonus 2 `below `any "*" (* heading *)
-      + bonus 1 `below `any "-" (* bullet point *)
+      + bonus 2 `below `any "*"
+      + bonus 1 `below `any "-"
       + bonus 3 `above `right ";;"
       + bonus 1 `above `left ";;"
       + bonus 4 `below `left "let"
@@ -272,11 +285,8 @@ module Make (Output_impls : Output_impls) = struct
       + bonus 1 `above `any "in"
       + bonus 4 `below `left "module"
       + bonus 3 `above `right "end"
-      (* In these cases, we typically get decreasing indentation but we want the ending
-         token (e.g. ;;) above the boundaries *)
       + bonus (min (-1) (-decreasing_indentation_bonus)) `below `any ";;"
       + bonus (min (-1) (-decreasing_indentation_bonus)) `below `any "end"
-      (* starting on a blank line gives bonus *)
       + if start_of_2 >= String.length line2 then 2 else 0
     in
     base_score + decreasing_indentation_bonus + bonus_for_chars
@@ -291,6 +301,92 @@ module Make (Output_impls : Output_impls) = struct
         }
       [@@deriving compare, hash, sexp_of, fields ~getters]
 
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let compare =
+          (fun a__002_ b__003_ ->
+             if Stdlib.( == ) a__002_ b__003_
+             then 0
+             else (
+               match compare_int a__002_.range_index b__003_.range_index with
+               | 0 ->
+                 (match compare_int a__002_.size_of_range b__003_.size_of_range with
+                  | 0 ->
+                    compare_option
+                      (fun a__004_ (b__005_ [@merlin.hide]) ->
+                         (compare_int a__004_ b__005_ [@merlin.hide]))
+                      a__002_.replace_id
+                      b__003_.replace_id
+                  | n -> n)
+               | n -> n)
+           : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg ->
+          let hsv =
+            let hsv =
+              let hsv = hsv in
+              hash_fold_int hsv arg.range_index
+            in
+            hash_fold_int hsv arg.size_of_range
+          in
+          hash_fold_option (fun hsv arg -> hash_fold_int hsv arg) hsv arg.replace_id
+        ;;
+
+        let _ = hash_fold_t
+
+        let hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func arg =
+            Ppx_hash_lib.Std.Hash.get_hash_value
+              (let hsv = Ppx_hash_lib.Std.Hash.create () in
+               hash_fold_t hsv arg)
+          in
+          fun x -> func x
+        ;;
+
+        let _ = hash
+
+        let sexp_of_t =
+          (fun { range_index = range_index__007_
+               ; size_of_range = size_of_range__009_
+               ; replace_id = replace_id__011_
+               } ->
+             let bnds__006_ = ([] : _ Stdlib.List.t) in
+             let bnds__006_ =
+               let arg__012_ = sexp_of_option sexp_of_int replace_id__011_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "replace_id"; arg__012_ ]
+                :: bnds__006_
+                : _ Stdlib.List.t)
+             in
+             let bnds__006_ =
+               let arg__010_ = sexp_of_int size_of_range__009_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "size_of_range"; arg__010_ ]
+                :: bnds__006_
+                : _ Stdlib.List.t)
+             in
+             let bnds__006_ =
+               let arg__008_ = sexp_of_int range_index__007_ in
+               (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "range_index"; arg__008_ ]
+                :: bnds__006_
+                : _ Stdlib.List.t)
+             in
+             Sexplib0.Sexp.List bnds__006_
+           : t -> Sexplib0.Sexp.t)
+        ;;
+
+        let _ = sexp_of_t
+        let replace_id _r__ = _r__.replace_id
+        let _ = replace_id
+        let size_of_range _r__ = _r__.size_of_range
+        let _ = size_of_range
+        let range_index _r__ = _r__.range_index
+        let _ = range_index
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       let compare_by_size = Comparable.lift Int.compare ~f:size_of_range
     end
 
@@ -298,8 +394,6 @@ module Make (Output_impls : Output_impls) = struct
     include Hashable.Make_plain (T)
   end
 
-  (* Used to track the state of [Replace] ranges when we explode them into
-     a [Prev] and a [Next] *)
   module Range_with_replaces_info = struct
     type t =
       { hunk_index : int
@@ -310,8 +404,6 @@ module Make (Output_impls : Output_impls) = struct
   let find_moves ~line_big_enough ~keep_ws (hunks : Hunks.t) =
     let minimum_match_perc = 0.7 in
     let minimum_lines = 3 in
-    (* Rewrite [Replace] ranges as a [Prev] and [Next] so we can consider them for moves.
-       Extract all ranges from the hunks so they are easier to work with *)
     let all_ranges = Queue.create () in
     let replace_id = ref 0 in
     List.iteri hunks ~f:(fun hunk_index hunk ->
@@ -365,7 +457,6 @@ module Make (Output_impls : Output_impls) = struct
       | _ -> ());
     let prevs_used = Range_info.Table.create () in
     let nexts_to_replace = Range_info.Table.create () in
-    (* Find ranges that are similar enough to be moves *)
     let next_ranges =
       Array.init (Pairing_heap.length next_ranges) ~f:(fun _ ->
         Pairing_heap.pop_exn next_ranges)
@@ -373,13 +464,14 @@ module Make (Output_impls : Output_impls) = struct
     let move_id = ref Patience_diff.Move_id.zero in
     Queue.iter prev_ranges ~f:(fun (prev_location, prev_contents) ->
       let starting_index =
-        Array.binary_search
-          next_ranges
-          ~compare:(fun (next_range_info, _next_contents) prev_range_info ->
-            Range_info.compare_by_size next_range_info prev_range_info)
-          `Last_less_than_or_equal_to
-          prev_location
-        |> Option.value ~default:(Array.length next_ranges - 1)
+        Option.value
+          ~default:(Array.length next_ranges - 1)
+          (Array.binary_search
+             next_ranges
+             ~compare:(fun (next_range_info, _next_contents) prev_range_info ->
+               Range_info.compare_by_size next_range_info prev_range_info)
+             `Last_less_than_or_equal_to
+             prev_location)
       in
       let starting_index = if starting_index < 0 then 0 else starting_index in
       let left_index = ref starting_index in
@@ -409,10 +501,11 @@ module Make (Output_impls : Output_impls) = struct
           Int.incr right_index;
           Some right_range
         | Some (left_info, left_range), Some (right_info, right_range) ->
-          if Float.compare
-               (max_similarity left_info prev_location)
-               (max_similarity right_info prev_location)
-             >= 0
+          if
+            Float.compare
+              (max_similarity left_info prev_location)
+              (max_similarity right_info prev_location)
+            >= 0
           then (
             Int.decr left_index;
             Some (left_info, left_range))
@@ -430,20 +523,22 @@ module Make (Output_impls : Output_impls) = struct
         | None -> finish ()
         | Some (next_location, next_contents) ->
           let max_similarity = max_similarity prev_location next_location in
-          (* If this range can't possibly have the required similarity then none of the
-             subsequent ranges can either so stop our search here *)
-          if Float.(max_similarity < minimum_match_perc)
-             ||
-             match best_match_so_far with
-             | None -> false
-             | Some (best_match_ratio, _) -> Float.(max_similarity < best_match_ratio)
+          if
+            (let open Float in
+             max_similarity < minimum_match_perc)
+            ||
+            match best_match_so_far with
+            | None -> false
+            | Some (best_match_ratio, _) ->
+              let open Float in
+              max_similarity < best_match_ratio
           then finish ()
-          else if Hashtbl.mem nexts_to_replace next_location
-                  (* Don't use the two parts of a the same replace for moves *)
-                  ||
-                  match next_location.replace_id, prev_location.replace_id with
-                  | Some next_id, Some prev_id when next_id = prev_id -> true
-                  | _ -> false
+          else if
+            Hashtbl.mem nexts_to_replace next_location
+            ||
+            match next_location.replace_id, prev_location.replace_id with
+            | Some next_id, Some prev_id when next_id = prev_id -> true
+            | _ -> false
           then find_best_next_range best_match_so_far
           else (
             let match_ratio =
@@ -452,17 +547,16 @@ module Make (Output_impls : Output_impls) = struct
             let select_hunk () =
               let hunk =
                 let transform = if keep_ws then Fn.id else remove_ws in
-                Patience_diff.String.get_hunks
-                  ~transform
-                  ~context:(-1)
-                  ~big_enough:line_big_enough
-                  ~max_slide:100
-                  ~score:score_line
-                  ~prev:prev_contents
-                  ~next:next_contents
-                  ()
-                (* Negative [context] returns a singleton hunk *)
-                |> List.hd_exn
+                List.hd_exn
+                  (Patience_diff.String.get_hunks
+                     ~transform
+                     ~context:(-1)
+                     ~big_enough:line_big_enough
+                     ~max_slide:100
+                     ~score:score_line
+                     ~prev:prev_contents
+                     ~next:next_contents
+                     ())
               in
               let move_index = !move_id in
               Hashtbl.add_exn prevs_used ~key:prev_location ~data:(move_index, None, None);
@@ -495,7 +589,6 @@ module Make (Output_impls : Output_impls) = struct
                              , if range_index_within_move = num_ranges - 1
                                then Some (Array.length prev)
                                else end_lines )
-                           (* We should have added this prev range above *)
                            | None -> assert false);
                          None)
                        else Some (Prev (prev, Some (Within_move move_index)))
@@ -510,11 +603,14 @@ module Make (Output_impls : Output_impls) = struct
             in
             let best_match_so_far =
               match best_match_so_far with
-              | None when Float.(match_ratio >= minimum_match_perc) ->
-                Some (match_ratio, select_hunk)
+              | None
+                when let open Float in
+                     match_ratio >= minimum_match_perc -> Some (match_ratio, select_hunk)
               | None -> None
               | Some (best_match_ratio, _) ->
-                if Float.(match_ratio > best_match_ratio)
+                if
+                  let open Float in
+                  match_ratio > best_match_ratio
                 then Some (match_ratio, select_hunk)
                 else best_match_so_far
             in
@@ -522,73 +618,75 @@ module Make (Output_impls : Output_impls) = struct
       in
       find_best_next_range None);
     let prevs_by_range_index =
-      Hashtbl.to_alist prevs_used
-      |> List.map ~f:(fun (range_info, move_info) ->
-           range_info.Range_info.range_index, move_info)
-      |> Int.Table.of_alist_exn
+      Int.Table.of_alist_exn
+        (List.map
+           ~f:(fun (range_info, move_info) ->
+             range_info.Range_info.range_index, move_info)
+           (Hashtbl.to_alist prevs_used))
     in
     let nexts_by_range_index =
-      Hashtbl.to_alist nexts_to_replace
-      |> List.map ~f:(fun (range_info, ranges_to_insert) ->
-           range_info.Range_info.range_index, ranges_to_insert)
-      |> Int.Table.of_alist_exn
+      Int.Table.of_alist_exn
+        (List.map
+           ~f:(fun (range_info, ranges_to_insert) ->
+             range_info.Range_info.range_index, ranges_to_insert)
+           (Hashtbl.to_alist nexts_to_replace))
     in
-    (* update the [Next] ranges *)
     let ranges =
-      Queue.mapi all_ranges ~f:(fun range_index (range_data, range) ->
-        match
-          ( Hashtbl.find prevs_by_range_index range_index
-          , Hashtbl.find nexts_by_range_index range_index )
-        with
-        (* This means we think the range is both a next and prev which is impossible *)
-        | Some _, Some _ -> assert false
-        | None, None -> [ range_data, range ]
-        | Some (move_id, lines_to_trim_at_beg, lines_to_trim_at_end), None ->
-          (match range with
-           | Patience_diff.Range.Prev (contents, None) ->
-             let lines_to_trim_at_beg = Option.value lines_to_trim_at_beg ~default:0 in
-             let lines_to_trim_at_end = Option.value lines_to_trim_at_end ~default:0 in
-             List.filter_opt
-               [ (if lines_to_trim_at_beg = 0
-                  then None
-                  else
-                    Some
-                      ( { range_data with range_type = `Original }
-                      , Patience_diff.Range.Prev
-                          (Array.sub contents ~pos:0 ~len:lines_to_trim_at_beg, None) ))
-               ; Some
-                   ( { range_data with range_type = `Move }
-                   , Patience_diff.Range.Prev
-                       ( Array.sub
-                           contents
-                           ~pos:lines_to_trim_at_beg
-                           ~len:
-                             (Array.length contents
-                              - lines_to_trim_at_beg
-                              - lines_to_trim_at_end)
-                       , Some (Move move_id) ) )
-               ; (if lines_to_trim_at_end = 0
-                  then None
-                  else
-                    Some
-                      ( { range_data with range_type = `Original }
-                      , Patience_diff.Range.Prev
-                          ( Array.sub
-                              contents
-                              ~pos:(Array.length contents - lines_to_trim_at_end)
-                              ~len:lines_to_trim_at_end
-                          , None ) ))
-               ]
-           | _ ->
-             (* we should never reference anything except a [Prev] that hasn't been moved *)
-             assert false)
-        | None, Some ranges_to_replace ->
-          let range_data = { range_data with range_type = `Move } in
-          List.map ranges_to_replace ~f:(fun range -> range_data, range))
-      |> Queue.to_list
-      |> List.concat
+      List.concat
+        (Queue.to_list
+           (Queue.mapi all_ranges ~f:(fun range_index (range_data, range) ->
+              match
+                ( Hashtbl.find prevs_by_range_index range_index
+                , Hashtbl.find nexts_by_range_index range_index )
+              with
+              | Some _, Some _ -> assert false
+              | None, None -> [ range_data, range ]
+              | Some (move_id, lines_to_trim_at_beg, lines_to_trim_at_end), None ->
+                (match range with
+                 | Patience_diff.Range.Prev (contents, None) ->
+                   let lines_to_trim_at_beg =
+                     Option.value lines_to_trim_at_beg ~default:0
+                   in
+                   let lines_to_trim_at_end =
+                     Option.value lines_to_trim_at_end ~default:0
+                   in
+                   List.filter_opt
+                     [ (if lines_to_trim_at_beg = 0
+                        then None
+                        else
+                          Some
+                            ( { range_data with range_type = `Original }
+                            , Patience_diff.Range.Prev
+                                (Array.sub contents ~pos:0 ~len:lines_to_trim_at_beg, None)
+                            ))
+                     ; Some
+                         ( { range_data with range_type = `Move }
+                         , Patience_diff.Range.Prev
+                             ( Array.sub
+                                 contents
+                                 ~pos:lines_to_trim_at_beg
+                                 ~len:
+                                   (Array.length contents
+                                    - lines_to_trim_at_beg
+                                    - lines_to_trim_at_end)
+                             , Some (Move move_id) ) )
+                     ; (if lines_to_trim_at_end = 0
+                        then None
+                        else
+                          Some
+                            ( { range_data with range_type = `Original }
+                            , Patience_diff.Range.Prev
+                                ( Array.sub
+                                    contents
+                                    ~pos:(Array.length contents - lines_to_trim_at_end)
+                                    ~len:lines_to_trim_at_end
+                                , None ) ))
+                     ]
+                 | _ -> assert false)
+              | None, Some ranges_to_replace ->
+                let range_data = { range_data with range_type = `Move } in
+                List.map ranges_to_replace ~f:(fun range -> range_data, range))))
     in
-    (* Recover any [Replace] ranges we broke up if we didn't use them for moves. *)
     let final_ranges = Queue.create () in
     let rec recover_replaces = function
       | ( { Range_with_replaces_info.range_type = `Former_replace _; hunk_index }
@@ -607,7 +705,6 @@ module Make (Output_impls : Output_impls) = struct
       | [] -> ()
     in
     recover_replaces ranges;
-    (* Place the ranges in the correct hunks *)
     let final_hunks =
       List.mapi hunks ~f:(fun hunk_index hunk ->
         let ranges =
@@ -626,26 +723,46 @@ module Make (Output_impls : Output_impls) = struct
 
   let diff ~context ~line_big_enough ~keep_ws ~find_moves:should_find_moves ~prev ~next =
     let transform = if keep_ws then Fn.id else remove_ws in
-    Patience_diff.String.get_hunks
-      ~transform
-      ~context
-      ~big_enough:line_big_enough
-      ~max_slide:100
-      ~score:score_line
-      ~prev
-      ~next
-      ()
-    |> fun hunks ->
-    if should_find_moves then find_moves ~line_big_enough ~keep_ws hunks else hunks
+    (fun hunks ->
+       if should_find_moves then find_moves ~line_big_enough ~keep_ws hunks else hunks)
+      (Patience_diff.String.get_hunks
+         ~transform
+         ~context
+         ~big_enough:line_big_enough
+         ~max_slide:100
+         ~score:score_line
+         ~prev
+         ~next
+         ())
   ;;
 
   type word_or_newline =
-    [ `Newline of int * string option (* (number of newlines, subsequent_whitespace) *)
+    [ `Newline of int * string option
     | `Word of string
     ]
   [@@deriving sexp_of]
 
-  (* Splits an array of lines into an array of pieces (`Newlines and R.Words) *)
+  include struct
+    let _ = fun (_ : word_or_newline) -> ()
+
+    let sexp_of_word_or_newline =
+      (function
+       | `Newline v__013_ ->
+         Sexplib0.Sexp.List
+           [ Sexplib0.Sexp.Atom "Newline"
+           ; (let arg0__014_, arg1__015_ = v__013_ in
+              let res0__016_ = sexp_of_int arg0__014_
+              and res1__017_ = sexp_of_option sexp_of_string arg1__015_ in
+              Sexplib0.Sexp.List [ res0__016_; res1__017_ ])
+           ]
+       | `Word v__018_ ->
+         Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "Word"; sexp_of_string v__018_ ]
+       : word_or_newline -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_word_or_newline
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let explode ar ~keep_ws =
     let words = Array.to_list ar in
     let words =
@@ -654,22 +771,6 @@ module Make (Output_impls : Output_impls) = struct
       else List.map words ~f:whitespace_ignorant_split
     in
     let to_words l = List.map l ~f:(fun s -> `Word s) in
-    (*
-       [`Newline of (int * string option)]
-
-       can be thought of as:
-
-       [`Newline of
-       ([`How_many_consecutive_newlines of int]
-     * [`Some_subsequent_whitespace of string
-       |`Empty_string
-       ])]
-
-       This representation is used to try to collapse consecutive whitespace as tightly as
-       possible, but it's not a great abstraction, so some consecutive whitespace does not
-       get collapsed.
-
-     *)
     let words =
       List.concat_map words ~f:(fun x ->
         match x with
@@ -681,66 +782,58 @@ module Make (Output_impls : Output_impls) = struct
     in
     let words =
       List.fold_right words ~init:[] ~f:(fun x acc ->
-        (* look back at what we've accumulated so far to see if there's any whitespace that
-           can be collapsed. *)
         match acc with
         | `Word s :: tl -> x :: `Word s :: tl
         | `Newline (i, None) :: tl ->
           (match x with
            | `Word s -> `Word s :: `Newline (i, None) :: tl
-           | `Newline (j, opt) ->
-             (* collapse the whitespace from each [`Newline] by summing
-                how_many_consecutive_newlines from each (i+j) *)
-             `Newline (i + j, opt) :: tl)
+           | `Newline (j, opt) -> `Newline (i + j, opt) :: tl)
         | `Newline (i, Some s1) :: tl ->
           (match x with
            | `Word s2 -> `Word s2 :: `Newline (i, Some s1) :: tl
            | `Newline (j, opt) ->
-             (* collapse the whitespace from each [`Newline] by concatenating any
-                subsequent_whitespace (opt ^ s1) and summing how_many_consecutive_newlines
-                (i+j) from each. *)
              let s1 = Option.value opt ~default:"" ^ s1 in
              `Newline (i + j, Some s1) :: tl)
         | [] -> [ x ])
     in
-    (* Throw away the very first `Newline *)
     let words =
       match words with
       | `Newline (i, opt) :: tl -> `Newline (i - 1, opt) :: tl
       | `Word _ :: _ | [] ->
         raise_s
-          [%message
-            "Expected words to start with a `Newline." (words : word_or_newline list)]
+          (let ppx_sexp_message () =
+             Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                   "Expected words to start with a `Newline."
+               ; Ppx_sexp_conv_lib.Sexp.List
+                   [ Ppx_sexp_conv_lib.Sexp.Atom "words"
+                   ; ((fun x__019_ -> sexp_of_list sexp_of_word_or_newline x__019_)
+                        [@merlin.hide])
+                       words
+                   ]
+               ]
+               [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+           in
+           (ppx_sexp_message () [@nontail]))
     in
-    (* Append a newline to the end, if this array has any words *)
     let words =
       match words with
       | [] -> []
-      | [ `Newline (0, None) ] -> []
+      | `Newline (0, None) :: [] -> []
       | list -> List.append list [ `Newline (1, None) ]
     in
     Array.of_list words
   ;;
 
-  (* Takes hunks of `Words and `Newlines and collapses them back into lines,
-   * formatting appropriately. *)
   let collapse ranges ~rule_same ~rule_prev ~rule_next ~kind ~output =
-    (* flag indicates what kind of range is currently being collapsed *)
     let flag = ref `Same in
-    (* segment is the current series of words being processed. *)
     let segment = ref [] in
-    (* line is the current series of formatted segments *)
     let line = ref [] in
-    (* lines is the return array *)
     let lines = ref [] in
     let apply ~rule = function
       | "" -> ""
       | s -> Output_ops.Rule.apply s ~rule ~output ~refined:false
     in
-    (*
-     * Finish the current segment by applying the appropriate format
-     * and popping it on to the end of the current line
-     *)
     let finish_segment () =
       let rule =
         match !flag with
@@ -748,14 +841,10 @@ module Make (Output_impls : Output_impls) = struct
         | `Prev -> rule_prev
         | `Next -> rule_next
       in
-      let formatted_segment = List.rev !segment |> String.concat |> apply ~rule in
+      let formatted_segment = apply ~rule (String.concat (List.rev !segment)) in
       line := formatted_segment :: !line;
       segment := []
     in
-    (*
-     * Finish the current segment, apply the reset rule to the line,
-     * and pop the finished line onto the return array
-     *)
     let newline i =
       for _ = 1 to i do
         finish_segment ();
@@ -764,15 +853,10 @@ module Make (Output_impls : Output_impls) = struct
       done
     in
     let f range =
-      (* Extract the array, set flag appropriately, *)
       let ar =
         match (range : _ Patience_diff.Range.t) with
         | Same ar ->
           flag := `Same;
-          (* R.Same ar is an array of tuples.  The first tuple is an
-           * element from the old file, the second tuple, an element
-           * from the new file.  Depending on what kind of collapse
-           * this is, we want only one or the other. *)
           let f =
             match kind with
             | `Prev_only -> fst
@@ -786,15 +870,8 @@ module Make (Output_impls : Output_impls) = struct
         | Next (ar, _) ->
           flag := `Next;
           ar
-        | Replace _ | Unified _ ->
-          (* When calling collapse, we always call
-           * Patience_diff.unified first, which removes all R.Replaces
-           * and R.Unifieds. *)
-          assert false
+        | Replace _ | Unified _ -> assert false
       in
-      (* Iterate through the elements of the range, appending each `Word to
-       * segment and calling newline on each `Newline
-       *)
       Array.iter ar ~f:(function
         | `Newline (i, None) -> newline i
         | `Newline (i, Some s) ->
@@ -805,24 +882,29 @@ module Make (Output_impls : Output_impls) = struct
     in
     List.iter ranges ~f;
     (match !line with
-     | [] | [ "" ] -> ()
+     | [] | "" :: [] -> ()
      | line ->
        let line = String.concat (List.rev line) in
        if is_ws line
-       then
-         (* This branch was unreachable in our regression tests, but I can't prove it's
-            unreachable in all cases. Rather than raise in production, let's drop this
-            whitespace. *)
-         ()
+       then ()
        else
          raise_s
-           [%message
-             "Invariant violated: [collapse] got a line not terminated with a newline"
-               (line : string)]);
+           (let ppx_sexp_message () =
+              Ppx_sexp_conv_lib.Sexp.List
+                [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                    "Invariant violated: [collapse] got a line not terminated with a \
+                     newline"
+                ; Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Sexp.Atom "line"
+                    ; (sexp_of_string [@merlin.hide]) line
+                    ]
+                ]
+                [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+            in
+            (ppx_sexp_message () [@nontail])));
     Array.of_list (List.rev !lines)
   ;;
 
-  (* Get the hunks from two arrays of pieces (`Words and `Newlines) *)
   let diff_pieces ~prev_pieces ~next_pieces ~keep_ws ~word_big_enough =
     let context = -1 in
     let transform =
@@ -857,9 +939,6 @@ module Make (Output_impls : Output_impls) = struct
       | _ -> true)
   ;;
 
-  (* Interleaves the display of minus lines and plus lines so that equal words are presented
-     close together.  There is some heuristic for when we think doing this improves the
-     diff. *)
   let split_for_readability rangelist =
     let ans : _ Patience_diff.Range.t list list ref = ref [] in
     let pending_ranges : _ Patience_diff.Range.t list ref = ref [] in
@@ -881,7 +960,6 @@ module Make (Output_impls : Output_impls) = struct
              then false
              else (
                append_range (Same (Array.sub seq ~pos:0 ~len:i));
-               (* A non-zero `Newline is required for [collapse] to work properly. *)
                append_range (Same [| `Newline (1, None), `Newline (1, None) |]);
                ans := List.rev !pending_ranges :: !ans;
                pending_ranges := [];
@@ -898,17 +976,15 @@ module Make (Output_impls : Output_impls) = struct
        | _ :: _ as ranges -> List.rev ranges :: !ans)
   ;;
 
-  (* Refines the diff, splitting the lines into smaller arrays and diffing them, then
-     collapsing them back into their initial lines after applying a format. *)
   let refine
-    ~(rules : Format.Rules.t)
-    ~produce_unified_lines
-    ~output
-    ~keep_ws
-    ~split_long_lines
-    ~interleave
-    ~word_big_enough
-    (hunks : string Patience_diff.Hunk.t list)
+        ~(rules : Format.Rules.t)
+        ~produce_unified_lines
+        ~output
+        ~keep_ws
+        ~split_long_lines
+        ~interleave
+        ~word_big_enough
+        (hunks : string Patience_diff.Hunk.t list)
     =
     let rule_prev = rules.word_prev in
     let rule_next = rules.word_next in
@@ -932,47 +1008,33 @@ module Make (Output_impls : Output_impls) = struct
       | Prev (a, _) when (not keep_ws) && Array.for_all a ~f:is_ws -> []
       | (Next _ | Prev _ | Same _ | Unified _) as range -> [ range ]
       | Replace (prev_ar, next_ar, move_kind) ->
-        (* Explode the arrays *)
         let prev_pieces = explode prev_ar ~keep_ws in
         let next_pieces = explode next_ar ~keep_ws in
-        (* Diff the pieces *)
         let sub_diff = diff_pieces ~prev_pieces ~next_pieces ~keep_ws ~word_big_enough in
-        (* Smash the hunks' ranges all together *)
         let sub_diff = Patience_diff.Hunks.ranges sub_diff in
-        (* Break it up where lines are too long *)
         let sub_diff_pieces =
           if not split_long_lines
           then [ sub_diff ]
           else (
             let max_len = Int.max 20 (force console_width - 2) in
-            (* Accumulates the total length of the line so far, summing lengths
-               of word tokens but resetting when newlines are hit *)
             let get_new_len_so_far ~len_so_far tokens_arr =
               Array.fold ~init:len_so_far tokens_arr ~f:(fun len_so_far token ->
                 match token with
                 | `Newline _ -> 0
                 | `Word word -> len_so_far + String.length word)
             in
-            (* Iteratively split long lines up.
-               Produces a list of "range lists", where each range list should be displayed
-               all together in one unbroken piece before being followed by the next range
-               list, etc. *)
             let rec split_lines len_so_far sub_diff rangeaccum rangelistaccum =
               match sub_diff with
               | [] ->
                 (match rangeaccum with
                  | [] -> List.rev rangelistaccum
                  | _ -> List.rev (List.rev rangeaccum :: rangelistaccum))
-              (* More tokens ranges left to process *)
               | range :: rest ->
                 (match (range : _ Patience_diff.Range.t) with
                  | Same tokenpairs_arr ->
                    let range_of_tokens tokenpairs =
                      Patience_diff.Range.Same (Array.of_list tokenpairs)
                    in
-                   (* Keep taking tokens until we exceed max_len or hit a newline.
-                      Returns (new len_so_far, new range, remaining tokens, hit newline)
-                   *)
                    let rec take_until_max len_so_far tokenpairs accum =
                      match tokenpairs with
                      | [] -> len_so_far, range_of_tokens (List.rev accum), [], false
@@ -990,8 +1052,6 @@ module Make (Output_impls : Output_impls) = struct
                    let make_newline () =
                      Patience_diff.Range.Same [| `Newline (1, None), `Newline (1, None) |]
                    in
-                   (* Keep taking ranges until all tokens exhausted.
-                      Returns (new len_so_far, range list) *)
                    let rec take_ranges_until_exhausted len_so_far tokenpairs accum =
                      match tokenpairs with
                      | [] -> len_so_far, List.rev accum
@@ -1000,8 +1060,6 @@ module Make (Output_impls : Output_impls) = struct
                          take_until_max len_so_far tokenpairs []
                        in
                        let new_accum = `Range new_range :: accum in
-                       (* If there are token pairs left, that means we hit the max_len,
-                          so add a break at this point *)
                        let new_accum =
                          match new_tokenpairs with
                          | _ :: _ when not hit_newline ->
@@ -1016,17 +1074,14 @@ module Make (Output_impls : Output_impls) = struct
                        (Array.to_list tokenpairs_arr)
                        []
                    in
-                   (* Update rangeaccum and rangelistaccum according to the `Ranges and
-                      `Breaks. `Ranges accumulate on to the existing range list to be
-                      displayed contiguously, `Breaks start a new range list. *)
                    let rangeaccum, rangelistaccum =
                      List.fold
                        new_ranges
                        ~init:(rangeaccum, rangelistaccum)
                        ~f:(fun (rangeaccum, rangelistaccum) r ->
-                       match r with
-                       | `Break -> [], List.rev rangeaccum :: rangelistaccum
-                       | `Range r -> r :: rangeaccum, rangelistaccum)
+                         match r with
+                         | `Break -> [], List.rev rangeaccum :: rangelistaccum
+                         | `Range r -> r :: rangeaccum, rangelistaccum)
                    in
                    split_lines new_len_so_far rest rangeaccum rangelistaccum
                  | Next (tokens_arr, _) | Prev (tokens_arr, _) ->
@@ -1071,7 +1126,6 @@ module Make (Output_impls : Output_impls) = struct
             && (((not (ranges_are_just_whitespace sub_prev)) && next_all_same)
                 || ((not (ranges_are_just_whitespace sub_next)) && prev_all_same))
           in
-          (* Collapse the pieces back into lines *)
           let prev_next_pairs =
             match prev_all_same, next_all_same with
             | true, true ->
@@ -1128,7 +1182,6 @@ module Make (Output_impls : Output_impls) = struct
               | true, true -> Same (Array.map next_ar ~f:(fun x -> x, x))
               | _ ->
                 (match prev_ar, next_ar with
-                 (* Ugly hack that takes care of empty files *)
                  | [| "" |], next_ar -> Replace ([||], next_ar, move_kind)
                  | prev_ar, [| "" |] -> Replace (prev_ar, [||], move_kind)
                  | prev_ar, next_ar ->
@@ -1141,10 +1194,12 @@ module Make (Output_impls : Output_impls) = struct
             in
             range))
     in
-    hunks
-    |> List.map ~f:(fun hunk ->
-         { hunk with ranges = List.concat_map hunk.ranges ~f:refine_range })
-    |> List.filter ~f:(not << Patience_diff.Hunk.all_same)
+    List.filter
+      ~f:(not << Patience_diff.Hunk.all_same)
+      (List.map
+         ~f:(fun hunk ->
+           { hunk with ranges = List.concat_map hunk.ranges ~f:refine_range })
+         hunks)
   ;;
 
   let print ~file_names ~rules ~output ~location_style hunks =
@@ -1159,12 +1214,12 @@ module Make (Output_impls : Output_impls) = struct
   ;;
 
   let output_to_string
-    ?(print_global_header = false)
-    ~file_names
-    ~rules
-    ~output
-    ~location_style
-    hunks
+        ?(print_global_header = false)
+        ~file_names
+        ~rules
+        ~output
+        ~location_style
+        hunks
     =
     let buf = Queue.create () in
     Output_ops.print
@@ -1184,40 +1239,40 @@ module Make (Output_impls : Output_impls) = struct
   ;;
 
   let patdiff
-    ?(context = Configuration.default_context)
-    ?(keep_ws = false)
-    ?(find_moves = false)
-    ?(rules = Format.Rules.default)
-    ?(output = Output.Ansi)
-    ?(produce_unified_lines = true)
-    ?(split_long_lines = true)
-    ?print_global_header
-    ?(location_style = Format.Location_style.Diff)
-    ?(interleave = true)
-    ?float_tolerance
-    ?(line_big_enough = Configuration.default_line_big_enough)
-    ?(word_big_enough = Configuration.default_word_big_enough)
-    ~(prev : Diff_input.t)
-    ~(next : Diff_input.t)
-    ()
+        ?(context = Configuration.default_context)
+        ?(keep_ws = false)
+        ?(find_moves = false)
+        ?(rules = Format.Rules.default)
+        ?(output = Output.Ansi)
+        ?(produce_unified_lines = true)
+        ?(split_long_lines = true)
+        ?print_global_header
+        ?(location_style = Format.Location_style.Diff)
+        ?(interleave = true)
+        ?float_tolerance
+        ?(line_big_enough = Configuration.default_line_big_enough)
+        ?(word_big_enough = Configuration.default_word_big_enough)
+        ~(prev : Diff_input.t)
+        ~(next : Diff_input.t)
+        ()
     =
     let keep_ws = keep_ws || Should_keep_whitespace.for_diff ~prev ~next in
     let hunks =
-      diff
-        ~context
+      refine
+        ~rules
+        ~produce_unified_lines
+        ~output
         ~keep_ws
-        ~find_moves
-        ~line_big_enough
-        ~prev:(List.to_array (String.split_lines prev.text))
-        ~next:(List.to_array (String.split_lines next.text))
-      |> refine
-           ~rules
-           ~produce_unified_lines
-           ~output
+        ~split_long_lines
+        ~interleave
+        ~word_big_enough
+        (diff
+           ~context
            ~keep_ws
-           ~split_long_lines
-           ~interleave
-           ~word_big_enough
+           ~find_moves
+           ~line_big_enough
+           ~prev:(List.to_array (String.split_lines prev.text))
+           ~next:(List.to_array (String.split_lines next.text)))
     in
     let hunks =
       match float_tolerance with
@@ -1235,15 +1290,19 @@ module Make (Output_impls : Output_impls) = struct
 end
 
 module Without_unix = Make (struct
-  let console_width () = Ok 80
+    let console_width () = Ok 80
 
-  let implementation : Output.t -> (module Output.S) = function
-    | Ansi -> (module Ansi_output)
-    | Ascii -> (module Ascii_output)
-    | Html -> (module Html_output.Without_mtime)
-  ;;
-end)
+    let implementation : Output.t -> (module Output.S) = function
+      | Ansi -> (module Ansi_output)
+      | Ascii -> (module Ascii_output)
+      | Html -> (module Html_output.Without_mtime)
+    ;;
+  end)
 
 module Private = struct
   module Make = Make
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

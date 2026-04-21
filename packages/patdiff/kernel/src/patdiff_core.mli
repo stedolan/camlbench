@@ -1,1 +1,1 @@
-include Patdiff_core_intf.Patdiff_core (** @inline *)
+include Patdiff_core_intf.Patdiff_core [@@ocaml.doc " @inline "]

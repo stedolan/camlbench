@@ -1,5 +1,6 @@
-(** This module extends {!Patdiff_kernel.Configuration} with an on-disk config format and
-    functions to parse them. *)
+[@@@ocaml.text
+  " This module extends {!Patdiff_kernel.Configuration} with an on-disk config format and\n\
+  \    functions to parse them. "]
 
 open! Core
 open! Import
@@ -34,11 +35,20 @@ module On_disk : sig
   end
 
   type t = V3.t [@@deriving sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 val parse : On_disk.t -> t
 val save_default : filename:string -> unit
 
-(** Reads a config from [filename], which by default is [~/.patdiff]. If [~filename:""] is
-    passed or [filename] cannot be read, returns [default]. *)
 val get_config : ?filename:string -> unit -> t
+[@@ocaml.doc
+  " Reads a config from [filename], which by default is [~/.patdiff]. If \
+   [~filename:\"\"] is\n\
+  \    passed or [filename] cannot be read, returns [default]. "]

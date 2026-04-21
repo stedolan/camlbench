@@ -1,5 +1,5 @@
 (library
  (name composition_infix)
  (public_name core_kernel.composition_infix)
- (libraries)
+ (libraries ppx_bench.runtime-lib ppx_expect.runtime)
 )

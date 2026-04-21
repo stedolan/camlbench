@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"compare.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "compare.ml.before-ppx"
+;;
+
 open Core
 module Unix = Core_unix
 module Compare_core = Patdiff.Compare_core
@@ -54,7 +67,6 @@ end
 let files_from_anons = function
   | Some (prev_file, next_file) -> prev_file, next_file
   | None ->
-    (* read from stdin *)
     let temp_txt_file prefix =
       let file, oc = Filename_unix.open_temp_file prefix ".txt" in
       at_exit (fun () ->
@@ -91,7 +103,6 @@ let files_from_anons = function
     prev_file, next_file
 ;;
 
-(* Override default/config file options with command line arguments *)
 let override config (args : Args.compare_flags) =
   Configuration.override
     config
@@ -118,7 +129,6 @@ let override config (args : Args.compare_flags) =
 ;;
 
 let compare_main (args : Args.compare_flags) =
-  (* Load config file if it exists, use default if not *)
   let config = Configuration.get_config ?filename:args.config_opt () in
   let config = override config args in
   let prev_file = args.prev_file in
@@ -135,7 +145,6 @@ let compare_main (args : Args.compare_flags) =
   in
   match is_dir prev_file, is_dir next_file with
   | true, false | false, true ->
-    (* One is a directory, the other is a file or missing *)
     let dir, file =
       if is_dir prev_file then prev_file, next_file else next_file, prev_file
     in
@@ -143,7 +152,6 @@ let compare_main (args : Args.compare_flags) =
     then failwithf "%s is a directory, while %s does not exist" dir file ()
     else failwithf "%s is a directory, while %s is a file" dir file ()
   | true, true ->
-    (* Both are directories *)
     let file_filter =
       match args with
       | { include_ = []; exclude = []; _ } -> None
@@ -159,7 +167,6 @@ let compare_main (args : Args.compare_flags) =
     in
     Compare_core.diff_dirs ~prev_dir:prev_file ~next_dir:next_file config ~file_filter
   | false, false ->
-    (* Both are files *)
     if_not_diffing_two_dirs ();
     let prev_file = if prev_exists then prev_file else "/dev/null" in
     let next_file = if next_exists then next_file else "/dev/null" in
@@ -184,81 +191,128 @@ let command =
   Command.basic
     ~summary
     ~readme:(fun () -> Readme.doc)
-    (let%map_open.Command config_opt =
-       let%map.Command default, default_arg_name =
-         flag "default" no_arg ~doc:" Use the default configuration instead of ~/.patdiff"
-         |> and_arg_name
-       and file, file_arg_name =
-         flag
-           "file"
-           (optional Filename_unix.arg_type)
-           ~doc:"FILE Use FILE as configuration file instead of ~/.patdiff"
-         |> and_arg_name
+    (let __let_syntax__001_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
+       let __let_syntax__027_ =
+         and_arg_name
+           (flag
+              "default"
+              no_arg
+              ~doc:" Use the default configuration instead of ~/.patdiff")
+       [@@ppxlib.do_not_enter_value]
+       and __let_syntax__028_ =
+         and_arg_name
+           (flag
+              "file"
+              (optional Filename_unix.arg_type)
+              ~doc:"FILE Use FILE as configuration file instead of ~/.patdiff")
+           [@@ppxlib.do_not_enter_value]
        in
-       match file, default with
-       | Some _, true ->
-         failwith
-           [%string "Cannot pass both [%{default_arg_name}] and [%{file_arg_name}]"]
-       | None, true -> Some ""
-       | _, false -> file
-     and context_opt =
+       Command.Let_syntax.Let_syntax.map
+         (Command.Let_syntax.Let_syntax.both __let_syntax__027_ __let_syntax__028_)
+         ~f:(fun ((default, default_arg_name), (file, file_arg_name)) ->
+           match file, default with
+           | Some _, true ->
+             failwith
+               (Ppx_string_runtime.For_string.concat
+                  [ Ppx_string_runtime.For_string.of_string "Cannot pass both ["
+                  ; default_arg_name
+                  ; Ppx_string_runtime.For_string.of_string "] and ["
+                  ; file_arg_name
+                  ; Ppx_string_runtime.For_string.of_string "]"
+                  ] [@merlin.hide])
+           | None, true -> Some ""
+           | _, false -> file)
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__002_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "context"
          (optional int)
          ~doc:"NUM Show lines of unchanged context before and after changes"
-     and line_big_enough_opt, word_big_enough_opt =
-       let%map.Command line_big_enough =
-         flag
-           "line-big-enough"
-           (optional int)
-           ~doc:
-             "NUM Limit line-level semantic cleanup to the matches of length less than \
-              NUM lines"
-         |> and_arg_name
-       and no_semantic_cleanup, no_semantic_cleanup_arg_name =
-         flag
-           "no-semantic-cleanup"
-           no_arg
-           ~doc:" Don't do any semantic cleanup; let small, spurious matches survive"
-         |> and_arg_name
-       and word_big_enough =
-         flag
-           "word-big-enough"
-           (optional int)
-           ~doc:
-             "NUM Limit word-level semantic cleanup to the matches of length less than \
-              NUM words"
-         |> and_arg_name
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__003_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
+       let __let_syntax__030_ =
+         and_arg_name
+           (flag
+              "line-big-enough"
+              (optional int)
+              ~doc:
+                "NUM Limit line-level semantic cleanup to the matches of length less \
+                 than NUM lines")
+       [@@ppxlib.do_not_enter_value]
+       and __let_syntax__031_ =
+         and_arg_name
+           (flag
+              "no-semantic-cleanup"
+              no_arg
+              ~doc:" Don't do any semantic cleanup; let small, spurious matches survive")
+       [@@ppxlib.do_not_enter_value]
+       and __let_syntax__032_ =
+         and_arg_name
+           (flag
+              "word-big-enough"
+              (optional int)
+              ~doc:
+                "NUM Limit word-level semantic cleanup to the matches of length less \
+                 than NUM words")
+           [@@ppxlib.do_not_enter_value]
        in
-       let check_conflict_with_no_semantic_cleanup (value, arg_name) =
-         match value, no_semantic_cleanup with
-         | Some _, true ->
-           failwith
-             [%string
-               "Cannot pass both [%{arg_name}] and [%{no_semantic_cleanup_arg_name}]"]
-         | None, true -> Some 1
-         | _, false -> value
-       in
-       ( check_conflict_with_no_semantic_cleanup line_big_enough
-       , check_conflict_with_no_semantic_cleanup word_big_enough )
-     and unrefined_opt =
+       Command.Let_syntax.Let_syntax.map
+         (Command.Let_syntax.Let_syntax.both
+            __let_syntax__030_
+            (Command.Let_syntax.Let_syntax.both __let_syntax__031_ __let_syntax__032_))
+         ~f:
+           (fun
+             ( line_big_enough
+             , ((no_semantic_cleanup, no_semantic_cleanup_arg_name), word_big_enough) ) ->
+           let check_conflict_with_no_semantic_cleanup (value, arg_name) =
+             match value, no_semantic_cleanup with
+             | Some _, true ->
+               failwith
+                 (Ppx_string_runtime.For_string.concat
+                    [ Ppx_string_runtime.For_string.of_string "Cannot pass both ["
+                    ; arg_name
+                    ; Ppx_string_runtime.For_string.of_string "] and ["
+                    ; no_semantic_cleanup_arg_name
+                    ; Ppx_string_runtime.For_string.of_string "]"
+                    ] [@merlin.hide])
+             | None, true -> Some 1
+             | _, false -> value
+           in
+           ( check_conflict_with_no_semantic_cleanup line_big_enough
+           , check_conflict_with_no_semantic_cleanup word_big_enough ))
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__004_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg "unrefined" ~doc:" Don't highlight word differences between lines"
-     and keep_ws_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__005_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg "keep-whitespace" ~doc:" Consider whitespace when comparing lines"
-     and split_long_lines_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__006_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          "split-long-lines"
          ~doc:" Split long lines into multiple displayed lines"
-     and interleave_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__007_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          ~inverted:true
          "no-interleave"
          ~doc:" Don't attempt to split up large hunks near equalities"
-     and assume_text_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__008_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          "text"
          ~doc:" Treat all files as text (i.e. display diffs of binary file contents)"
-     and output =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__009_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        choose_one
          [ map
              ~f:(function
@@ -285,69 +339,98 @@ let command =
              (flag "ansi" no_arg ~doc:" Output in ASCII with ANSI escape codes")
          ]
          ~if_nothing_chosen:(Default_to None)
-     and produce_unified_lines_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__010_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          ~inverted:true
          "dont-produce-unified-lines"
          ~doc:
            " Don't produce unified lines (this makes the diff unambiguous even if color \
             is stripped)"
-     and quiet_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__011_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg "quiet" ~doc:" Report only whether files differ, not the details"
-     and shallow_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__012_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          "shallow"
          ~doc:" When comparing directories, don't recurse into subdirs"
-     and double_check_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__013_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg "double-check" ~doc:" If files seem identical, double check with cmp"
-     and mask_uniques_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__014_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          "mask-uniques"
          ~doc:" When comparing directories, don't compare against /dev/null"
-     and float_tolerance_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__015_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "float-tolerance"
          (optional (Arg_type.map percent ~f:Option.some))
          ~doc:
            "PERCENT Consider strings equal if only difference is floats changing within \
             PERCENT"
-     and prev_alt_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__016_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "alt-prev"
          ~aliases:[ "alt-old" ]
          (optional (Arg_type.map Filename_unix.arg_type ~f:Option.some))
          ~doc:"NAME Mask prev filename with NAME"
-     and next_alt_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__017_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "alt-next"
          ~aliases:[ "alt-new" ]
          (optional (Arg_type.map Filename_unix.arg_type ~f:Option.some))
          ~doc:"NAME Mask next filename with NAME"
-     and make_config =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__018_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag "make-config" (optional Filename_unix.arg_type) ~doc:Make_config.doc
-     and include_ =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__019_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "include"
          (listed (Arg_type.map string ~f:Pcre.regexp))
          ~doc:"REGEXP include files matching this pattern when comparing two directories"
-     and exclude =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__020_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "exclude"
          (listed (Arg_type.map string ~f:Pcre.regexp))
          ~doc:
            "REGEXP exclude files matching this pattern when comparing two directories \
             (overrides include patterns)"
-     and reverse = flag "reverse" no_arg ~doc:" produce a diff that undoes the changes"
-     and location_style =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__021_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
+       flag "reverse" no_arg ~doc:" produce a diff that undoes the changes"
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__022_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "location-style"
          (optional (Arg_type.create Format.Location_style.of_string))
          ~doc:
-           Format.Location_style.(
-             sprintf
-               "<%s> how to format location information in hunk headers"
-               (String.concat ~sep:"|" (List.map all ~f:to_string)))
-     and warn_if_no_trailing_newline_in_both =
+           (let open Format.Location_style in
+            sprintf
+              "<%s> how to format location information in hunk headers"
+              (String.concat ~sep:"|" (List.map all ~f:to_string)))
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__023_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag
          "warn-if-no-trailing-newline-in-both"
          (optional bool)
@@ -356,56 +439,157 @@ let command =
               "BOOL warn when neither file ends in a newline, even though this does not \
                constitute a diff (default: read from config, or %b)"
               Configuration.warn_if_no_trailing_newline_in_both_default)
-     and find_moves_opt =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__024_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        flag_no_arg
          "find-moves"
          ~doc:
            "Try to find and render moves. If -dont-produce-unified-lines is set moves \
             will not be found."
-     and files =
+     [@@ppxlib.do_not_enter_value]
+     and __let_syntax__025_ =
+       let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
        anon
          (maybe
             (t2 ("FILE1" %: Filename_unix.arg_type) ("FILE2" %: Filename_unix.arg_type)))
+         [@@ppxlib.do_not_enter_value]
      in
-     fun () ->
-       let args =
-         match make_config with
-         | Some file -> Args.Make_config file
-         | None ->
-           let prev_file, next_file =
-             let pair = files_from_anons files in
-             if reverse then Tuple.T2.swap pair else pair
-           in
-           Args.Compare
-             { config_opt
-             ; context_opt
-             ; line_big_enough_opt
-             ; word_big_enough_opt
-             ; unrefined_opt
-             ; keep_ws_opt
-             ; split_long_lines_opt
-             ; interleave_opt
-             ; assume_text_opt
-             ; output
-             ; produce_unified_lines_opt
-             ; quiet_opt
-             ; shallow_opt
-             ; double_check_opt
-             ; mask_uniques_opt
-             ; float_tolerance_opt
-             ; prev_alt_opt
-             ; next_alt_opt
-             ; include_
-             ; exclude
-             ; location_style
-             ; warn_if_no_trailing_newline_in_both
-             ; find_moves_opt =
-                 (match produce_unified_lines_opt with
-                  | None | Some true -> find_moves_opt
-                  | Some false -> Some false)
-             ; prev_file
-             ; next_file
-             }
-       in
-       main args)
+     Command.Let_syntax.Let_syntax.map
+       (Command.Let_syntax.Let_syntax.both
+          __let_syntax__001_
+          (Command.Let_syntax.Let_syntax.both
+             __let_syntax__002_
+             (Command.Let_syntax.Let_syntax.both
+                __let_syntax__003_
+                (Command.Let_syntax.Let_syntax.both
+                   __let_syntax__004_
+                   (Command.Let_syntax.Let_syntax.both
+                      __let_syntax__005_
+                      (Command.Let_syntax.Let_syntax.both
+                         __let_syntax__006_
+                         (Command.Let_syntax.Let_syntax.both
+                            __let_syntax__007_
+                            (Command.Let_syntax.Let_syntax.both
+                               __let_syntax__008_
+                               (Command.Let_syntax.Let_syntax.both
+                                  __let_syntax__009_
+                                  (Command.Let_syntax.Let_syntax.both
+                                     __let_syntax__010_
+                                     (Command.Let_syntax.Let_syntax.both
+                                        __let_syntax__011_
+                                        (Command.Let_syntax.Let_syntax.both
+                                           __let_syntax__012_
+                                           (Command.Let_syntax.Let_syntax.both
+                                              __let_syntax__013_
+                                              (Command.Let_syntax.Let_syntax.both
+                                                 __let_syntax__014_
+                                                 (Command.Let_syntax.Let_syntax.both
+                                                    __let_syntax__015_
+                                                    (Command.Let_syntax.Let_syntax.both
+                                                       __let_syntax__016_
+                                                       (Command.Let_syntax.Let_syntax.both
+                                                          __let_syntax__017_
+                                                          (Command.Let_syntax.Let_syntax
+                                                           .both
+                                                             __let_syntax__018_
+                                                             (Command.Let_syntax
+                                                              .Let_syntax
+                                                              .both
+                                                                __let_syntax__019_
+                                                                (Command.Let_syntax
+                                                                 .Let_syntax
+                                                                 .both
+                                                                   __let_syntax__020_
+                                                                   (Command.Let_syntax
+                                                                    .Let_syntax
+                                                                    .both
+                                                                      __let_syntax__021_
+                                                                      (Command.Let_syntax
+                                                                       .Let_syntax
+                                                                       .both
+                                                                         __let_syntax__022_
+                                                                         (Command
+                                                                          .Let_syntax
+                                                                          .Let_syntax
+                                                                          .both
+                                                                            __let_syntax__023_
+                                                                            (Command
+                                                                             .Let_syntax
+                                                                             .Let_syntax
+                                                                             .both
+                                                                               __let_syntax__024_
+                                                                               __let_syntax__025_))))))))))))))))))))))))
+       ~f:
+         (fun
+           ( config_opt
+           , ( context_opt
+             , ( (line_big_enough_opt, word_big_enough_opt)
+               , ( unrefined_opt
+                 , ( keep_ws_opt
+                   , ( split_long_lines_opt
+                     , ( interleave_opt
+                       , ( assume_text_opt
+                         , ( output
+                           , ( produce_unified_lines_opt
+                             , ( quiet_opt
+                               , ( shallow_opt
+                                 , ( double_check_opt
+                                   , ( mask_uniques_opt
+                                     , ( float_tolerance_opt
+                                       , ( prev_alt_opt
+                                         , ( next_alt_opt
+                                           , ( make_config
+                                             , ( include_
+                                               , ( exclude
+                                                 , ( reverse
+                                                   , ( location_style
+                                                     , ( warn_if_no_trailing_newline_in_both
+                                                       , (find_moves_opt, files) ) ) ) )
+                                               ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) ) )
+           () ->
+         let args =
+           match make_config with
+           | Some file -> Args.Make_config file
+           | None ->
+             let prev_file, next_file =
+               let pair = files_from_anons files in
+               if reverse then Tuple.T2.swap pair else pair
+             in
+             Args.Compare
+               { config_opt
+               ; context_opt
+               ; line_big_enough_opt
+               ; word_big_enough_opt
+               ; unrefined_opt
+               ; keep_ws_opt
+               ; split_long_lines_opt
+               ; interleave_opt
+               ; assume_text_opt
+               ; output
+               ; produce_unified_lines_opt
+               ; quiet_opt
+               ; shallow_opt
+               ; double_check_opt
+               ; mask_uniques_opt
+               ; float_tolerance_opt
+               ; prev_alt_opt
+               ; next_alt_opt
+               ; include_
+               ; exclude
+               ; location_style
+               ; warn_if_no_trailing_newline_in_both
+               ; find_moves_opt =
+                   (match produce_unified_lines_opt with
+                    | None | Some true -> find_moves_opt
+                    | Some false -> Some false)
+               ; prev_file
+               ; next_file
+               }
+         in
+         main args))
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

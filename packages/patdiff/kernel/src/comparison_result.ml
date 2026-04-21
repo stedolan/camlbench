@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"comparison_result.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "comparison_result.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
@@ -17,10 +30,10 @@ let update_config_infer_keep_ws config ~prev ~next =
 ;;
 
 let create
-  (config : Configuration.t)
-  ~(prev : Diff_input.t)
-  ~(next : Diff_input.t)
-  ~compare_assuming_text
+      (config : Configuration.t)
+      ~(prev : Diff_input.t)
+      ~(next : Diff_input.t)
+      ~compare_assuming_text
   =
   let prev_is_binary, next_is_binary =
     match config.assume_text with
@@ -43,3 +56,7 @@ let has_no_diff t =
   | Binary_different _ -> false
   | Hunks hunks -> List.for_all hunks ~f:Patience_diff.Hunk.all_same
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

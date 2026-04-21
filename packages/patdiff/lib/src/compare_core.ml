@@ -1,10 +1,22 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"compare_core.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "compare_core.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 module Unix = Core_unix
 include Patdiff_kernel.Compare_core
 include Make (Patdiff_core)
 
-(* Returns a Hunk.t list, ready to be printed *)
 let compare_files (config : Configuration.t) ~prev_file ~next_file =
   let prev = In_channel.read_all (File_name.real_name_exn prev_file) in
   let next = In_channel.read_all (File_name.real_name_exn next_file) in
@@ -23,7 +35,6 @@ let compare_files (config : Configuration.t) ~prev_file ~next_file =
       Private.compare_lines config ~prev:prev_lines ~next:next_lines)
 ;;
 
-(* Print hunks to stdout *)
 let print hunks ~file_names ~(config : Configuration.t) =
   let prev_file, next_file = file_names in
   if Comparison_result.has_no_diff hunks
@@ -41,8 +52,7 @@ let print hunks ~file_names ~(config : Configuration.t) =
       | Error (`Exit_non_zero 1) ->
         printf "There are no differences except those filtered by your settings\n%!"
       | Error _ -> ()))
-  else if (* Only print if -quiet is not set *)
-          not config.quiet
+  else if not config.quiet
   then (
     let output = config.output in
     let rules = config.rules in
@@ -98,35 +108,42 @@ let rec diff_dirs_internal (config : Configuration.t) ~prev_dir ~next_dir ~file_
   assert (is_dir prev_dir);
   assert (is_dir next_dir);
   let set_of_dir dir =
-    (* Get a list of files for this directory only; do not descend farther
-       (We recursively call diff_dirs later if we need to descend.) *)
     let file_filter =
       match file_filter with
       | None -> Fn.const true
       | Some file_filter -> file_filter
     in
-    Sys_unix.ls_dir (File_name.real_name_exn dir)
-    |> List.filter ~f:(fun x ->
-         let x = File_name.real_name_exn dir ^/ x in
-         match Unix.stat x with
-         | exception Unix.Unix_error (ENOENT, _, _) ->
-           (* If the file disappeared during listing, let's pretend it didn't exist.
-           This is important when the file is [-exclude]d because we don't want to create
-           noise for excluded files, but it's also not too bad if the file is [-include]d
-        *)
-           false
-         | stats -> file_filter (x, stats))
-    |> String.Set.of_list
+    String.Set.of_list
+      (List.filter
+         ~f:(fun x ->
+           let x = File_name.real_name_exn dir ^/ x in
+           match Unix.stat x with
+           | exception Unix.Unix_error (ENOENT, _, _) -> false
+           | stats -> file_filter (x, stats))
+         (Sys_unix.ls_dir (File_name.real_name_exn dir)))
   in
   let prev_set = set_of_dir prev_dir in
   let next_set = set_of_dir next_dir in
-  (* Get unique files *)
   let union = Set.union prev_set next_set in
   let prev_uniques = Set.diff union next_set in
   let next_uniques = Set.diff union prev_set in
   let handle_unique which file ~dir =
-    printf !"Only in %{File_name#hum}: %s\n%!" dir file;
-    (* Diff unique files against /dev/null, if desired *)
+    printf
+      ((Format
+          ( String_literal
+              ( "Only in "
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__001_ ->
+                      File_name.to_string_hum _custom_printf__001_)
+                  , String_literal
+                      (": ", String (No_padding, Char_literal ('\n', Flush End_of_format)))
+                  ) )
+          , "Only in %{File_name#hum}: %s\n%!" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      dir
+      file;
     if not config.mask_uniques
     then (
       let file = File_name.append dir file in
@@ -140,7 +157,6 @@ let rec diff_dirs_internal (config : Configuration.t) ~prev_dir ~next_dir ~file_
   in
   Set.iter prev_uniques ~f:(handle_unique `Prev ~dir:prev_dir);
   Set.iter next_uniques ~f:(handle_unique `Next ~dir:next_dir);
-  (* Get differences *)
   let inter = Set.inter prev_set next_set in
   let exit_code = ref `Same in
   let diff file =
@@ -152,12 +168,28 @@ let rec diff_dirs_internal (config : Configuration.t) ~prev_dir ~next_dir ~file_
       if not (Comparison_result.has_no_diff hunks)
       then (
         exit_code := `Different;
-        (* Print the diff if not -quiet *)
         match config.quiet with
         | false -> print hunks ~file_names:(prev_file, next_file) ~config
         | true ->
           printf
-            !"Files %{File_name#hum} and %{File_name#hum} differ\n%!"
+            ((Format
+                ( String_literal
+                    ( "Files "
+                    , Custom
+                        ( Custom_succ Custom_zero
+                        , (fun () _custom_printf__003_ ->
+                            File_name.to_string_hum _custom_printf__003_)
+                        , String_literal
+                            ( " and "
+                            , Custom
+                                ( Custom_succ Custom_zero
+                                , (fun () _custom_printf__002_ ->
+                                    File_name.to_string_hum _custom_printf__002_)
+                                , String_literal (" differ\n", Flush End_of_format) ) ) )
+                    )
+                , "Files %{File_name#hum} and %{File_name#hum} differ\n%!" )
+             : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+             [@merlin.hide])
             prev_file
             next_file))
     else if is_dir prev_file && is_dir next_file
@@ -171,13 +203,46 @@ let rec diff_dirs_internal (config : Configuration.t) ~prev_dir ~next_dir ~file_
         | `Different -> exit_code := `Different)
       else
         printf
-          !"Common subdirectories: %{File_name#hum} and %{File_name#hum}\n%!"
+          ((Format
+              ( String_literal
+                  ( "Common subdirectories: "
+                  , Custom
+                      ( Custom_succ Custom_zero
+                      , (fun () _custom_printf__005_ ->
+                          File_name.to_string_hum _custom_printf__005_)
+                      , String_literal
+                          ( " and "
+                          , Custom
+                              ( Custom_succ Custom_zero
+                              , (fun () _custom_printf__004_ ->
+                                  File_name.to_string_hum _custom_printf__004_)
+                              , Char_literal ('\n', Flush End_of_format) ) ) ) )
+              , "Common subdirectories: %{File_name#hum} and %{File_name#hum}\n%!" )
+           : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+           [@merlin.hide])
           prev_file
           next_file
     else (
       exit_code := `Different;
       printf
-        !"Files %{File_name#hum} and %{File_name#hum} are not the same type\n%!"
+        ((Format
+            ( String_literal
+                ( "Files "
+                , Custom
+                    ( Custom_succ Custom_zero
+                    , (fun () _custom_printf__007_ ->
+                        File_name.to_string_hum _custom_printf__007_)
+                    , String_literal
+                        ( " and "
+                        , Custom
+                            ( Custom_succ Custom_zero
+                            , (fun () _custom_printf__006_ ->
+                                File_name.to_string_hum _custom_printf__006_)
+                            , String_literal
+                                (" are not the same type\n", Flush End_of_format) ) ) ) )
+            , "Files %{File_name#hum} and %{File_name#hum} are not the same type\n%!" )
+         : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+         [@merlin.hide])
         prev_file
         next_file)
   in
@@ -191,9 +256,39 @@ let diff_dirs (config : Configuration.t) ~prev_dir ~next_dir ~file_filter =
   let prev_dir, next_dir = with_alt config ~prev:prev_dir ~next:next_dir in
   if not (is_dir prev_dir)
   then
-    invalid_argf !"diff_dirs: prev_dir '%{File_name#hum}' is not a directory" prev_dir ();
+    invalid_argf
+      ((Format
+          ( String_literal
+              ( "diff_dirs: prev_dir '"
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__008_ ->
+                      File_name.to_string_hum _custom_printf__008_)
+                  , String_literal ("' is not a directory", End_of_format) ) )
+          , "diff_dirs: prev_dir '%{File_name#hum}' is not a directory" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      prev_dir
+      ();
   if not (is_dir next_dir)
   then
-    invalid_argf !"diff_dirs: next_dir '%{File_name#hum}' is not a directory" next_dir ();
+    invalid_argf
+      ((Format
+          ( String_literal
+              ( "diff_dirs: next_dir '"
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__009_ ->
+                      File_name.to_string_hum _custom_printf__009_)
+                  , String_literal ("' is not a directory", End_of_format) ) )
+          , "diff_dirs: next_dir '%{File_name#hum}' is not a directory" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      next_dir
+      ();
   diff_dirs_internal config ~prev_dir ~next_dir ~file_filter
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

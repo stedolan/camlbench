@@ -12,9 +12,11 @@ type t =
 val create
   :  Configuration.t
   -> prev:Diff_input.t
-  -> next:Diff_input.t
-       (** This configuration may differ from what was passed into [create], depending on
-      heuristics that consider [prev] and [next]. *)
+  -> next:
+       (Diff_input.t
+       [@ocaml.doc
+         " This configuration may differ from what was passed into [create], depending on\n\
+         \      heuristics that consider [prev] and [next]. "])
   -> compare_assuming_text:
        (Configuration.t -> prev:Diff_input.t -> next:Diff_input.t -> Hunks.t)
   -> t

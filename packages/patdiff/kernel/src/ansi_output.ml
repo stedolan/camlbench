@@ -1,7 +1,18 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"ansi_output.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "ansi_output.ml.before-ppx"
+;;
+
 open! Core
 open! Import
-
-(* From https://en.wikipedia.org/wiki/ANSI_escape_code last accessed 2016-05-26 *)
 
 module RGB6 = struct
   include Format.Color.RGB6
@@ -89,7 +100,7 @@ let apply_styles ?(drop_leading_resets = false) (styles : Format.Style.t list) s
   | _ ->
     sprintf
       "\027[%sm%s\027[0m"
-      (List.map styles ~f:codes_of_style |> String.concat ~sep:";")
+      (String.concat ~sep:";" (List.map styles ~f:codes_of_style))
       str
 ;;
 
@@ -124,21 +135,25 @@ let print_header ~(rules : Format.Rules.t) ~file_names:(prev_file, next_file) ~p
 ;;
 
 let print
-  ~print_global_header
-  ~file_names:((prev_file, _) as file_names)
-  ~(rules : Format.Rules.t)
-  ~print
-  ~location_style
-  hunks
+      ~print_global_header
+      ~file_names:((prev_file, _) as file_names)
+      ~(rules : Format.Rules.t)
+      ~print
+      ~location_style
+      hunks
   =
   let f_hunk_break hunk =
-    Format.Location_style.sprint
-      location_style
-      hunk
-      ~prev_filename:(File_name.display_name prev_file)
-      ~rule:(Rule.apply ~rule:rules.hunk ~refined:false)
-    |> print
+    print
+      (Format.Location_style.sprint
+         location_style
+         hunk
+         ~prev_filename:(File_name.display_name prev_file)
+         ~rule:(Rule.apply ~rule:rules.hunk ~refined:false))
   in
   if print_global_header then print_header ~rules ~file_names ~print;
   Hunks.iter' ~f_hunk_break ~f_line:print hunks
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

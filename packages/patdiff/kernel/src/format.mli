@@ -1,25 +1,43 @@
 open! Core
 open! Import
 
-(** Patdiff_format is the home of all the internal representations of the formatting
-    that will be applied to the diff. ie. prefixes, suffixes, & valid styles. *)
+[@@@ocaml.text
+  " Patdiff_format is the home of all the internal representations of the formatting\n\
+  \    that will be applied to the diff. ie. prefixes, suffixes, & valid styles. "]
 
 module Color : sig
   module RGB6 : sig
-    (** expected (0 ≤ r, g, b < 6) *)
     type t = private
       { r : int
       ; g : int
       ; b : int
       }
+    [@@ocaml.doc " expected (0 \226\137\164 r, g, b < 6) "]
     [@@deriving compare, quickcheck, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Ppx_compare_lib.Comparable.S with type t := t
+      include Ppx_quickcheck_runtime.Quickcheckable.S with type t := t
+      include Sexplib0.Sexpable.S with type t := t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     val create_exn : r:int -> g:int -> b:int -> t
   end
 
   module Gray24 : sig
-    (** expected (0 ≤ level < 24) *)
-    type t = private { level : int } [@@deriving compare, sexp]
+    type t = private { level : int }
+    [@@ocaml.doc " expected (0 \226\137\164 level < 24) "] [@@deriving compare, sexp]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      include Ppx_compare_lib.Comparable.S with type t := t
+      include Sexplib0.Sexpable.S with type t := t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     val create_exn : level:int -> t
   end
@@ -47,10 +65,20 @@ module Color : sig
     | Gray24 of Gray24.t
   [@@deriving compare, quickcheck, sexp]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_quickcheck_runtime.Quickcheckable.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Comparable.S with type t := t
 
-  (** [rgb6_exn r g b] and [gray24_exn level] raise if the values are out of bound. *)
   val rgb6_exn : int * int * int -> t
+  [@@ocaml.doc
+    " [rgb6_exn r g b] and [gray24_exn level] raise if the values are out of bound. "]
 
   val gray24_exn : int -> t
 end
@@ -71,13 +99,19 @@ module Style : sig
     | Bg of Color.t
   [@@deriving compare, quickcheck, sexp]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_quickcheck_runtime.Quickcheckable.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Comparable.S with type t := t
 end
 
-(** A rule consists of a styled prefix, a styled suffix, and a style. Rules
-    are applied to strings using functions defined in Output_ops. *)
 module Rule : sig
-  (** An affix is either a prefix or a suffix. *)
   module Affix : sig
     type t = private
       { text : string
@@ -87,6 +121,7 @@ module Rule : sig
     val create : ?styles:Style.t list -> string -> t
     val blank : t
   end
+  [@@ocaml.doc " An affix is either a prefix or a suffix. "]
 
   type t = private
     { pre : Affix.t
@@ -95,18 +130,27 @@ module Rule : sig
     }
   [@@deriving sexp_of]
 
-  (** Rule creation: Most rules have a style, and maybe a prefix. For
-      instance, a line_next rule might have a bold "+" prefix and a green
-      style. *)
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val create : ?pre:Affix.t -> ?suf:Affix.t -> Style.t list -> t
+  [@@ocaml.doc
+    " Rule creation: Most rules have a style, and maybe a prefix. For\n\
+    \      instance, a line_next rule might have a bold \"+\" prefix and a green\n\
+    \      style. "]
 
   val blank : t
   val unstyled_prefix : string -> t
   val strip_styles : t -> t
 end
+[@@ocaml.doc
+  " A rule consists of a styled prefix, a styled suffix, and a style. Rules\n\
+  \    are applied to strings using functions defined in Output_ops. "]
 
-(** Rules are configured in the configuration file.
-    Default values are provided in Configuration. *)
 module Rules : sig
   type t =
     { line_same : Rule.t
@@ -130,9 +174,21 @@ module Rules : sig
     }
   [@@deriving compare, sexp_of]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val default : t
   val strip_styles : t -> t
 end
+[@@ocaml.doc
+  " Rules are configured in the configuration file.\n\
+  \    Default values are provided in Configuration. "]
 
 module Location_style : sig
   type t =
@@ -141,6 +197,18 @@ module Location_style : sig
     | None
     | Separator
   [@@deriving bin_io, compare, quickcheck, enumerate, equal, sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S with type t := t
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_quickcheck_runtime.Quickcheckable.S with type t := t
+    include Ppx_enumerate_lib.Enumerable.S with type t := t
+    include Ppx_compare_lib.Equal.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Stringable.S with type t := t
 

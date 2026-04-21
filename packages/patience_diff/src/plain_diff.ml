@@ -1,50 +1,18 @@
-(* This files comes from camlp5 (ocaml_src/lib/diff.ml). *)
-(*
- * Copyright (c) 2007-2013, INRIA (Institut National de Recherches en
- * Informatique et Automatique). All rights reserved.
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of INRIA, nor the names of its contributors may be
- *       used to endorse or promote products derived from this software without
- *       specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY INRIA AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
- * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL INRIA AND
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
- * USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
- * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *)
-(* $Id: diff.ml,v 1.2 2013-02-26 08:15:06 deraugla Exp $ *)
-(* Parts of Code of GNU diff (diffseq.h and analyze.c) translated to OCaml and adjusted.
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
 
-   Basic algorithm described by Eugene W.Myers in: "An O(ND) Difference Algorithm and Its
-   Variations" *)
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"plain_diff.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "plain_diff.ml.before-ppx"
+;;
 
 open Base
 
-(* A partition is the midpoint of the shortest edit script for a specified portion of two
-   vectors.
-
-   [xmid, ymid] is the midpoint discovered. The diagonal number [xmid - ymid] equals the
-   number of inserted elements minus the number of deleted elements (counting only
-   elements before the midpoint).
-
-   [lo_minimal] is true iff the minimal edit script for the left half of the partition is
-   known; similarly for [hi_minimal].
-*)
 module Partition = struct
   type t =
     { xmid : int
@@ -54,44 +22,18 @@ module Partition = struct
     }
 end
 
-(* We keep this file in a C-like style so that we can easily compare against the original
-   C, in which we have great confidence. *)
-(* Find the midpoint of the shortest edit script for a specified portion of the two
-   vectors.
-
-   Scan from the beginnings of the vectors, and simultaneously from the ends, doing a
-   breadth-first search through the space of edit-sequence. When the two searches meet, we
-   have found the midpoint of the shortest edit sequence.
-
-   If [find_minimal] is true, find the minimal edit script regardless of expense.
-   Otherwise, if the search is too expensive, use heuristics to stop the search and report
-   a suboptimal answer.
-
-   This function assumes that the first elements of the specified portions of the two
-   vectors do not match, and likewise that the last elements do not match. The caller must
-   trim matching elements from the beginning and end of the portions it is going to
-   specify.
-
-   If we return the "wrong" partitions, the worst this can do is cause suboptimal diff
-   output. It cannot cause incorrect diff output. *)
 let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minimal
   : Partition.t
   =
-  let dmin = xoff - ylim (* minimum valid diagonal *) in
-  let dmax = xlim - yoff (* maximum valid diagonal *) in
-  let fmid = xoff - yoff (* center diagonal of forward search *) in
-  let bmid = xlim - ylim (* center diagonal of backward search *) in
-  (* southeast corner is on an odd diagonal w.r.t the northwest *)
+  let dmin = xoff - ylim in
+  let dmax = xlim - yoff in
+  let fmid = xoff - yoff in
+  let bmid = xlim - ylim in
   let odd = (fmid - bmid) land 1 <> 0 in
-  (* [sh] is an offset that lets us use indices in [[-(m+1), n+1]]. *)
   fd.(sh + fmid) <- xoff;
   bd.(sh + bmid) <- xlim;
   With_return.with_return (fun ({ return } : Partition.t With_return.return) ->
-    (* [c] is cost.
-       [fmin], [fmax] are limits of the forward search.
-       [bmin], [bmax] are limits of the backward search. *)
     let rec loop ~c ~fmin ~fmax ~bmin ~bmax =
-      (* Extend the forward search by one edit step in each diagonal. *)
       let fmin =
         if fmin > dmin
         then (
@@ -106,7 +48,6 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
           fmax + 1)
         else fmax - 1
       in
-      (* [d] is the active diagonal. *)
       (let rec loop d =
          if d < fmin
          then ()
@@ -128,7 +69,6 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
            else loop (d - 2))
        in
        loop fmax);
-      (* Similarly extend the backward search. *)
       let bmin =
         if bmin > dmin
         then (
@@ -164,11 +104,8 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
            else loop (d - 2))
        in
        loop bmax);
-      (* Heuristic: if we've gone well beyond the call of duty, give up and report halfway
-         between our best results so far. *)
       if (not find_minimal) && c >= too_expensive
       then (
-        (* Find forward diagonal that maximizes [x + y]. *)
         let fxybest, fxbest =
           let rec loop ~d ~fxybest ~fxbest =
             if d < fmin
@@ -184,7 +121,6 @@ let diag ~fd ~bd ~sh ~xv ~yv ~xoff ~xlim ~yoff ~ylim ~too_expensive ~find_minima
           in
           loop ~d:fmax ~fxybest:(-1) ~fxbest:fmax
         in
-        (* Find backward diagonal that minimizes [x + y]. *)
         let bxybest, bxbest =
           let rec loop ~d ~bxybest ~bxbest =
             if d < bmin
@@ -293,12 +229,6 @@ let diff_loop ~cutoff a ai b bi n m =
   chng1, chng2
 ;;
 
-(* [make_indexer a b] returns an array of the indices of items of [a] which are also
-   present in [b]; this way, the main algorithm can skip items which, anyway, are
-   different. This improves the speed much.  At the same time, this function updates the
-   items of [a] and [b] so that all equal items point to the same unique item.  All item
-   comparisons in the main algorithm can therefore be done with [phys_equal] instead of
-   [=], which can improve speed much. *)
 let make_indexer hashable a b =
   let n = Array.length a in
   let htb = Hashtbl.create hashable ~size:(10 * Array.length b) in
@@ -355,3 +285,7 @@ let iter_matches ?cutoff ~f:ff ~hashable a b =
   in
   aux 0 0
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

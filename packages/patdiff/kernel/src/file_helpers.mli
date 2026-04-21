@@ -7,6 +7,13 @@ module Trailing_newline : sig
     | `With_trailing_newline
     ]
   [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 val lines_of_contents : string -> string array * Trailing_newline.t

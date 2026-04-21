@@ -3,5 +3,4 @@
  (public_name patdiff.kernel)
  (libraries core_kernel.composition_infix core patience_diff
    core_kernel.pairing_heap re)
- (preprocess
-  (pps ppx_jane)))
+)

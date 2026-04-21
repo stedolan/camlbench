@@ -1,11 +1,22 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"compare_core.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "compare_core.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 include Compare_core_intf
 
 module Make (Patdiff_core_arg : Patdiff_core.S) = struct
-  (* Returns a Hunk.t list, ready to be printed *)
   let compare_lines (config : Configuration.t) ~prev ~next =
-    (* Create the diff *)
     let context = config.context in
     let keep_ws = config.keep_ws in
     let split_long_lines = config.split_long_lines in
@@ -24,12 +35,8 @@ module Make (Patdiff_core_arg : Patdiff_core.S) = struct
       | None -> hunks
       | Some tolerance -> Float_tolerance.apply hunks tolerance ~context
     in
-    (* Refine if desired *)
     if config.unrefined
-    then
-      (* Turn `Replace ranges into `Prev and `Next ranges.
-         `Replace's would otherwise be later interpreted as refined output *)
-      Patience_diff.Hunks.unified hunks
+    then Patience_diff.Hunks.unified hunks
     else (
       let rules = config.rules in
       let output = config.output in
@@ -48,19 +55,19 @@ module Make (Patdiff_core_arg : Patdiff_core.S) = struct
   ;;
 
   let diff_strings
-    ?print_global_header
-    (config : Configuration.t)
-    ~(prev : Diff_input.t)
-    ~(next : Diff_input.t)
+        ?print_global_header
+        (config : Configuration.t)
+        ~(prev : Diff_input.t)
+        ~(next : Diff_input.t)
     =
-    let lines { Diff_input.name = _; text } = String.split_lines text |> Array.of_list in
+    let lines { Diff_input.name = _; text } = Array.of_list (String.split_lines text) in
     let hunks =
       Comparison_result.create
         config
         ~prev
         ~next
         ~compare_assuming_text:(fun config ~prev ~next ->
-        compare_lines config ~prev:(lines prev) ~next:(lines next))
+          compare_lines config ~prev:(lines prev) ~next:(lines next))
     in
     if Comparison_result.has_no_diff hunks
     then `Same
@@ -91,3 +98,7 @@ module Make (Patdiff_core_arg : Patdiff_core.S) = struct
 end
 
 module Without_unix = Make (Patdiff_core.Without_unix)
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

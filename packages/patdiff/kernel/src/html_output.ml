@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"html_output.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "html_output.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 include Html_output_intf
@@ -46,7 +59,6 @@ module Make (Mtime : Mtime) = struct
           | Inverse -> s, e
           | Hide -> "<!-- " :: s, " -->" :: e
           | Dim ->
-            (* "<span style=\"font-weight:lighter\">"::s, "</span>"::e *)
             ( sprintf "<span style=\"color:%s\">" (string_of_color Gray) :: s
             , "</span>" :: e ))
       in
@@ -55,9 +67,6 @@ module Make (Mtime : Mtime) = struct
     ;;
   end
 
-  (* assuming we only insert text in contents and not in attributes, only escaping these
-     three characters should be enough. We may want to print differently non printable
-     ascii characters too? *)
   let html_escape_char = function
     | '<' -> "&lt;"
     | '>' -> "&gt;"
@@ -88,31 +97,45 @@ module Make (Mtime : Mtime) = struct
         | Error _ -> ""
       in
       let time = get_time file in
-      print (Rule.apply (sprintf !"%{File_name#hum} %s" file time) ~rule ~refined:false)
+      print
+        (Rule.apply
+           (sprintf
+              ((Format
+                  ( Custom
+                      ( Custom_succ Custom_zero
+                      , (fun () _custom_printf__001_ ->
+                          File_name.to_string_hum _custom_printf__001_)
+                      , Char_literal (' ', String (No_padding, End_of_format)) )
+                  , "%{File_name#hum} %s" )
+               : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+               [@merlin.hide])
+              file
+              time)
+           ~rule
+           ~refined:false)
     in
     print_line prev_file rules.header_prev;
     print_line next_file rules.header_next
   ;;
 
   let print
-    ~print_global_header
-    ~file_names:((prev_file, _) as file_names)
-    ~(rules : Format.Rules.t)
-    ~print
-    ~location_style
-    hunks
+        ~print_global_header
+        ~file_names:((prev_file, _) as file_names)
+        ~(rules : Format.Rules.t)
+        ~print
+        ~location_style
+        hunks
     =
     print "<pre style=\"font-family:consolas,monospace\">";
     if print_global_header then print_header ~rules ~file_names ~print;
     let f hunk =
-      Format.Location_style.sprint
-        location_style
-        hunk
-        ~prev_filename:(File_name.display_name prev_file)
-        ~rule:(Rule.apply ~rule:rules.hunk ~refined:false)
-      |> print;
+      print
+        (Format.Location_style.sprint
+           location_style
+           hunk
+           ~prev_filename:(File_name.display_name prev_file)
+           ~rule:(Rule.apply ~rule:rules.hunk ~refined:false));
       let handle_range : string Patience_diff.Range.t -> unit = function
-        (* Just print the new array elements *)
         | Same r ->
           let mr = Array.map r ~f:snd in
           Array.iter mr ~f:print
@@ -129,9 +152,13 @@ module Make (Mtime : Mtime) = struct
 end
 
 module Without_mtime = Make (struct
-  let mtime _ = Or_error.error_string "Mtime implementation not available"
-end)
+    let mtime _ = Or_error.error_string "Mtime implementation not available"
+  end)
 
 module Private = struct
   module Make = Make
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()
