@@ -2,5 +2,4 @@
  (name daemon)
  (public_name core_unix.daemon)
  (libraries core core_thread core_unix)
- (preprocess
-  (pps ppx_jane)))
+)

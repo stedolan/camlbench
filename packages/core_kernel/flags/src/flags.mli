@@ -1,1 +1,1 @@
-include Flags_intf.Flags (** @open *)
+include Flags_intf.Flags [@@ocaml.doc " @open "]

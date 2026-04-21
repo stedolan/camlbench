@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"command_test_helpers.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "command_test_helpers.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 module Unix = Core_unix
@@ -20,8 +33,10 @@ let parse_command_line_raw ~path ~summary ?readme param args =
         (Command.basic
            ~summary
            ?readme
-           (let%map_open.Command x = param in
-            fun () -> value := Some x))
+           (Command.Let_syntax.Let_syntax.map
+              (let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
+               param)
+              ~f:(fun x () -> value := Some x)))
   in
   Command_unix.run ~argv command;
   match !value with
@@ -38,10 +53,10 @@ let parse_command_line ?path ?(summary = default_command_name ^ " SUMMARY") ?rea
 ;;
 
 let parse_command_line_or_error
-  ?path
-  ?(summary = default_command_name ^ " SUMMARY")
-  ?readme
-  param
+      ?path
+      ?(summary = default_command_name ^ " SUMMARY")
+      ?readme
+      param
   =
   stage (fun args ->
     match parse_command_line_raw ~path ~summary ?readme param args with
@@ -55,105 +70,169 @@ let cannot_validate_exec_error (exec_info : Command.Shape.Exec_info.t) =
   let s =
     "[Exec _] commands are not validated to avoid unexpected external dependencies."
   in
-  (* Elide working dir unconditionally because this is only called in tests. But
-     show the [exec_info] in case people don't know where their execs are. *)
   let exec_info = { exec_info with working_dir = "ELIDED-IN-TEST" } in
-  error_s [%message s (exec_info : Command.Shape.Exec_info.t)]
+  error_s
+    (let ppx_sexp_message () =
+       Ppx_sexp_conv_lib.Sexp.List
+         [ Ppx_sexp_conv_lib.Conv.sexp_of_string s
+         ; Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Sexp.Atom "exec_info"
+             ; (Command.Shape.Exec_info.sexp_of_t [@merlin.hide]) exec_info
+             ]
+         ]
+         [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+     in
+     (ppx_sexp_message () [@nontail]))
 ;;
 
 module Validate_command_line = struct
   let unit_anon = Command.Anons.map_anons ~f:ignore
 
   let filter_map_or_error_option xs ~f =
-    List.map xs ~f |> Or_error.combine_errors |> Or_error.map ~f:List.filter_opt
+    Or_error.map ~f:List.filter_opt (Or_error.combine_errors (List.map xs ~f))
   ;;
 
   let rec of_nested_anon : Command.Shape.Anons.Grammar.t -> _ = function
-    | Ad_hoc s -> error_s [%message "Unable to check [Ad_hoc _] grammar." s]
+    | Ad_hoc s ->
+      error_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Unable to check [Ad_hoc _] grammar."
+             ; Ppx_sexp_conv_lib.Conv.sexp_of_string s
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     | Zero -> Ok None
     | One s -> Ok (Some (Command.Anons.( %: ) s (Command.Arg_type.create ignore)))
     | Many g ->
-      let%bind.Or_error anon = of_nested_anon g in
-      Ok (Option.map anon ~f:(Command.Anons.sequence >> unit_anon))
+      Or_error.Let_syntax.Let_syntax.bind (of_nested_anon g) ~f:(fun anon ->
+        Ok (Option.map anon ~f:(Command.Anons.sequence >> unit_anon)))
     | Maybe g ->
-      let%bind.Or_error anon = of_nested_anon g in
-      Ok (Option.map anon ~f:(Command.Anons.maybe >> unit_anon))
+      Or_error.Let_syntax.Let_syntax.bind (of_nested_anon g) ~f:(fun anon ->
+        Ok (Option.map anon ~f:(Command.Anons.maybe >> unit_anon)))
     | Concat gs ->
-      let%bind.Or_error anons = filter_map_or_error_option gs ~f:of_nested_anon in
-      Ok (List.reduce anons ~f:(fun a b -> unit_anon (Command.Anons.t2 a b)))
+      Or_error.Let_syntax.Let_syntax.bind
+        (filter_map_or_error_option gs ~f:of_nested_anon)
+        ~f:(fun anons ->
+          Ok (List.reduce anons ~f:(fun a b -> unit_anon (Command.Anons.t2 a b))))
   ;;
 
   let require_grammar : Command.Shape.Anons.t -> _ = function
-    | Usage s -> error_s [%message "Unable to check [Usage _]." s]
+    | Usage s ->
+      error_s
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Unable to check [Usage _]."
+             ; Ppx_sexp_conv_lib.Conv.sexp_of_string s
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
     | Grammar grammar -> Ok grammar
   ;;
 
   let param_of_anons anons =
-    let%bind.Or_error grammar = require_grammar anons in
-    let%bind.Or_error anon = of_nested_anon grammar in
-    match anon with
-    | None -> Ok (Command.Param.return ())
-    | Some anon -> Ok (Command.Param.anon anon)
+    Or_error.Let_syntax.Let_syntax.bind (require_grammar anons) ~f:(fun grammar ->
+      Or_error.Let_syntax.Let_syntax.bind (of_nested_anon grammar) ~f:(fun anon ->
+        match anon with
+        | None -> Ok (Command.Param.return ())
+        | Some anon -> Ok (Command.Param.anon anon)))
   ;;
 
   let param_of_user_flag flag_info ~flag_name =
-    let%bind.Or_error num_occurrences = Command.Shape.Flag_info.num_occurrences flag_info
-    and requires_arg = Command.Shape.Flag_info.requires_arg flag_info in
-    let ({ aliases; doc; _ } : Command.Shape.Flag_info.t) = flag_info in
-    let%bind.Or_error flag =
-      let unit_flag = Command.Param.map_flag ~f:ignore in
-      let make_flag f = Ok (unit_flag (f Command.Param.string)) in
-      match requires_arg, num_occurrences with
-      | true, { at_least_once = true; at_most_once = true } ->
-        make_flag Command.Flag.required
-      | true, { at_least_once = true; at_most_once = false } ->
-        make_flag Command.Flag.one_or_more_as_pair
-      | true, { at_least_once = false; at_most_once = false } ->
-        make_flag Command.Flag.listed
-      | true, { at_least_once = false; at_most_once = true } ->
-        make_flag Command.Flag.optional
-      | false, { at_least_once = false; at_most_once = true } ->
-        Ok (unit_flag Command.Flag.no_arg)
-      | false, _ ->
-        error_s
-          [%message
-            "Unexpected combination."
-              (requires_arg : bool)
-              (num_occurrences : Command.Shape.Num_occurrences.t)]
+    let __let_syntax__007_ = Command.Shape.Flag_info.num_occurrences flag_info
+    [@@ppxlib.do_not_enter_value]
+    and __let_syntax__008_ =
+      Command.Shape.Flag_info.requires_arg flag_info
+        [@@ppxlib.do_not_enter_value]
     in
-    Ok (Command.Param.flag flag_name flag ~aliases ~doc)
+    Or_error.Let_syntax.Let_syntax.bind
+      (Or_error.Let_syntax.Let_syntax.both __let_syntax__007_ __let_syntax__008_)
+      ~f:(fun (num_occurrences, requires_arg) ->
+        let ({ aliases; doc; _ } : Command.Shape.Flag_info.t) = flag_info in
+        Or_error.Let_syntax.Let_syntax.bind
+          (let unit_flag = Command.Param.map_flag ~f:ignore in
+           let make_flag f = Ok (unit_flag (f Command.Param.string)) in
+           match requires_arg, num_occurrences with
+           | true, { at_least_once = true; at_most_once = true } ->
+             make_flag Command.Flag.required
+           | true, { at_least_once = true; at_most_once = false } ->
+             make_flag Command.Flag.one_or_more_as_pair
+           | true, { at_least_once = false; at_most_once = false } ->
+             make_flag Command.Flag.listed
+           | true, { at_least_once = false; at_most_once = true } ->
+             make_flag Command.Flag.optional
+           | false, { at_least_once = false; at_most_once = true } ->
+             Ok (unit_flag Command.Flag.no_arg)
+           | false, _ ->
+             error_s
+               (let ppx_sexp_message () =
+                  Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Unexpected combination."
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "requires_arg"
+                        ; (sexp_of_bool [@merlin.hide]) requires_arg
+                        ]
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "num_occurrences"
+                        ; (Command.Shape.Num_occurrences.sexp_of_t [@merlin.hide])
+                            num_occurrences
+                        ]
+                    ]
+                    [@@ocaml.inline never]
+                    [@@ocaml.local never]
+                    [@@ocaml.specialise never]
+                in
+                (ppx_sexp_message () [@nontail])))
+          ~f:(fun flag -> Ok (Command.Param.flag flag_name flag ~aliases ~doc)))
   ;;
 
   let param_of_flag flag_info =
-    match%bind.Or_error Command.Shape.Flag_info.flag_name flag_info with
-    | "-help" | "-version" ->
-      (* [Command.basic] will recreate these flags for us. It will raise if we try to
-         create them manually. *)
-      Ok None
-    | flag_name ->
-      let%bind.Or_error param = param_of_user_flag flag_info ~flag_name in
-      Ok (Some param)
+    Or_error.Let_syntax.Let_syntax.bind
+      (Command.Shape.Flag_info.flag_name flag_info)
+      ~f:(function
+      | "-help" | "-version" -> Ok None
+      | flag_name ->
+        Or_error.Let_syntax.Let_syntax.bind
+          (param_of_user_flag flag_info ~flag_name)
+          ~f:(fun param -> Ok (Some param)))
   ;;
 
   let unit_param = Command.Param.map ~f:ignore
 
   let param_of_flags flags =
-    let%bind.Or_error params = filter_map_or_error_option flags ~f:param_of_flag in
-    List.reduce params ~f:(fun a b -> unit_param (Command.Param.both a b))
-    |> Option.value ~default:(Command.Param.return ())
-    |> Or_error.return
+    Or_error.Let_syntax.Let_syntax.bind
+      (filter_map_or_error_option flags ~f:param_of_flag)
+      ~f:(fun params ->
+        Or_error.return
+          (Option.value
+             ~default:(Command.Param.return ())
+             (List.reduce params ~f:(fun a b -> unit_param (Command.Param.both a b)))))
   ;;
 
   let param_of_basic ({ summary; readme; anons; flags } : Command.Shape.Base_info.t) =
-    let%bind.Or_error anons = param_of_anons anons
-    and flags = param_of_flags flags in
-    Ok
-      (Command.basic
-         ~summary
-         ?readme:(Option.map readme ~f:const)
-         (let%map_open.Command () = anons
-          and () = flags in
-          fun () -> ()))
+    let __let_syntax__013_ = param_of_anons anons [@@ppxlib.do_not_enter_value]
+    and __let_syntax__014_ = param_of_flags flags [@@ppxlib.do_not_enter_value] in
+    Or_error.Let_syntax.Let_syntax.bind
+      (Or_error.Let_syntax.Let_syntax.both __let_syntax__013_ __let_syntax__014_)
+      ~f:(fun (anons, flags) ->
+        Ok
+          (Command.basic
+             ~summary
+             ?readme:(Option.map readme ~f:const)
+             (let __let_syntax__016_ =
+                let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
+                anons
+              [@@ppxlib.do_not_enter_value]
+              and __let_syntax__017_ =
+                let open! Command.Let_syntax.Let_syntax.Open_on_rhs in
+                flags
+                  [@@ppxlib.do_not_enter_value]
+              in
+              Command.Let_syntax.Let_syntax.map
+                (Command.Let_syntax.Let_syntax.both __let_syntax__016_ __let_syntax__017_)
+                ~f:(fun ((), ()) () -> ()))))
   ;;
 
   let command_of_shape (shape : Command.Shape.t) =
@@ -163,27 +242,25 @@ module Validate_command_line = struct
       | Group group_info -> of_group group_info
       | Lazy shape -> of_shape (force shape)
     and of_group ({ summary; readme; subcommands } : _ Command.Shape.Group_info.t) =
-      let%bind.Or_error subcommands =
-        filter_map_or_error_option (force subcommands) ~f:(function
-          | ("help" | "version"), _ ->
-            (* [Command.group] will recreate these subcommands for us. It will raise if we
-               try to create them manually. *)
-            Ok None
-          | name, user_subcommand ->
-            let%bind.Or_error command = of_shape user_subcommand in
-            Ok (Some (name, command)))
-      in
-      Ok (Command.group subcommands ~summary ?readme:(Option.map readme ~f:const))
+      Or_error.Let_syntax.Let_syntax.bind
+        (filter_map_or_error_option (force subcommands) ~f:(function
+           | ("help" | "version"), _ -> Ok None
+           | name, user_subcommand ->
+             Or_error.Let_syntax.Let_syntax.bind
+               (of_shape user_subcommand)
+               ~f:(fun command -> Ok (Some (name, command)))))
+        ~f:(fun subcommands ->
+          Ok (Command.group subcommands ~summary ?readme:(Option.map readme ~f:const)))
     in
     of_shape shape
   ;;
 
   let f shape =
-    let%bind.Or_error command = command_of_shape shape in
-    Ok
-      (fun args ->
-        Or_error.try_with (fun () ->
-          Command_unix.run command ~argv:(default_command_name :: args)))
+    Or_error.Let_syntax.Let_syntax.bind (command_of_shape shape) ~f:(fun command ->
+      Ok
+        (fun args ->
+          Or_error.try_with (fun () ->
+            Command_unix.run command ~argv:(default_command_name :: args))))
   ;;
 end
 
@@ -192,7 +269,7 @@ module Validate_command = struct
     match shape with
     | Basic (_ : Command.Shape.Base_info.t) -> None
     | Exec (exec_info, (_ : unit -> Command.Shape.t)) ->
-      cannot_validate_exec_error exec_info |> Result.error
+      Result.error (cannot_validate_exec_error exec_info)
     | Group group_info ->
       (match args with
        | [] -> None
@@ -207,19 +284,22 @@ module Validate_command = struct
     lazy
       (let multi_dash_allowed =
          let one_or_two_dashes_allowed x = [ "-" ^ x; "--" ^ x ] in
-         let%bind.List arg = [ "help"; "build-info"; "version" ] in
-         one_or_two_dashes_allowed arg
+         List.Let_syntax.Let_syntax.bind
+           [ "help"; "build-info"; "version" ]
+           ~f:(fun arg -> one_or_two_dashes_allowed arg)
        in
-       "-?" :: multi_dash_allowed |> String.Set.of_list)
+       String.Set.of_list ("-?" :: multi_dash_allowed))
   ;;
 
   let raise_built_in_args_out_of_sync () =
-    (* 2021-07: The state of [Command] is such that we cannot easily enumerate
-       [built_in_args] even from inside the [Command] code. *)
     raise_s
-      [%message
-        "BUG: Unexpected non-local exit from command parsing. Ask a \
-         [Command_test_helpers] dev if [built_in_args] is out of sync."]
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Conv.sexp_of_string
+           "BUG: Unexpected non-local exit from command parsing. Ask a \
+            [Command_test_helpers] dev if [built_in_args] is out of sync."
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]))
   ;;
 
   let is_built_in_command_that_exits_before_parsing_succeeds args =
@@ -236,7 +316,6 @@ module Validate_command = struct
             command
             ~argv:(default_command_name :: args)
             ~when_parsing_succeeds:return;
-          (* We expect either to have succeeded or raised by now, unless... *)
           match is_built_in_command_that_exits_before_parsing_succeeds args with
           | true -> ()
           | false -> raise_built_in_args_out_of_sync ()))
@@ -258,7 +337,7 @@ let with_env ~var ~value ~f =
 let complete_command ?complete_subcommands ?which_arg cmd ~args =
   let which_arg =
     match which_arg with
-    | Some n -> n + 1 (* to account for [argv[0]] *)
+    | Some n -> n + 1
     | None -> List.length args
   in
   with_env ~var:"COMP_CWORD" ~value:(Int.to_string which_arg) ~f:(fun () ->
@@ -266,7 +345,12 @@ let complete_command ?complete_subcommands ?which_arg cmd ~args =
 ;;
 
 let complete ?which_arg param ~args =
-  Command.Param.map param ~f:(fun (_ : _) () -> ())
-  |> Command.basic ~summary:"SUMMARY"
-  |> complete_command ?which_arg ~args
+  complete_command
+    ?which_arg
+    ~args
+    (Command.basic ~summary:"SUMMARY" (Command.Param.map param ~f:(fun (_ : _) () -> ())))
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

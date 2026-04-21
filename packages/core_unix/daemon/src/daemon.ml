@@ -1,19 +1,26 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"daemon.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "daemon.ml.before-ppx"
+;;
+
 open! Core
 open Poly
 open! Import
 module Unix = Core_unix
 
 let check_threads ~allow_threads_to_have_been_created =
-  (* forking, especially to daemonize, when running multiple threads is tricky, and
-     generally a mistake.  It's so bad, and so hard to catch, that we test in two
-     different ways *)
   if (not allow_threads_to_have_been_created) && Thread.threads_have_been_created ()
   then
     failwith
       "Daemon.check_threads: may not be called if any threads have ever been created";
   match Thread.num_threads () with
-  | None -> () (* This is pretty bad, but more likely to be a problem with num_threads *)
-  | Some (1 | 2) -> () (* main thread, or main + ticker - both ok *)
+  | None -> ()
+  | Some (1 | 2) -> ()
   | Some _ ->
     failwith
       "Daemon.check_threads: may not be called if more than 2 threads (hopefully the \
@@ -64,13 +71,13 @@ let redirect_stdio_fds ?perm ~stdout ~stderr () =
 ;;
 
 let daemonize
-  ?(redirect_stdout = `Dev_null)
-  ?(redirect_stderr = `Dev_null)
-  ?(cd = "/")
-  ?perm
-  ?umask
-  ?(allow_threads_to_have_been_created = false)
-  ()
+      ?(redirect_stdout = `Dev_null)
+      ?(redirect_stderr = `Dev_null)
+      ?(cd = "/")
+      ?perm
+      ?umask
+      ?(allow_threads_to_have_been_created = false)
+      ()
   =
   check_threads ~allow_threads_to_have_been_created;
   let fork_no_parent () =
@@ -78,15 +85,10 @@ let daemonize
     | `In_the_child -> ()
     | `In_the_parent _ -> exit 0
   in
-  (* Fork into the background, parent exits, child continues. *)
   fork_no_parent ();
-  (* Become session leader. *)
   ignore (Unix.Terminal_io.setsid ());
-  (* Fork again to ensure that we will never regain a controlling terminal. *)
   fork_no_parent ();
-  (* Release old working directory. *)
   Unix.chdir cd;
-  (* Ensure sensible umask.  Adjust as needed. *)
   Option.iter umask ~f:(fun umask -> ignore (Unix.umask umask));
   redirect_stdio_fds ?perm ~stdout:redirect_stdout ~stderr:redirect_stderr ()
 ;;
@@ -94,20 +96,17 @@ let daemonize
 let process_status_to_exit_code = function
   | Ok () -> 0
   | Error (`Exit_non_zero i) -> i
-  | Error (`Signal s) ->
-    (* looking at byterun/signals.c in ocaml source tree, I think this should never be
-       zero for signals coming from [wait*] function family. *)
-    Signal.to_caml_int s
+  | Error (`Signal s) -> Signal.to_caml_int s
 ;;
 
 let daemonize_wait
-  ?(redirect_stdout = `Dev_null_skip_regular_files)
-  ?(redirect_stderr = `Dev_null_skip_regular_files)
-  ?(cd = "/")
-  ?perm
-  ?umask
-  ?(allow_threads_to_have_been_created = false)
-  ()
+      ?(redirect_stdout = `Dev_null_skip_regular_files)
+      ?(redirect_stderr = `Dev_null_skip_regular_files)
+      ?(cd = "/")
+      ?perm
+      ?umask
+      ?(allow_threads_to_have_been_created = false)
+      ()
   =
   check_threads ~allow_threads_to_have_been_created;
   match Unix.handle_unix_error Unix.fork with
@@ -118,7 +117,6 @@ let daemonize_wait
     let len = String.length buf in
     (match Unix.handle_unix_error Unix.fork with
      | `In_the_child ->
-       (* The process that will become the actual daemon. *)
        Unix.close read_end;
        Unix.chdir cd;
        Option.iter umask ~f:(fun umask -> ignore (Unix.umask umask));
@@ -130,7 +128,6 @@ let daemonize_wait
          Signal.Expert.set Signal.pipe old_sigpipe_behavior;
          Unix.close write_end)
      | `In_the_parent pid ->
-       (* The middle process, after it has forked its child. *)
        Unix.close write_end;
        let rec loop () =
          match Unix.wait_nohang (`Pid pid) with
@@ -143,13 +140,7 @@ let daemonize_wait
                 ~timeout:(`After (Time_ns.Span.of_sec 0.1))
                 ()
             with
-            | { Unix.Select_fds.read = [ read_end ]; write = []; except = [] } ->
-              (* If the child process exits before detaching and the middle process
-                 happens to be in this call to select, the pipe will be closed and select
-                 will return a ready file descriptor, but with zero bytes to read.
-                 In this case, we want to loop back again and call waitpid to obtain
-                 the correct exit status to propagate on to the outermost parent
-                 (otherwise we might incorrectly return a success). *)
+            | { Unix.Select_fds.read = read_end :: []; write = []; except = [] } ->
               if Unix.read read_end ~buf:(Bytes.create len) ~pos:0 ~len > 0
               then exit 0
               else loop ()
@@ -160,3 +151,7 @@ let daemonize_wait
        loop ())
   | `In_the_parent pid -> exit (process_status_to_exit_code (Unix.waitpid pid))
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

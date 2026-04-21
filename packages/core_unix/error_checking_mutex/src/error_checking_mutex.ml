@@ -1,13 +1,25 @@
-(* Error-checking mutexes. *)
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"error_checking_mutex.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "error_checking_mutex.ml.before-ppx"
+;;
 
 open! Core
 open! Import
 include Mutex
 
-(** [create] like {!Mutex.create}, but creates an error-checking mutex.
-    Locking a mutex twice from the same thread, unlocking an unlocked mutex,
-    or unlocking a mutex not held by the thread will result in a [Sys_error]
-    exception. *)
+[@@@ocaml.text
+  " [create] like {!Mutex.create}, but creates an error-checking mutex.\n\
+  \    Locking a mutex twice from the same thread, unlocking an unlocked mutex,\n\
+  \    or unlocking a mutex not held by the thread will result in a [Sys_error]\n\
+  \    exception. "]
 
 external create : unit -> Mutex.t = "unix_create_error_checking_mutex"
 
@@ -41,3 +53,6 @@ let update_broadcast mtx cnd ~f =
 ;;
 
 let try_lock m = if try_lock m then `Acquired else `Already_held_by_me_or_other
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

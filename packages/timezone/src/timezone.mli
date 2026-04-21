@@ -1,1 +1,1 @@
-include Timezone_intf.Timezone (** @inline *)
+include Timezone_intf.Timezone [@@ocaml.doc " @inline "]

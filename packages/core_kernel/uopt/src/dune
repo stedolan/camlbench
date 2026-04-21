@@ -2,5 +2,4 @@
  (name uopt_core)
  (public_name core_kernel.uopt)
  (libraries core uopt)
- (preprocess
-  (pps ppx_jane)))
+)

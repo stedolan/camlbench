@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"unpack_buffer.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "unpack_buffer.ml.before-ppx"
+;;
+
 open! Import
 
 let debug = ref false
@@ -22,66 +35,63 @@ module Unpack_one = struct
   let create ~initial_state ~unpack = T { initial_state; unpack }
 
   include Monad.Make (struct
-    type nonrec 'a t = 'a t
+      type nonrec 'a t = 'a t
 
-    let return v =
-      T
-        { initial_state = ()
-        ; unpack = (fun ~state:() ~buf:_ ~pos:_ ~len:_ -> `Ok (v, 0))
-        }
-    ;;
-
-    let map' (t : 'a t) ~f =
-      let (T { initial_state; unpack }) = t in
-      T
-        { initial_state
-        ; unpack =
-            (fun ~state ~buf ~pos ~len ->
-              match unpack ~state ~buf ~pos ~len with
-              | (`Invalid_data _ | `Not_enough_data _) as x -> x
-              | `Ok (a, pos) -> `Ok (f a, pos))
-        }
-    ;;
-
-    let map = `Custom map'
-
-    let bind =
-      let module State = struct
-        type ('sa, 'b) t =
-          | A : 'sa -> ('sa, _) t
-          | B : 'sb * ('b, 'sb) unpack -> (_, 'b) t
-      end
-      in
-      let open State in
-      let do_b ~na sb (ub : (_, _) unpack) ~buf ~pos ~len =
-        match ub ~state:sb ~buf ~pos ~len with
-        | `Invalid_data _ as x -> x
-        | `Not_enough_data (sb, nb) -> `Not_enough_data (B (sb, ub), nb + na)
-        | `Ok (b, nb) -> `Ok (b, na + nb)
-      in
-      fun (T a) ~f ->
-        let do_a sa ~buf ~pos ~len =
-          match a.unpack ~state:sa ~buf ~pos ~len with
-          | `Invalid_data _ as x -> x
-          | `Not_enough_data (sa, n) -> `Not_enough_data (A sa, n)
-          | `Ok (a, na) ->
-            let (T b) = f a in
-            do_b ~na b.initial_state b.unpack ~buf ~pos:(pos + na) ~len:(len - na)
-        in
+      let return v =
         T
-          { initial_state = A a.initial_state
+          { initial_state = ()
+          ; unpack = (fun ~state:() ~buf:_ ~pos:_ ~len:_ -> `Ok (v, 0))
+          }
+      ;;
+
+      let map' (t : 'a t) ~f =
+        let (T { initial_state; unpack }) = t in
+        T
+          { initial_state
           ; unpack =
               (fun ~state ~buf ~pos ~len ->
-                match state with
-                | A sa -> do_a sa ~buf ~pos ~len
-                | B (sb, ub) -> do_b ~na:0 sb ub ~buf ~pos ~len)
+                match unpack ~state ~buf ~pos ~len with
+                | (`Invalid_data _ | `Not_enough_data _) as x -> x
+                | `Ok (a, pos) -> `Ok (f a, pos))
           }
-    ;;
-  end)
+      ;;
 
-  (* [create_bin_prot] doesn't use [Bigstring.read_bin_prot] for performance reasons.  It
-     was written prior to [Bigstring.read_bin_prot], and it's not clear whether switching
-     to use it would cause too much of a performance hit. *)
+      let map = `Custom map'
+
+      let bind =
+        let module State = struct
+          type ('sa, 'b) t =
+            | A : 'sa -> ('sa, _) t
+            | B : 'sb * ('b, 'sb) unpack -> (_, 'b) t
+        end
+        in
+        let open State in
+        let do_b ~na sb (ub : (_, _) unpack) ~buf ~pos ~len =
+          match ub ~state:sb ~buf ~pos ~len with
+          | `Invalid_data _ as x -> x
+          | `Not_enough_data (sb, nb) -> `Not_enough_data (B (sb, ub), nb + na)
+          | `Ok (b, nb) -> `Ok (b, na + nb)
+        in
+        fun (T a) ~f ->
+          let do_a sa ~buf ~pos ~len =
+            match a.unpack ~state:sa ~buf ~pos ~len with
+            | `Invalid_data _ as x -> x
+            | `Not_enough_data (sa, n) -> `Not_enough_data (A sa, n)
+            | `Ok (a, na) ->
+              let (T b) = f a in
+              do_b ~na b.initial_state b.unpack ~buf ~pos:(pos + na) ~len:(len - na)
+          in
+          T
+            { initial_state = A a.initial_state
+            ; unpack =
+                (fun ~state ~buf ~pos ~len ->
+                  match state with
+                  | A sa -> do_a sa ~buf ~pos ~len
+                  | B (sb, ub) -> do_b ~na:0 sb ub ~buf ~pos ~len)
+            }
+      ;;
+    end)
+
   let create_bin_prot_internal bin_prot_reader ~reader_expects_size_header =
     let header_length = Bin_prot.Utils.size_header_length in
     let not_enough_data = `Not_enough_data ((), 0) in
@@ -97,7 +107,11 @@ module Unpack_one = struct
         invalid_data
           "pos_ref <> pos + len"
           (!pos_ref, pos, len)
-          [%sexp_of: int * int * int]
+          ((fun (arg0__001_, arg1__002_, arg2__003_) ->
+             let res0__004_ = sexp_of_int arg0__001_
+             and res1__005_ = sexp_of_int arg1__002_
+             and res2__006_ = sexp_of_int arg2__003_ in
+             Sexplib0.Sexp.List [ res0__004_; res1__005_; res2__006_ ]) [@merlin.hide])
       else `Ok result
     in
     T
@@ -114,7 +128,10 @@ module Unpack_one = struct
               | `Ok element_length ->
                 if element_length < 0
                 then
-                  invalid_data "negative element length %d" element_length [%sexp_of: int]
+                  invalid_data
+                    "negative element length %d"
+                    element_length
+                    (sexp_of_int [@merlin.hide])
                 else if element_length > len - header_length
                 then not_enough_data
                 else (
@@ -174,10 +191,17 @@ module Unpack_one = struct
   module type Equal = sig
     type t [@@deriving sexp_of]
 
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     val equal : t -> t -> bool
   end
 
-  let expect (type a) (T u) (module E : Equal with type t = a) expected =
+  let expect (type a) (T u) ((module E) : (module Equal with type t = a)) expected =
     T
       { initial_state = u.initial_state
       ; unpack =
@@ -190,7 +214,16 @@ module Unpack_one = struct
               else
                 `Invalid_data
                   (Error.create "parsed does not match expected" () (fun () ->
-                     [%sexp { parsed : E.t; expected : E.t }])))
+                     Ppx_sexp_conv_lib.Sexp.List
+                       [ Ppx_sexp_conv_lib.Sexp.List
+                           [ Ppx_sexp_conv_lib.Sexp.Atom "parsed"
+                           ; (E.sexp_of_t [@merlin.hide]) parsed
+                           ]
+                       ; Ppx_sexp_conv_lib.Sexp.List
+                           [ Ppx_sexp_conv_lib.Sexp.Atom "expected"
+                           ; (E.sexp_of_t [@merlin.hide]) expected
+                           ]
+                       ])))
       }
   ;;
 
@@ -202,20 +235,121 @@ type ('a, 'state) alive =
   { mutable state : 'state
   ; mutable state_is_initial : bool
   ; initial_state : 'state
-  ; unpack :
-      (('a, 'state) Unpack_one.unpack[@sexp.opaque] (* [buf] holds unconsumed chars*))
-  ; mutable buf : Bigstring.t (* [pos] is the start of unconsumed data in[buf] *)
-  ; mutable pos : int (* [len] is the length of unconsumed data in[buf] *)
+  ; unpack : (('a, 'state) Unpack_one.unpack[@sexp.opaque])
+  ; mutable buf : Bigstring.t
+  ; mutable pos : int
   ; mutable len : int
   }
 [@@deriving sexp_of]
+
+include struct
+  let _ = fun (_ : ('a, 'state) alive) -> ()
+
+  let sexp_of_alive
+    :  'a 'state.
+       ('a -> Sexplib0.Sexp.t)
+    -> ('state -> Sexplib0.Sexp.t)
+    -> ('a, 'state) alive
+    -> Sexplib0.Sexp.t
+    =
+    fun _of_a__007_
+      _of_state__008_
+      { state = state__010_
+      ; state_is_initial = state_is_initial__012_
+      ; initial_state = initial_state__014_
+      ; unpack = unpack__016_
+      ; buf = buf__018_
+      ; pos = pos__020_
+      ; len = len__022_
+      } ->
+    let bnds__009_ = ([] : _ Stdlib.List.t) in
+    let bnds__009_ =
+      let arg__023_ = sexp_of_int len__022_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "len"; arg__023_ ] :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    let bnds__009_ =
+      let arg__021_ = sexp_of_int pos__020_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "pos"; arg__021_ ] :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    let bnds__009_ =
+      let arg__019_ = Bigstring.sexp_of_t buf__018_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "buf"; arg__019_ ] :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    let bnds__009_ =
+      let arg__017_ = Sexplib0.Sexp_conv.sexp_of_opaque unpack__016_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "unpack"; arg__017_ ] :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    let bnds__009_ =
+      let arg__015_ = _of_state__008_ initial_state__014_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "initial_state"; arg__015_ ] :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    let bnds__009_ =
+      let arg__013_ = sexp_of_bool state_is_initial__012_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "state_is_initial"; arg__013_ ]
+       :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    let bnds__009_ =
+      let arg__011_ = _of_state__008_ state__010_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "state"; arg__011_ ] :: bnds__009_
+       : _ Stdlib.List.t)
+    in
+    Sexplib0.Sexp.List bnds__009_
+  ;;
+
+  let _ = sexp_of_alive
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 type 'a alive_or_dead =
   | Alive : ('a, _) alive -> 'a alive_or_dead
   | Dead of Error.t
 [@@deriving sexp_of]
 
+include struct
+  let _ = fun (_ : 'a alive_or_dead) -> ()
+
+  let sexp_of_alive_or_dead
+    : 'a. ('a -> Sexplib0.Sexp.t) -> 'a alive_or_dead -> Sexplib0.Sexp.t
+    =
+    fun (type a__029_) ->
+    (fun _of_a__024_ -> function
+       | Alive arg0__025_ ->
+         let res0__026_ =
+           sexp_of_alive _of_a__024_ (fun _ -> Sexplib0.Sexp.Atom "_") arg0__025_
+         in
+         Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "Alive"; res0__026_ ]
+       | Dead arg0__027_ ->
+         let res0__028_ = Error.sexp_of_t arg0__027_ in
+         Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "Dead"; res0__028_ ]
+     : (a__029_ -> Sexplib0.Sexp.t) -> a__029_ alive_or_dead -> Sexplib0.Sexp.t)
+  ;;
+
+  let _ = sexp_of_alive_or_dead
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 type 'a t = { mutable alive_or_dead : 'a alive_or_dead } [@@deriving sexp_of]
+
+include struct
+  let _ = fun (_ : 'a t) -> ()
+
+  let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+    fun _of_a__030_ { alive_or_dead = alive_or_dead__032_ } ->
+    let bnds__031_ = ([] : _ Stdlib.List.t) in
+    let bnds__031_ =
+      let arg__033_ = sexp_of_alive_or_dead _of_a__030_ alive_or_dead__032_ in
+      (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "alive_or_dead"; arg__033_ ] :: bnds__031_
+       : _ Stdlib.List.t)
+    in
+    Sexplib0.Sexp.List bnds__031_
+  ;;
+
+  let _ = sexp_of_t
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 let invariant _ t =
   try
@@ -228,7 +362,20 @@ let invariant _ t =
       if alive.state_is_initial then assert (phys_equal alive.state alive.initial_state);
       assert (alive.pos + alive.len <= Bigstring.length alive.buf)
   with
-  | exn -> failwiths ~here:[%here] "invariant failed" (exn, t) [%sexp_of: exn * _ t]
+  | exn ->
+    failwiths
+      ~here:
+        { Ppx_here_lib.pos_fname = "unpack_buffer.ml.before-ppx"
+        ; pos_lnum = 231
+        ; pos_cnum = 7235
+        ; pos_bol = 7208
+        }
+      "invariant failed"
+      (exn, t)
+      ((fun (arg0__034_, arg1__035_) ->
+         let res0__036_ = sexp_of_exn arg0__034_
+         and res1__037_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__035_ in
+         Sexplib0.Sexp.List [ res0__036_; res1__037_ ]) [@merlin.hide])
 ;;
 
 let create (Unpack_one.T { initial_state; unpack }) =
@@ -262,7 +409,6 @@ let is_available t len =
 let ensure_available t len =
   if not (is_available t len)
   then (
-    (* Grow the buffer, and shift the unconsumed bytes to the front. *)
     let new_buf = Bigstring.create (max (t.len + len) (2 * Bigstring.length t.buf)) in
     Bigstring.blito ~src:t.buf ~src_pos:t.pos ~src_len:t.len ~dst:new_buf ();
     t.pos <- 0;
@@ -323,20 +469,20 @@ let rec unpack_iter_loop t alive ~f =
     match
       alive.unpack ~buf:alive.buf ~pos:alive.pos ~len:alive.len ~state:alive.state
     with
-    | exception exn -> error t (Error.create "unpack error" exn [%sexp_of: Exn.t])
+    | exception exn ->
+      error t (Error.create "unpack error" exn (Exn.sexp_of_t [@merlin.hide]))
     | unpack_result ->
       (match unpack_result with
        | `Invalid_data e -> error t (Error.tag e ~tag:"invalid data")
        | `Ok (one, num_bytes) ->
-         (* In order to get a value we either need to consume some bytes or have partially
-           unpacked data, otherwise it is a bug in [unpack_one].  The case of [num_bytes =
-           0] comes up when parsing sexp atoms where we don't know where atom ends until
-           we hit parenthesis, e.g. "abc(". *)
          if num_bytes < 0 || num_bytes > alive.len
          then
            error
              t
-             (Error.create "unpack consumed invalid amount" num_bytes [%sexp_of: int])
+             (Error.create
+                "unpack consumed invalid amount"
+                num_bytes
+                (sexp_of_int [@merlin.hide]))
          else if num_bytes = 0 && alive.state_is_initial
          then
            error
@@ -355,11 +501,9 @@ let rec unpack_iter_loop t alive ~f =
                (Error.create
                   "~f supplied to Unpack_buffer.unpack_iter raised"
                   exn
-                  [%sexp_of: exn])
+                  (sexp_of_exn [@merlin.hide]))
            | _ -> unpack_iter_loop t alive ~f)
        | `Not_enough_data (state, num_bytes) ->
-         (* Partial unpacking need not have consumed any bytes, and cannot have consumed
-           more bytes than were available. *)
          if num_bytes < 0 || num_bytes > alive.len
          then
            error
@@ -367,15 +511,11 @@ let rec unpack_iter_loop t alive ~f =
              (Error.create
                 "partial unpack consumed invalid amount"
                 num_bytes
-                [%sexp_of: int])
+                (sexp_of_int [@merlin.hide]))
          else (
            consume alive ~num_bytes;
            alive.state <- state;
            alive.state_is_initial <- false;
-           (* Put unconsumed bytes at the front.  We assume that unpacking is
-             deterministic, which ensures that every input byte is shifted at most once.
-             Once a byte has been shifted, it will remain where it is until it is
-             consumed. *)
            if alive.len > 0
            then
              Bigstring.blito
@@ -396,3 +536,6 @@ let unpack_iter t ~f =
 ;;
 
 let unpack_into t q = unpack_iter t ~f:(Queue.enqueue q)
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

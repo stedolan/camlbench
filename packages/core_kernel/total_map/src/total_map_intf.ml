@@ -1,12 +1,45 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"total_map_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "total_map_intf.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
 module type Key_plain = sig
   type t [@@deriving sexp_of, compare, enumerate]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_enumerate_lib.Enumerable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type Key = sig
   type t [@@deriving sexp, bin_io, compare, enumerate]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+    include Bin_prot.Binable.S with type t := t
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_enumerate_lib.Enumerable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type Key_plain_with_witnesses = sig
@@ -32,6 +65,16 @@ module type S_plain = sig
   type 'a t = (Key.t, 'a, comparator_witness, enumeration_witness) total_map
   [@@deriving sexp_of, compare, equal]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+
+    include Ppx_compare_lib.Comparable.S1 with type 'a t := 'a t
+    include Ppx_compare_lib.Equal.S1 with type 'a t := 'a t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   include Applicative with type 'a t := 'a t
 
   val create : (Key.t -> 'a) -> 'a t
@@ -39,11 +82,12 @@ module type S_plain = sig
   val of_alist_exn : (Key.t * 'a) list -> 'a t
 end
 
-(** An alternative interface for [S_plain] which can be used with [include functor]. We
-    keep the old interface to avoid breaking existing code. *)
 module type For_include_functor_plain = sig
   module Total_map : S_plain
 end
+[@@ocaml.doc
+  " An alternative interface for [S_plain] which can be used with [include functor]. We\n\
+  \    keep the old interface to avoid breaking existing code. "]
 
 module type S = sig
   module Key : Key
@@ -52,11 +96,12 @@ module type S = sig
   include Binable.S1 with type 'a t := 'a t
 end
 
-(** An alternative interface for [S] which can be used with [include functor]. We keep the
-    old interface to avoid breaking existing code. *)
 module type For_include_functor = sig
   module Total_map : S
 end
+[@@ocaml.doc
+  " An alternative interface for [S] which can be used with [include functor]. We keep the\n\
+  \    old interface to avoid breaking existing code. "]
 
 module type Stable_V1_S = sig
   type ('key, 'a, 'cmp, 'enum) total_map
@@ -68,6 +113,15 @@ module type Stable_V1_S = sig
 
   type 'a t = (Key.t, 'a, comparator_witness, enumeration_witness) total_map
   [@@deriving bin_io, sexp, compare]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Bin_prot.Binable.S1 with type 'a t := 'a t
+    include Sexplib0.Sexpable.S1 with type 'a t := 'a t
+    include Ppx_compare_lib.Comparable.S1 with type 'a t := 'a t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type Stable_V1_For_include_functor = sig
@@ -75,35 +129,38 @@ module type Stable_V1_For_include_functor = sig
 end
 
 module type Total_map = sig
-  (** A map that includes an entry for every possible value of the key type.
-
-      This is intended to be used on ['key] types where there is a full enumeration of the
-      type. In the common use case, ['key] will be a simple variant type with [[@@deriving
-      compare, enumerate]]. For example:
-
-      {[
-        module Arrow_key = struct
-          module T = struct
-            type t =
-              | Up
-              | Down
-              | Left
-              | Right
-            [@@deriving sexp, bin_io, compare, enumerate]
-          end
-          include T
-          module Total_map = Total_map.Make (T)
-        end
-      ]}
-
-      In such a case, a [t] is semantically equivalent to a pure function from ['key] to
-      ['value]. The differences are that it is serializable and that mapping or changing a
-      [t] will produce a [t] using the same amount of space as the original.
-
-      However, in theory you could also modify the comparison function and enumeration, so
-      long as the enumeration contains at least one representative of each equivalence class
-      determined by the comparison function.
-  *)
+  [@@@ocaml.text
+    " A map that includes an entry for every possible value of the key type.\n\n\
+    \      This is intended to be used on ['key] types where there is a full enumeration \
+     of the\n\
+    \      type. In the common use case, ['key] will be a simple variant type with \
+     [[@@deriving\n\
+    \      compare, enumerate]]. For example:\n\n\
+    \      {[\n\
+    \        module Arrow_key = struct\n\
+    \          module T = struct\n\
+    \            type t =\n\
+    \              | Up\n\
+    \              | Down\n\
+    \              | Left\n\
+    \              | Right\n\
+    \            [@@deriving sexp, bin_io, compare, enumerate]\n\
+    \          end\n\
+    \          include T\n\
+    \          module Total_map = Total_map.Make (T)\n\
+    \        end\n\
+    \      ]}\n\n\
+    \      In such a case, a [t] is semantically equivalent to a pure function from \
+     ['key] to\n\
+    \      ['value]. The differences are that it is serializable and that mapping or \
+     changing a\n\
+    \      [t] will produce a [t] using the same amount of space as the original.\n\n\
+    \      However, in theory you could also modify the comparison function and \
+     enumeration, so\n\
+    \      long as the enumeration contains at least one representative of each \
+     equivalence class\n\
+    \      determined by the comparison function.\n\
+    \  "]
 
   module Enumeration = Enumeration
 
@@ -111,9 +168,11 @@ module type Total_map = sig
 
   val to_map : ('key, 'a, 'cmp, _) t -> ('key, 'a, 'cmp) Map.t
 
-  (** Many of the functions below have types reflecting the fact that the maps are total
-      (e.g., [find] does not return an option).  The fact that they won't raise exceptions
-      relies on the enumeration passed to [Make] being complete. *)
+  [@@@ocaml.text
+    " Many of the functions below have types reflecting the fact that the maps are total\n\
+    \      (e.g., [find] does not return an option).  The fact that they won't raise \
+     exceptions\n\
+    \      relies on the enumeration passed to [Make] being complete. "]
 
   val map : ('key, 'a, 'c, 'e) t -> f:('a -> 'b) -> ('key, 'b, 'c, 'e) t
   val mapi : ('key, 'a, 'c, 'e) t -> f:(key:'key -> data:'a -> 'b) -> ('key, 'b, 'c, 'e) t
@@ -146,18 +205,18 @@ module type Total_map = sig
     -> f:(key:'key -> data:'a -> 'acc -> 'acc)
     -> 'acc
 
-  (** Folds over two maps side by side, like [iter2]. *)
   val fold2
     :  ('key, 'a, 'cmp, 'enum) t
     -> ('key, 'b, 'cmp, 'enum) t
     -> init:'acc
     -> f:(key:'key -> 'a -> 'b -> 'acc -> 'acc)
     -> 'acc
+  [@@ocaml.doc " Folds over two maps side by side, like [iter2]. "]
 
   val set : ('key, 'a, 'cmp, 'enum) t -> 'key -> 'a -> ('key, 'a, 'cmp, 'enum) t
 
   val to_alist
-    :  ?key_order:[ `Increasing | `Decreasing ] (** default is [`Increasing] *)
+    :  ?key_order:([ `Increasing | `Decreasing ][@ocaml.doc " default is [`Increasing] "])
     -> ('key, 'a, _, _) t
     -> ('key * 'a) list
 
@@ -168,26 +227,28 @@ module type Total_map = sig
   val for_all : (_, 'a, _, _) t -> f:('a -> bool) -> bool
   val for_alli : ('key, 'a, _, _) t -> f:(key:'key -> data:'a -> bool) -> bool
 
-  (** Sequence a total map of computations in order of their keys resulting in computation
-      of the total map of results. *)
-  module Sequence (A : Applicative) : sig
+  module Sequence : functor (A : Applicative) -> sig
     val sequence : ('key, 'a A.t, 'cmp, 'enum) t -> ('key, 'a, 'cmp, 'enum) t A.t
   end
+  [@@ocaml.doc
+    " Sequence a total map of computations in order of their keys resulting in computation\n\
+    \      of the total map of results. "]
 
-  module Sequence2 (A : Applicative.S2) : sig
+  module Sequence2 : functor (A : Applicative.S2) -> sig
     val sequence
       :  ('key, ('a, 'b) A.t, 'cmp, 'enum) t
       -> (('key, 'a, 'cmp, 'enum) t, 'b) A.t
   end
 
-  module Sequence3 (A : Applicative.S3) : sig
+  module Sequence3 : functor (A : Applicative.S3) -> sig
     val sequence
       :  ('key, ('a, 'b, 'c) A.t, 'cmp, 'enum) t
       -> (('key, 'a, 'cmp, 'enum) t, 'b, 'c) A.t
   end
 
-  (** The only reason that the Applicative interface isn't included here is that we don't
-      have an [Applicative.S4]. *)
+  [@@@ocaml.text
+    " The only reason that the Applicative interface isn't included here is that we don't\n\
+    \      have an [Applicative.S4]. "]
 
   module type Key = Key
   module type Key_with_witnesses = Key_with_witnesses
@@ -197,71 +258,78 @@ module type Total_map = sig
 
   module type For_include_functor_plain =
     For_include_functor_plain
-      with type ('key, 'a, 'cmp, 'enum) Total_map.total_map := ('key, 'a, 'cmp, 'enum) t
+    with type ('key, 'a, 'cmp, 'enum) Total_map.total_map := ('key, 'a, 'cmp, 'enum) t
 
   module type S =
     S with type ('key, 'a, 'cmp, 'enum) total_map := ('key, 'a, 'cmp, 'enum) t
 
   module type For_include_functor =
     For_include_functor
-      with type ('key, 'a, 'cmp, 'enum) Total_map.total_map := ('key, 'a, 'cmp, 'enum) t
+    with type ('key, 'a, 'cmp, 'enum) Total_map.total_map := ('key, 'a, 'cmp, 'enum) t
 
-  module Make_plain (Key : Key_plain) : S_plain with module Key = Key
+  module Make_plain : functor (Key : Key_plain) -> S_plain with module Key = Key
 
-  module Make_for_include_functor_plain (Key : Key_plain) :
+  module Make_for_include_functor_plain : functor (Key : Key_plain) ->
     For_include_functor_plain with module Total_map.Key = Key
 
-  module Make_plain_with_witnesses (Key : Key_plain_with_witnesses) :
+  module Make_plain_with_witnesses : functor (Key : Key_plain_with_witnesses) ->
     S_plain
-      with module Key = Key
-      with type comparator_witness = Key.comparator_witness
-      with type enumeration_witness = Key.enumeration_witness
+    with module Key = Key
+    with type comparator_witness = Key.comparator_witness
+    with type enumeration_witness = Key.enumeration_witness
 
-  module Make_for_include_functor_plain_with_witnesses (Key : Key_plain_with_witnesses) :
+  module Make_for_include_functor_plain_with_witnesses : functor
+      (Key : Key_plain_with_witnesses)
+      ->
     For_include_functor_plain
-      with module Total_map.Key = Key
-      with type Total_map.comparator_witness = Key.comparator_witness
-      with type Total_map.enumeration_witness = Key.enumeration_witness
+    with module Total_map.Key = Key
+    with type Total_map.comparator_witness = Key.comparator_witness
+    with type Total_map.enumeration_witness = Key.enumeration_witness
 
-  module Make (Key : Key) : S with module Key = Key
+  module Make : functor (Key : Key) -> S with module Key = Key
 
-  module Make_for_include_functor (Key : Key) :
+  module Make_for_include_functor : functor (Key : Key) ->
     For_include_functor with module Total_map.Key = Key
 
-  module Make_with_witnesses (Key : Key_with_witnesses) :
+  module Make_with_witnesses : functor (Key : Key_with_witnesses) ->
     S
-      with module Key = Key
-      with type comparator_witness = Key.comparator_witness
-      with type enumeration_witness = Key.enumeration_witness
+    with module Key = Key
+    with type comparator_witness = Key.comparator_witness
+    with type enumeration_witness = Key.enumeration_witness
 
-  module Make_for_include_functor_with_witnesses (Key : Key_with_witnesses) :
+  module Make_for_include_functor_with_witnesses : functor (Key : Key_with_witnesses) ->
     For_include_functor
-      with module Total_map.Key = Key
-      with type Total_map.comparator_witness = Key.comparator_witness
-      with type Total_map.enumeration_witness = Key.enumeration_witness
+    with module Total_map.Key = Key
+    with type Total_map.comparator_witness = Key.comparator_witness
+    with type Total_map.enumeration_witness = Key.enumeration_witness
 
   module Stable : sig
     module V1 : sig
       module type S =
         Stable_V1_S
-          with type ('key, 'a, 'cmp, 'enum) total_map := ('key, 'a, 'cmp, 'enum) t
+        with type ('key, 'a, 'cmp, 'enum) total_map := ('key, 'a, 'cmp, 'enum) t
 
       module type For_include_functor =
         Stable_V1_For_include_functor
-          with type ('key, 'a, 'cmp, 'enum) Total_map.total_map :=
-            ('key, 'a, 'cmp, 'enum) t
+        with type ('key, 'a, 'cmp, 'enum) Total_map.total_map := ('key, 'a, 'cmp, 'enum) t
 
-      module Make_with_witnesses (Key : Key_with_witnesses) :
+      module Make_with_witnesses : functor (Key : Key_with_witnesses) ->
         S
-          with module Key = Key
-          with type comparator_witness = Key.comparator_witness
-          with type enumeration_witness = Key.enumeration_witness
+        with module Key = Key
+        with type comparator_witness = Key.comparator_witness
+        with type enumeration_witness = Key.enumeration_witness
 
-      module Make_for_include_functor_with_witnesses (Key : Key_with_witnesses) :
+      module Make_for_include_functor_with_witnesses : functor
+          (Key : Key_with_witnesses)
+          ->
         For_include_functor
-          with module Total_map.Key = Key
-          with type Total_map.comparator_witness = Key.comparator_witness
-          with type Total_map.enumeration_witness = Key.enumeration_witness
+        with module Total_map.Key = Key
+        with type Total_map.comparator_witness = Key.comparator_witness
+        with type Total_map.enumeration_witness = Key.enumeration_witness
     end
   end
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

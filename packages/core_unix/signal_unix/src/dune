@@ -5,5 +5,4 @@
  (name signal_unix)
  (public_name core_unix.signal_unix)
  (libraries core_kernel.caml_unix core)
- (preprocess
-  (pps ppx_jane)))
+ )

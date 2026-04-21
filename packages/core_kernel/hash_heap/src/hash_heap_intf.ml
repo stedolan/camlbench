@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"hash_heap_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "hash_heap_intf.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
@@ -31,26 +44,31 @@ module type S = sig
   val find_exn : 'a t -> Key.t -> 'a
   val find_pop_exn : 'a t -> Key.t -> 'a
 
-  (** Mutation of the heap during iteration is not supported, but there is no check to
-      prevent it.  The behavior of a heap that is mutated during iteration is
-      undefined. *)
   val iter_keys : _ t -> f:(Key.t -> unit) -> unit
+  [@@ocaml.doc
+    " Mutation of the heap during iteration is not supported, but there is no check to\n\
+    \      prevent it.  The behavior of a heap that is mutated during iteration is\n\
+    \      undefined. "]
 
   val iter : 'a t -> f:('a -> unit) -> unit
   val iteri : 'a t -> f:(key:Key.t -> data:'a -> unit) -> unit
 
-  (** Returns the list of all (key, value) pairs for given [Hash_heap]. *)
   val to_alist : 'a t -> (Key.t * 'a) list
+  [@@ocaml.doc " Returns the list of all (key, value) pairs for given [Hash_heap]. "]
 
   val length : 'a t -> int
   val is_empty : 'a t -> bool
 
-  (** Removes all values, leaving the hash heap empty. **)
   val clear : 'a t -> unit
+  [@@ocaml.doc " Removes all values, leaving the hash heap empty. *"]
 end
 
 module type Hash_heap = sig
   module type S = S
 
-  module Make (Key : Key) : S with module Key = Key
+  module Make : functor (Key : Key) -> S with module Key = Key
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -1,23 +1,18 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"balanced_reducer.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "balanced_reducer.ml.before-ppx"
+;;
+
 open! Base
 
-(* The [data] array is an implicit binary tree with [children_length * 2 - 1] nodes,
-   with each node being the sum of the two child nodes and the root node being the 0th
-   node.  The leaves of the tree are the last [num_leaves] nodes.
-
-   The children are not necessarily all at the same level of the tree. For instance if
-   you have 3 children [| a; b; c |]:
-
-   {v
-          o
-         / \
-        o   c
-       / \
-      a   b
-   v}
-
-   We want this tree to be representated as [| o; o; c; a; b |], i.e. we need to apply
-   first a rotation then a translation to convert an index in [| a; b; c |] to a (leaf)
-   index in [| o; o; c; a; b |]. *)
 type 'a t =
   { data : 'a Option_array.t
   ; num_leaves : int
@@ -27,38 +22,29 @@ type 'a t =
   }
 
 let length t = t.num_leaves
-
-(* {v
-     parent:      0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 ...
-     left child:  1  3  5  7  9 11 13 15 17 19 21 23 25 27 29 31 33 35 37 39 ...
-     right child: 2  4  6  8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40 ... v} *)
 let parent_index ~child_index = (child_index - 1) / 2
 let left_child_index ~parent_index = (parent_index * 2) + 1
 let right_child_index ~left_child_index = left_child_index + 1
-
-(* The first [num_leaves-1] elements are internal nodes of the tree.  The next
-   [num_leaves] elements are the leaves. *)
 let num_branches t = t.num_leaves - 1
 let index_is_leaf t i = i >= num_branches t
 
-(* The tree is complete, but not necessarily perfect, so we perform some rotation of the
-   leaves to ensure that our reductions preserve ordering. *)
 let leaf_index t i =
-  (* The tree layout is level order.  Any leaves in the second to last level need to occur
-     in the array before the leaves in the bottom level. *)
   let rotated_index =
     let offset_from_start_of_leaves_in_array = i + t.num_leaves_not_in_bottom_level in
     if offset_from_start_of_leaves_in_array < t.num_leaves
     then offset_from_start_of_leaves_in_array
     else offset_from_start_of_leaves_in_array - t.num_leaves
   in
-  (* The leaves occur after the branches in the array. *)
   rotated_index + num_branches t
 ;;
 
 let get_leaf t i = Option_array.get t.data (leaf_index t i)
 let to_list t = List.init (length t) ~f:(fun i -> get_leaf t i)
-let sexp_of_t sexp_of_a t = [%sexp (to_list t : a option list)]
+
+let sexp_of_t sexp_of_a t =
+  ((fun x__001_ -> sexp_of_list (sexp_of_option sexp_of_a) x__001_) [@merlin.hide])
+    (to_list t)
+;;
 
 let invariant invariant_a t =
   let data = t.data in
@@ -80,11 +66,27 @@ let invariant invariant_a t =
   done
 ;;
 
-let create_exn ?(sexp_of_a = [%sexp_of: _]) () ~len:num_leaves ~reduce =
+let create_exn
+      ?(sexp_of_a = (fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide])
+      ()
+      ~len:num_leaves
+      ~reduce
+  =
   if num_leaves < 1
   then
     raise_s
-      [%message "non-positive number of leaves in balanced reducer" (num_leaves : int)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "non-positive number of leaves in balanced reducer"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "num_leaves"
+               ; (sexp_of_int [@merlin.hide]) num_leaves
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let num_branches = num_leaves - 1 in
   let num_leaves_not_in_bottom_level = Int.ceil_pow2 num_leaves - num_leaves in
   let data = Option_array.create ~len:(num_branches + num_leaves) in
@@ -95,15 +97,34 @@ let validate_index t i =
   if i < 0
   then
     raise_s
-      [%message "attempt to access negative index in balanced reducer" ~index:(i : int)];
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "attempt to access negative index in balanced reducer"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "index"; (sexp_of_int [@merlin.hide]) i ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   let length = t.num_leaves in
   if i >= length
   then
     raise_s
-      [%message
-        "attempt to access out of bounds index in balanced reducer"
-          ~index:(i : int)
-          (length : int)]
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "attempt to access out of bounds index in balanced reducer"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "index"; (sexp_of_int [@merlin.hide]) i ]
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "length"
+               ; (sexp_of_int [@merlin.hide]) length
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]))
 ;;
 
 let set_exn t i a =
@@ -134,15 +155,26 @@ let rec compute_exn t i =
     let right = right_child_index ~left_child_index:left in
     if left >= Option_array.length t.data
     then (
-      (* If we get here, the parent was an unset leaf. *)
       let sexp_of_a = t.sexp_of_a in
       raise_s
-        [%message
-          "attempt to compute balanced reducer with unset elements"
-            ~balanced_reducer:(t : a t)]);
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                 "attempt to compute balanced reducer with unset elements"
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "balanced_reducer"
+                 ; ((fun x__002_ -> sexp_of_t sexp_of_a x__002_) [@merlin.hide]) t
+                 ]
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail])));
     let a = t.reduce (compute_exn t left) (compute_exn t right) in
     Option_array.unsafe_set_some t.data i a;
     a)
 ;;
 
 let compute_exn t = compute_exn t 0
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

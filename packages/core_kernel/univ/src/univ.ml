@@ -1,3 +1,13 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"univ.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "univ.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 module Id = Type_equal.Id
@@ -26,8 +36,20 @@ let match_exn (type a) (T (id1, value) as t) (id2 : a Id.t) =
   | Some Type_equal.T -> (value : a)
   | None ->
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "univ.ml.before-ppx"
+        ; pos_lnum = 29
+        ; pos_cnum = 690
+        ; pos_bol = 678
+        }
       "Univ.match_exn called with mismatched value and type id"
       (t, id2)
-      [%sexp_of: t * _ Id.t]
+      ((fun (arg0__001_, arg1__002_) ->
+         let res0__003_ = sexp_of_t arg0__001_
+         and res1__004_ = Id.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__002_ in
+         Sexplib0.Sexp.List [ res0__003_; res1__004_ ]) [@merlin.hide])
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

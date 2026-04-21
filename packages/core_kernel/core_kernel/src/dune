@@ -2,5 +2,4 @@
  (name core_kernel)
  (public_name core_kernel)
  (libraries core)
- (preprocess
-  (pps ppx_jane)))
+)

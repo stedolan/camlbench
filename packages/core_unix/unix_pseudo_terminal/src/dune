@@ -5,9 +5,9 @@
  (name unix_pseudo_terminal)
  (public_name core_unix.unix_pseudo_terminal)
  (libraries core_kernel.caml_unix core)
- (preprocessor_deps config_ext.h)
- (preprocess
-  (pps ppx_jane ppx_optcomp)))
+;; (preprocessor_deps config_ext.h)
+;; (preprocess (pps ppx_jane ppx_optcomp))
+)
 
 (install
  (section lib)

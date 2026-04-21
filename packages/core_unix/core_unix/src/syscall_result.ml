@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"syscall_result.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "syscall_result.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
@@ -7,34 +20,50 @@ module type S = Syscall_result_intf.S with type 'a syscall_result := 'a t
 module type Arg = Syscall_result_intf.Arg
 
 let create_error err = -Unix_error.to_errno err
-let is_ok t = Int.O.(t >= 0)
-let is_error t = Int.O.(t < 0)
+
+let is_ok t =
+  let open Int.O in
+  t >= 0
+;;
+
+let is_error t =
+  let open Int.O in
+  t < 0
+;;
 
 let error_code_exn t =
   if is_ok t
   then
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "syscall_result.ml.before-ppx"
+        ; pos_lnum = 17
+        ; pos_cnum = 337
+        ; pos_bol = 325
+        }
       "Syscall_result.error_code_exn received success value"
       t
-      [%sexp_of: int]
+      (sexp_of_int [@merlin.hide])
   else -t
 ;;
 
 let error_exn t = Unix_error.of_errno (error_code_exn t)
 
 module Make (M : Arg) () = struct
-  (* The only reason to have one of these per functor invocation is to make it trivial to
-     get the type right. *)
   let preallocated_errnos : (_, Unix_error.t) Result.t array =
     Array.init 64 ~f:(fun i -> Error (Unix_error.of_errno i))
   ;;
 
-  (* Since we return [-errno] from C, we implicitly rely on there not being a 0 [errno].
-     However, we have 0 in [preallocated_errnos], partly so we can index directly by
-     [errno]. *)
-  let%test "no 0 errno" =
-    Poly.equal preallocated_errnos.(0) (Error (Unix_error.EUNKNOWNERR 0))
+  let () =
+    Ppx_inline_test_lib.test
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "no 0 errno")
+      ~tags:[]
+      ~filename:"syscall_result.ml.before-ppx"
+      ~line_number:36
+      ~start_pos:2
+      ~end_pos:99
+      (fun () -> Poly.equal preallocated_errnos.(0) (Error (Unix_error.EUNKNOWNERR 0)))
   ;;
 
   let num_preallocated_errnos = Array.length preallocated_errnos
@@ -46,9 +75,6 @@ module Make (M : Arg) () = struct
 
   let preallocated_ms =
     let rec loop i rev_acc =
-      (* Preallocate at most a handful of Ms.  2048 is the first round binary number after
-         1500, the likely maximum result for many network functions that use
-         [Syscall_result.Int]. *)
       if i = 2048
       then Array.of_list_rev rev_acc
       else (
@@ -85,19 +111,38 @@ module Make (M : Arg) () = struct
       else Error (Unix_error.of_errno errno))
   ;;
 
-  let sexp_of_t t = [%sexp_of: (M.t, Unix_error.t) Result.t] (to_result t)
+  let sexp_of_t t =
+    ((fun x__001_ -> Result.sexp_of_t M.sexp_of_t Unix_error.sexp_of_t x__001_)
+       [@merlin.hide])
+      (to_result t)
+  ;;
 
   let ok_exn t =
     if is_ok t
     then M.of_int_exn t
-    else failwiths ~here:[%here] "Syscall_result.ok_exn received error value" t sexp_of_t
+    else
+      failwiths
+        ~here:
+          { Ppx_here_lib.pos_fname = "syscall_result.ml.before-ppx"
+          ; pos_lnum = 93
+          ; pos_cnum = 2502
+          ; pos_bol = 2477
+          }
+        "Syscall_result.ok_exn received error value"
+        t
+        sexp_of_t
   ;;
 
   let error_code_exn t =
     if is_ok t
     then
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "syscall_result.ml.before-ppx"
+          ; pos_lnum = 100
+          ; pos_cnum = 2652
+          ; pos_bol = 2638
+          }
         "Syscall_result.error_code_exn received success value"
         t
         sexp_of_t
@@ -110,7 +155,12 @@ module Make (M : Arg) () = struct
     if is_ok t
     then
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "syscall_result.ml.before-ppx"
+          ; pos_lnum = 113
+          ; pos_cnum = 2915
+          ; pos_bol = 2901
+          }
         "Syscall_result.cast_error_exn received success value"
         t
         sexp_of_t
@@ -156,6 +206,19 @@ module Unit =
     (struct
       type t = unit [@@deriving sexp_of, compare]
 
+      include struct
+        let _ = fun (_ : t) -> ()
+        let sexp_of_t = (sexp_of_unit : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+
+        let compare =
+          (fun a__002_ b__003_ -> compare_unit a__002_ b__003_
+           : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       let of_int_exn n = assert (n = 0)
       let to_int () = 0
     end)
@@ -165,3 +228,6 @@ module File_descr = Make (File_descr) ()
 
 let unit = Unit.create_ok ()
 let ignore_ok_value t = Core.Int.min t 0
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

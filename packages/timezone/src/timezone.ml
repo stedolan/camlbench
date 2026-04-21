@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"timezone.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "timezone.ml.before-ppx"
+;;
+
 open Core
 include Timezone_intf
 include Core_private.Time_zone
@@ -49,9 +62,10 @@ module Zone_cache = struct
           let relative_fn = String.drop_prefix fn basedir_len in
           match Stdlib.Sys.is_directory fn with
           | true ->
-            if not
-                 (List.exists skip_prefixes ~f:(fun prefix ->
-                    String.is_prefix ~prefix relative_fn))
+            if
+              not
+                (List.exists skip_prefixes ~f:(fun prefix ->
+                   String.is_prefix ~prefix relative_fn))
             then dfs fn (depth - 1)
           | false -> f relative_fn)
     in
@@ -85,10 +99,41 @@ module Zone_cache = struct
         let filename = String.concat ~sep:"/" [ the_one_and_only.basedir; zone_name ] in
         let matches =
           try
-            [%compare.equal: int64 option] t1_file_size (Some (file_size filename))
-            && [%compare.equal: Md5.t option]
+            (fun (_x__001_ : int64 option) _x__002_ ->
+               (match
+                  (fun (a__003_ : int64 option)
+                    ((b__004_ : int64 option) [@merlin.hide]) ->
+                     (compare_option
+                        (fun a__005_ (b__006_ [@merlin.hide]) ->
+                           (compare_int64 a__005_ b__006_ [@merlin.hide]))
+                        a__003_
+                        b__004_ [@merlin.hide]))
+                    _x__001_
+                    _x__002_
+                with
+                | 0 -> true
+                | _ -> false)
+               [@merlin.hide])
+              t1_file_size
+              (Some (file_size filename))
+            && (fun (_x__007_ : Md5.t option) _x__008_ ->
+                  (match
+                     (fun (a__009_ : Md5.t option)
+                       ((b__010_ : Md5.t option) [@merlin.hide]) ->
+                        (compare_option
+                           (fun a__011_ (b__012_ [@merlin.hide]) ->
+                              (Md5.compare a__011_ b__012_ [@merlin.hide]))
+                           a__009_
+                           b__010_ [@merlin.hide]))
+                       _x__007_
+                       _x__008_
+                   with
+                   | 0 -> true
+                   | _ -> false)
+                  [@merlin.hide])
                  (digest t1)
-                 Option.(join (map (find_or_load zone_name) ~f:digest))
+                 (let open Option in
+                  join (map (find_or_load zone_name) ~f:digest))
           with
           | _ -> false
         in
@@ -105,18 +150,14 @@ let initialized_zones = Zone_cache.initialized_zones
 
 let find zone =
   let zone =
-    (* Some aliases for convenience *)
     match zone with
-    (* case insensitivity *)
     | "utc" -> "UTC"
     | "gmt" -> "GMT"
-    (* some aliases for common zones *)
     | "chi" -> "America/Chicago"
     | "nyc" -> "America/New_York"
     | "hkg" -> "Asia/Hong_Kong"
     | "lon" | "ldn" -> "Europe/London"
     | "tyo" -> "Asia/Tokyo"
-    (* catchall *)
     | _ -> zone
   in
   Zone_cache.find_or_load zone
@@ -124,13 +165,23 @@ let find zone =
 
 let find_exn zone =
   match find zone with
-  | None -> Error.raise_s [%message "unknown zone" (zone : string)]
+  | None ->
+    Error.raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string "unknown zone"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "zone"
+               ; (sexp_of_string [@merlin.hide]) zone
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]))
   | Some z -> z
 ;;
 
 let local =
-  (* Load [TZ] immediately so that subsequent modifications to the environment cannot
-     alter the result of [force local]. *)
   let local_zone_name = Sys.getenv "TZ" in
   let load () =
     match local_zone_name with
@@ -139,9 +190,6 @@ let local =
       let localtime_t =
         input_tz_file ~zonename:"/etc/localtime" ~filename:"/etc/localtime"
       in
-      (* Load the matching zone file from the real zone cache so that we can serialize it
-         properly. The file loaded from /etc/localtime won't have a name we can use on the
-         other side to find the right zone. *)
       (match Zone_cache.find_or_load_matching localtime_t with
        | Some t -> t
        | None -> localtime_t)
@@ -162,14 +210,11 @@ module Stable = struct
         (try
            if String.equal name "UTC" || String.equal name "GMT"
            then of_utc_offset_explicit_name ~name ~hours:0
-           else if (* This special handling is needed because the offset directionality of the
-                      zone files in /usr/share/zoneinfo for GMT<offset> files is the reverse of
-                      what is generally expected.  That is, GMT+5 is what most people would call
-                      GMT-5. *)
-                   String.is_prefix name ~prefix:"GMT-"
-                   || String.is_prefix name ~prefix:"GMT+"
-                   || String.is_prefix name ~prefix:"UTC-"
-                   || String.is_prefix name ~prefix:"UTC+"
+           else if
+             String.is_prefix name ~prefix:"GMT-"
+             || String.is_prefix name ~prefix:"GMT+"
+             || String.is_prefix name ~prefix:"UTC-"
+             || String.is_prefix name ~prefix:"UTC+"
            then (
              let offset =
                let base =
@@ -206,12 +251,17 @@ module Stable = struct
     ;;
 
     include Sexpable.Stable.To_stringable.V1 (struct
-      type nonrec t = t [@@deriving sexp]
-    end)
+        type nonrec t = t [@@deriving sexp]
 
-    (* The correctness of these relies on not exposing raw loading/creation functions to
-       the outside world that would allow the construction of two Zone's with the same
-       name and different transitions. *)
+        include struct
+          let _ = fun (_ : t) -> ()
+          let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+          let _ = t_of_sexp
+          let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+          let _ = sexp_of_t
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+      end)
+
     let compare t1 t2 = String.compare (to_string t1) (to_string t2)
     let equal t1 t2 = String.equal (to_string t1) (to_string t2)
     let hash_fold_t state t = String.hash_fold_t state (to_string t)
@@ -242,24 +292,82 @@ module Stable = struct
     ;;
 
     include Diffable.Atomic.Make (struct
-      type nonrec t = t [@@deriving sexp, bin_io, equal]
-    end)
+        type nonrec t = t [@@deriving sexp, bin_io, equal]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+          let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+          let _ = t_of_sexp
+          let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+          let _ = sexp_of_t
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "timezone.ml.before-ppx:245:6")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let equal =
+            (fun a__015_ b__016_ -> equal a__015_ b__016_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+      end)
   end
 
   module Current = V1
 end
 
 include Identifiable.Make (struct
-  let module_name = "Timezone"
+    let module_name = "Timezone"
 
-  include Stable.Current
+    include Stable.Current
 
-  let of_string = of_string
-  let to_string = to_string
-end)
+    let of_string = of_string
+    let to_string = to_string
+  end)
 
 include Stable.Current
 
 module Private = struct
   module Zone_cache = Zone_cache
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

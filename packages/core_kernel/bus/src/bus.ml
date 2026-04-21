@@ -1,3 +1,13 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"bus.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "bus.ml.before-ppx"
+;;
+
 open! Core
 
 module State = struct
@@ -6,6 +16,20 @@ module State = struct
     | Write_in_progress
     | Ok_to_write
   [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let sexp_of_t =
+      (function
+       | Closed -> Sexplib0.Sexp.Atom "Closed"
+       | Write_in_progress -> Sexplib0.Sexp.Atom "Write_in_progress"
+       | Ok_to_write -> Sexplib0.Sexp.Atom "Ok_to_write"
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let is_closed = function
     | Closed -> true
@@ -23,6 +47,26 @@ module Callback_arity = struct
     | Arity4 : ('a -> 'b -> 'c -> 'd -> unit) t
     | Arity5 : ('a -> 'b -> 'c -> 'd -> 'e -> unit) t
   [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : _ t) -> ()
+
+    let sexp_of_t
+      : 'a__001_. ('a__001_ -> Sexplib0.Sexp.t) -> 'a__001_ t -> Sexplib0.Sexp.t
+      =
+      fun (type a__003_) ->
+      (fun _of_a__002_ -> function
+         | Arity1 -> Sexplib0.Sexp.Atom "Arity1"
+         | Arity1_local -> Sexplib0.Sexp.Atom "Arity1_local"
+         | Arity2 -> Sexplib0.Sexp.Atom "Arity2"
+         | Arity3 -> Sexplib0.Sexp.Atom "Arity3"
+         | Arity4 -> Sexplib0.Sexp.Atom "Arity4"
+         | Arity5 -> Sexplib0.Sexp.Atom "Arity5"
+       : (a__003_ -> Sexplib0.Sexp.t) -> a__003_ t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let uses_local_args : type a. a t -> bool = function
     | Arity1 -> false
@@ -80,8 +124,21 @@ end = struct
     if Callback_arity.uses_local_args arity
     then
       raise_s
-        [%message
-          "Cannot save last value when using local args" (arity : _ Callback_arity.t)];
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                 "Cannot save last value when using local args"
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "arity"
+                 ; ((fun x__004_ ->
+                      Callback_arity.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__004_)
+                      [@merlin.hide])
+                     arity
+                 ]
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]));
     ref None
   ;;
 
@@ -147,6 +204,22 @@ module On_subscription_after_first_write = struct
     | Raise
   [@@deriving enumerate, sexp_of]
 
+  include struct
+    let _ = fun (_ : t) -> ()
+    let all = ([ Allow; Allow_and_send_last_value; Raise ] : t list)
+    let _ = all
+
+    let sexp_of_t =
+      (function
+       | Allow -> Sexplib0.Sexp.Atom "Allow"
+       | Allow_and_send_last_value -> Sexplib0.Sexp.Atom "Allow_and_send_last_value"
+       | Raise -> Sexplib0.Sexp.Atom "Raise"
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let allow_subscription_after_first_write = function
     | Allow -> true
     | Allow_and_send_last_value -> true
@@ -168,64 +241,260 @@ module Subscriber = struct
     { bus_id : Bus_id.t
     ; callback : 'callback
     ; extract_exn : bool
-    ; (* [subscribers_index] is the index of this subscriber in the bus's [subscribers]
-         array.  [-1] indicates that this subscriber is not subscribed. *)
-      mutable subscribers_index : int
+    ; mutable subscribers_index : int
     ; on_callback_raise : (Error.t -> unit) option
     ; on_close : (unit -> unit) option
     ; subscribed_from : Source_code_position.t
     }
   [@@deriving fields ~iterators:iter]
 
+  include struct
+    [@@@ocaml.warning "-60"]
+
+    let _ = fun (_ : 'callback t) -> ()
+    let subscribed_from _r__ = _r__.subscribed_from
+    let _ = subscribed_from
+    let on_close _r__ = _r__.on_close
+    let _ = on_close
+    let on_callback_raise _r__ = _r__.on_callback_raise
+    let _ = on_callback_raise
+    let subscribers_index _r__ = _r__.subscribers_index
+    let _ = subscribers_index
+    let set_subscribers_index _r__ v__ = _r__.subscribers_index <- v__
+    let _ = set_subscribers_index
+    let extract_exn _r__ = _r__.extract_exn
+    let _ = extract_exn
+    let callback _r__ = _r__.callback
+    let _ = callback
+    let bus_id _r__ = _r__.bus_id
+    let _ = bus_id
+
+    module Fields = struct
+      let subscribed_from =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "subscribed_from"
+           ; getter = subscribed_from
+           ; setter = None
+           ; fset = (fun _r__ v__ -> { _r__ with subscribed_from = v__ })
+           }
+         : ( [< `Read | `Set_and_create ]
+             , _
+             , Source_code_position.t )
+             Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = subscribed_from
+
+      let on_close =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "on_close"
+           ; getter = on_close
+           ; setter = None
+           ; fset = (fun _r__ v__ -> { _r__ with on_close = v__ })
+           }
+         : ( [< `Read | `Set_and_create ]
+             , _
+             , (unit -> unit) option )
+             Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = on_close
+
+      let on_callback_raise =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "on_callback_raise"
+           ; getter = on_callback_raise
+           ; setter = None
+           ; fset = (fun _r__ v__ -> { _r__ with on_callback_raise = v__ })
+           }
+         : ( [< `Read | `Set_and_create ]
+             , _
+             , (Error.t -> unit) option )
+             Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = on_callback_raise
+
+      let subscribers_index =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "subscribers_index"
+           ; getter = subscribers_index
+           ; setter = Some set_subscribers_index
+           ; fset = (fun _r__ v__ -> { _r__ with subscribers_index = v__ })
+           }
+         : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = subscribers_index
+
+      let extract_exn =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "extract_exn"
+           ; getter = extract_exn
+           ; setter = None
+           ; fset = (fun _r__ v__ -> { _r__ with extract_exn = v__ })
+           }
+         : ([< `Read | `Set_and_create ], _, bool) Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = extract_exn
+
+      let callback =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "callback"
+           ; getter = callback
+           ; setter = None
+           ; fset = (fun _r__ v__ -> { _r__ with callback = v__ })
+           }
+         : ([< `Read | `Set_and_create ], _, 'callback) Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = callback
+
+      let bus_id =
+        (Fieldslib.Field.Field
+           { Fieldslib.Field.For_generated_code.force_variance =
+               (fun (_ : [< `Read | `Set_and_create ]) -> ())
+           ; name = "bus_id"
+           ; getter = bus_id
+           ; setter = None
+           ; fset = (fun _r__ v__ -> { _r__ with bus_id = v__ })
+           }
+         : ([< `Read | `Set_and_create ], _, Bus_id.t) Fieldslib.Field.t_with_perm)
+      ;;
+
+      let _ = bus_id
+
+      let iter
+            ~bus_id:bus_id_fun__
+            ~callback:callback_fun__
+            ~extract_exn:extract_exn_fun__
+            ~subscribers_index:subscribers_index_fun__
+            ~on_callback_raise:on_callback_raise_fun__
+            ~on_close:on_close_fun__
+            ~subscribed_from:subscribed_from_fun__
+        =
+        (bus_id_fun__ bus_id : unit);
+        (callback_fun__ callback : unit);
+        (extract_exn_fun__ extract_exn : unit);
+        (subscribers_index_fun__ subscribers_index : unit);
+        (on_callback_raise_fun__ on_callback_raise : unit);
+        (on_close_fun__ on_close : unit);
+        (subscribed_from_fun__ subscribed_from : unit)
+      ;;
+
+      let _ = iter
+    end
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let is_subscribed t ~to_ = t.subscribers_index >= 0 && Bus_id.equal t.bus_id to_
 
   let sexp_of_t
-    _
-    { callback = _
-    ; bus_id = _
-    ; extract_exn
-    ; subscribers_index
-    ; on_callback_raise
-    ; on_close = _
-    ; subscribed_from
-    }
+        _
+        { callback = _
+        ; bus_id = _
+        ; extract_exn
+        ; subscribers_index
+        ; on_callback_raise
+        ; on_close = _
+        ; subscribed_from
+        }
     : Sexp.t
     =
     List
       [ Atom "Bus.Subscriber.t"
-      ; [%message
-          ""
-            ~subscribers_index:
-              (if Ppx_inline_test_lib.am_running then None else Some subscribers_index
-                : (int option[@sexp.option]))
-            (on_callback_raise : ((Error.t -> unit) option[@sexp.option]))
-            ~extract_exn:
-              (if extract_exn then Some true else None : (bool option[@sexp.option]))
-            (subscribed_from : Source_code_position.t)]
+      ; (let ppx_sexp_message () =
+           match
+             match
+               ( (if Ppx_inline_test_lib.am_running then None else Some subscribers_index)
+               , match
+                   ( on_callback_raise
+                   , match
+                       ( (if extract_exn then Some true else None)
+                       , [ Ppx_sexp_conv_lib.Sexp.List
+                             [ Ppx_sexp_conv_lib.Sexp.Atom "subscribed_from"
+                             ; (Source_code_position.sexp_of_t [@merlin.hide])
+                                 subscribed_from
+                             ]
+                         ] )
+                     with
+                     | None, tl -> tl
+                     | Some v, tl ->
+                       Ppx_sexp_conv_lib.Sexp.List
+                         [ Ppx_sexp_conv_lib.Sexp.Atom "extract_exn"
+                         ; (sexp_of_bool [@merlin.hide]) v
+                         ]
+                       :: tl )
+                 with
+                 | None, tl -> tl
+                 | Some v, tl ->
+                   Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "on_callback_raise"
+                     ; ((fun _ ->
+                          Sexplib0.Sexp_conv.sexp_of_fun Sexplib0.Sexp_conv.ignore)
+                          [@merlin.hide])
+                         v
+                     ]
+                   :: tl )
+             with
+             | None, tl -> tl
+             | Some v, tl ->
+               Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "subscribers_index"
+                 ; (sexp_of_int [@merlin.hide]) v
+                 ]
+               :: tl
+           with
+           | h :: [] -> h
+           | ([] | _ :: _ :: _) as res -> Ppx_sexp_conv_lib.Sexp.List res
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
       ]
   ;;
 
   let invariant invariant_a t =
-    Invariant.invariant [%here] t [%sexp_of: _ t] (fun () ->
-      let check f = Invariant.check_field t f in
-      Fields.iter
-        ~bus_id:ignore
-        ~callback:(check invariant_a)
-        ~extract_exn:ignore
-        ~subscribers_index:ignore
-        ~on_callback_raise:ignore
-        ~on_close:ignore
-        ~subscribed_from:ignore)
+    Invariant.invariant
+      { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+      ; pos_lnum = 209
+      ; pos_cnum = 5661
+      ; pos_bol = 5637
+      }
+      t
+      ((fun x__005_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__005_)
+         [@merlin.hide])
+      (fun () ->
+         let check f = Invariant.check_field t f in
+         Fields.iter
+           ~bus_id:ignore
+           ~callback:(check invariant_a)
+           ~extract_exn:ignore
+           ~subscribers_index:ignore
+           ~on_callback_raise:ignore
+           ~on_close:ignore
+           ~subscribed_from:ignore)
   ;;
 
   let create
-    subscribed_from
-    ~callback
-    ~bus_id
-    ~extract_exn
-    ~subscribers_index
-    ~on_callback_raise
-    ~on_close
+        subscribed_from
+        ~callback
+        ~bus_id
+        ~extract_exn
+        ~subscribers_index
+        ~on_callback_raise
+        ~on_close
     =
     { bus_id
     ; callback
@@ -249,84 +518,431 @@ type ('callback, 'phantom) t =
   ; mutable state : State.t
   ; mutable write_ever_called : bool
   ; mutable num_subscribers : int
-  ; (* [subscribers] contains all subscribers to the bus, in a contiguous prefix from
-       index [0] to [num_subscribers - 1]. *)
-    mutable subscribers : 'callback Subscriber.t Option_array.t
-  ; (* [callbacks] holds the callbacks of the corresponding entries of [subscribers]. *)
-    mutable callbacks : 'callback Option_array.t
+  ; mutable subscribers : 'callback Subscriber.t Option_array.t
+  ; mutable callbacks : 'callback Option_array.t
   ; mutable unsubscribes_during_write : 'callback Subscriber.t list
   }
 [@@deriving fields ~getters ~iterators:iter]
 
+include struct
+  [@@@ocaml.warning "-60"]
+
+  let _ = fun (_ : ('callback, 'phantom) t) -> ()
+  let unsubscribes_during_write _r__ = _r__.unsubscribes_during_write
+  let _ = unsubscribes_during_write
+  let set_unsubscribes_during_write _r__ v__ = _r__.unsubscribes_during_write <- v__
+  let _ = set_unsubscribes_during_write
+  let callbacks _r__ = _r__.callbacks
+  let _ = callbacks
+  let set_callbacks _r__ v__ = _r__.callbacks <- v__
+  let _ = set_callbacks
+  let subscribers _r__ = _r__.subscribers
+  let _ = subscribers
+  let set_subscribers _r__ v__ = _r__.subscribers <- v__
+  let _ = set_subscribers
+  let num_subscribers _r__ = _r__.num_subscribers
+  let _ = num_subscribers
+  let set_num_subscribers _r__ v__ = _r__.num_subscribers <- v__
+  let _ = set_num_subscribers
+  let write_ever_called _r__ = _r__.write_ever_called
+  let _ = write_ever_called
+  let set_write_ever_called _r__ v__ = _r__.write_ever_called <- v__
+  let _ = set_write_ever_called
+  let state _r__ = _r__.state
+  let _ = state
+  let set_state _r__ v__ = _r__.state <- v__
+  let _ = set_state
+  let last_value _r__ = _r__.last_value
+  let _ = last_value
+  let on_callback_raise _r__ = _r__.on_callback_raise
+  let _ = on_callback_raise
+  let on_subscription_after_first_write _r__ = _r__.on_subscription_after_first_write
+  let _ = on_subscription_after_first_write
+  let created_from _r__ = _r__.created_from
+  let _ = created_from
+  let callback_arity _r__ = _r__.callback_arity
+  let _ = callback_arity
+  let name _r__ = _r__.name
+  let _ = name
+  let bus_id _r__ = _r__.bus_id
+  let _ = bus_id
+
+  module Fields = struct
+    let unsubscribes_during_write =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "unsubscribes_during_write"
+         ; getter = unsubscribes_during_write
+         ; setter = Some set_unsubscribes_during_write
+         ; fset = (fun _r__ v__ -> { _r__ with unsubscribes_during_write = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , 'callback Subscriber.t list )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = unsubscribes_during_write
+
+    let callbacks =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "callbacks"
+         ; getter = callbacks
+         ; setter = Some set_callbacks
+         ; fset = (fun _r__ v__ -> { _r__ with callbacks = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , 'callback Option_array.t )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = callbacks
+
+    let subscribers =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "subscribers"
+         ; getter = subscribers
+         ; setter = Some set_subscribers
+         ; fset = (fun _r__ v__ -> { _r__ with subscribers = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , 'callback Subscriber.t Option_array.t )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = subscribers
+
+    let num_subscribers =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "num_subscribers"
+         ; getter = num_subscribers
+         ; setter = Some set_num_subscribers
+         ; fset = (fun _r__ v__ -> { _r__ with num_subscribers = v__ })
+         }
+       : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = num_subscribers
+
+    let write_ever_called =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "write_ever_called"
+         ; getter = write_ever_called
+         ; setter = Some set_write_ever_called
+         ; fset = (fun _r__ v__ -> { _r__ with write_ever_called = v__ })
+         }
+       : ([< `Read | `Set_and_create ], _, bool) Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = write_ever_called
+
+    let state =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "state"
+         ; getter = state
+         ; setter = Some set_state
+         ; fset = (fun _r__ v__ -> { _r__ with state = v__ })
+         }
+       : ([< `Read | `Set_and_create ], _, State.t) Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = state
+
+    let last_value =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "last_value"
+         ; getter = last_value
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with last_value = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , 'callback Last_value.t option )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = last_value
+
+    let on_callback_raise =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "on_callback_raise"
+         ; getter = on_callback_raise
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with on_callback_raise = v__ })
+         }
+       : ([< `Read | `Set_and_create ], _, Error.t -> unit) Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = on_callback_raise
+
+    let on_subscription_after_first_write =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "on_subscription_after_first_write"
+         ; getter = on_subscription_after_first_write
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with on_subscription_after_first_write = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , On_subscription_after_first_write.t )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = on_subscription_after_first_write
+
+    let created_from =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "created_from"
+         ; getter = created_from
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with created_from = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , Source_code_position.t )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = created_from
+
+    let callback_arity =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "callback_arity"
+         ; getter = callback_arity
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with callback_arity = v__ })
+         }
+       : ( [< `Read | `Set_and_create ]
+           , _
+           , 'callback Callback_arity.t )
+           Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = callback_arity
+
+    let name =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "name"
+         ; getter = name
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with name = v__ })
+         }
+       : ([< `Read | `Set_and_create ], _, Info.t option) Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = name
+
+    let bus_id =
+      (Fieldslib.Field.Field
+         { Fieldslib.Field.For_generated_code.force_variance =
+             (fun (_ : [< `Read | `Set_and_create ]) -> ())
+         ; name = "bus_id"
+         ; getter = bus_id
+         ; setter = None
+         ; fset = (fun _r__ v__ -> { _r__ with bus_id = v__ })
+         }
+       : ([< `Read | `Set_and_create ], _, Bus_id.t) Fieldslib.Field.t_with_perm)
+    ;;
+
+    let _ = bus_id
+
+    let iter
+          ~bus_id:bus_id_fun__
+          ~name:name_fun__
+          ~callback_arity:callback_arity_fun__
+          ~created_from:created_from_fun__
+          ~on_subscription_after_first_write:on_subscription_after_first_write_fun__
+          ~on_callback_raise:on_callback_raise_fun__
+          ~last_value:last_value_fun__
+          ~state:state_fun__
+          ~write_ever_called:write_ever_called_fun__
+          ~num_subscribers:num_subscribers_fun__
+          ~subscribers:subscribers_fun__
+          ~callbacks:callbacks_fun__
+          ~unsubscribes_during_write:unsubscribes_during_write_fun__
+      =
+      (bus_id_fun__ bus_id : unit);
+      (name_fun__ name : unit);
+      (callback_arity_fun__ callback_arity : unit);
+      (created_from_fun__ created_from : unit);
+      (on_subscription_after_first_write_fun__ on_subscription_after_first_write : unit);
+      (on_callback_raise_fun__ on_callback_raise : unit);
+      (last_value_fun__ last_value : unit);
+      (state_fun__ state : unit);
+      (write_ever_called_fun__ write_ever_called : unit);
+      (num_subscribers_fun__ num_subscribers : unit);
+      (subscribers_fun__ subscribers : unit);
+      (callbacks_fun__ callbacks : unit);
+      (unsubscribes_during_write_fun__ unsubscribes_during_write : unit)
+    ;;
+
+    let _ = iter
+  end
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 let sexp_of_t
-  _
-  _
-  { bus_id = _
-  ; callback_arity
-  ; callbacks = _
-  ; created_from
-  ; last_value = _
-  ; name
-  ; num_subscribers
-  ; on_subscription_after_first_write
-  ; on_callback_raise = _
-  ; state
-  ; subscribers
-  ; write_ever_called
-  ; unsubscribes_during_write = _
-  }
+      _
+      _
+      { bus_id = _
+      ; callback_arity
+      ; callbacks = _
+      ; created_from
+      ; last_value = _
+      ; name
+      ; num_subscribers
+      ; on_subscription_after_first_write
+      ; on_callback_raise = _
+      ; state
+      ; subscribers
+      ; write_ever_called
+      ; unsubscribes_during_write = _
+      }
   =
   let subscribers =
     Array.init num_subscribers ~f:(fun i -> Option_array.get_some_exn subscribers i)
   in
-  [%message
-    ""
-      (name : (Info.t option[@sexp.option]))
-      (callback_arity : _ Callback_arity.t)
-      (created_from : Source_code_position.t)
-      (on_subscription_after_first_write : On_subscription_after_first_write.t)
-      (state : State.t)
-      (write_ever_called : bool)
-      (subscribers : _ Subscriber.t Array.t)]
+  let ppx_sexp_message () =
+    match
+      match
+        ( name
+        , [ Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "callback_arity"
+              ; ((fun x__006_ ->
+                   Callback_arity.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__006_)
+                   [@merlin.hide])
+                  callback_arity
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "created_from"
+              ; (Source_code_position.sexp_of_t [@merlin.hide]) created_from
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "on_subscription_after_first_write"
+              ; (On_subscription_after_first_write.sexp_of_t [@merlin.hide])
+                  on_subscription_after_first_write
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "state"
+              ; (State.sexp_of_t [@merlin.hide]) state
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "write_ever_called"
+              ; (sexp_of_bool [@merlin.hide]) write_ever_called
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "subscribers"
+              ; ((fun x__007_ ->
+                   Array.sexp_of_t
+                     (Subscriber.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_"))
+                     x__007_) [@merlin.hide])
+                  subscribers
+              ]
+          ] )
+      with
+      | None, tl -> tl
+      | Some v, tl ->
+        Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.Atom "name"; (Info.sexp_of_t [@merlin.hide]) v ]
+        :: tl
+    with
+    | h :: [] -> h
+    | ([] | _ :: _ :: _) as res -> Ppx_sexp_conv_lib.Sexp.List res
+      [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+  in
+  (ppx_sexp_message () [@nontail])
 ;;
 
 type ('callback, 'phantom) bus = ('callback, 'phantom) t [@@deriving sexp_of]
 
+include struct
+  let _ = fun (_ : ('callback, 'phantom) bus) -> ()
+
+  let sexp_of_bus
+    :  'callback 'phantom.
+       ('callback -> Sexplib0.Sexp.t)
+    -> ('phantom -> Sexplib0.Sexp.t)
+    -> ('callback, 'phantom) bus
+    -> Sexplib0.Sexp.t
+    =
+    fun _of_callback__008_ _of_phantom__009_ x__010_ ->
+    sexp_of_t _of_callback__008_ _of_phantom__009_ x__010_
+  ;;
+
+  let _ = sexp_of_bus
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 let read_only t = (t :> (_, read) t)
 
 let invariant invariant_a _ t =
-  Invariant.invariant [%here] t [%sexp_of: (_, _) t] (fun () ->
-    let check f = Invariant.check_field t f in
-    Fields.iter
-      ~bus_id:ignore
-      ~name:ignore
-      ~callbacks:
-        (check (fun callbacks ->
-           assert (Option_array.length callbacks = Option_array.length t.subscribers);
-           for i = 0 to Option_array.length callbacks - 1 do
-             if i < t.num_subscribers
-             then invariant_a (Option_array.get_some_exn callbacks i)
-             else assert (Option_array.is_none callbacks i)
-           done))
-      ~callback_arity:ignore
-      ~created_from:ignore
-      ~num_subscribers:(check (fun num_subscribers -> assert (num_subscribers >= 0)))
-      ~on_subscription_after_first_write:ignore
-      ~on_callback_raise:ignore
-      ~last_value:ignore
-      ~state:ignore
-      ~write_ever_called:ignore
-      ~subscribers:
-        (check (fun subscribers ->
-           for i = 0 to Option_array.length subscribers - 1 do
-             if i < t.num_subscribers
-             then (
-               let subscriber = Option_array.get_some_exn subscribers i in
-               Subscriber.invariant invariant_a subscriber;
-               assert (i = subscriber.subscribers_index))
-             else assert (Option_array.is_none subscribers i)
-           done))
-      ~unsubscribes_during_write:ignore)
+  Invariant.invariant
+    { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+    ; pos_lnum = 298
+    ; pos_cnum = 8072
+    ; pos_bol = 8050
+    }
+    t
+    ((fun x__011_ ->
+       sexp_of_t
+         (fun _ -> Sexplib0.Sexp.Atom "_")
+         (fun _ -> Sexplib0.Sexp.Atom "_")
+         x__011_) [@merlin.hide])
+    (fun () ->
+       let check f = Invariant.check_field t f in
+       Fields.iter
+         ~bus_id:ignore
+         ~name:ignore
+         ~callbacks:
+           (check (fun callbacks ->
+              assert (Option_array.length callbacks = Option_array.length t.subscribers);
+              for i = 0 to Option_array.length callbacks - 1 do
+                if i < t.num_subscribers
+                then invariant_a (Option_array.get_some_exn callbacks i)
+                else assert (Option_array.is_none callbacks i)
+              done))
+         ~callback_arity:ignore
+         ~created_from:ignore
+         ~num_subscribers:(check (fun num_subscribers -> assert (num_subscribers >= 0)))
+         ~on_subscription_after_first_write:ignore
+         ~on_callback_raise:ignore
+         ~last_value:ignore
+         ~state:ignore
+         ~write_ever_called:ignore
+         ~subscribers:
+           (check (fun subscribers ->
+              for i = 0 to Option_array.length subscribers - 1 do
+                if i < t.num_subscribers
+                then (
+                  let subscriber = Option_array.get_some_exn subscribers i in
+                  Subscriber.invariant invariant_a subscriber;
+                  assert (i = subscriber.subscribers_index))
+                else assert (Option_array.is_none subscribers i)
+              done))
+         ~unsubscribes_during_write:ignore)
 ;;
 
 let is_closed t = State.is_closed t.state
@@ -334,26 +950,75 @@ let is_closed t = State.is_closed t.state
 module Read_write = struct
   type 'callback t = ('callback, read_write) bus [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : 'callback t) -> ()
+
+    let sexp_of_t
+      : 'callback. ('callback -> Sexplib0.Sexp.t) -> 'callback t -> Sexplib0.Sexp.t
+      =
+      fun _of_callback__012_ x__013_ ->
+      sexp_of_bus _of_callback__012_ sexp_of_read_write x__013_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let invariant invariant_a t = invariant invariant_a ignore t
 end
 
 module Read_only = struct
   type 'callback t = ('callback, read) bus [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : 'callback t) -> ()
+
+    let sexp_of_t
+      : 'callback. ('callback -> Sexplib0.Sexp.t) -> 'callback t -> Sexplib0.Sexp.t
+      =
+      fun _of_callback__014_ x__015_ ->
+      sexp_of_bus _of_callback__014_ sexp_of_read x__015_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let invariant invariant_a t = invariant invariant_a ignore t
 end
 
-let[@cold] start_write_failing t =
+let start_write_failing t =
   match t.state with
   | Closed ->
-    failwiths ~here:[%here] "[Bus.write] called on closed bus" t [%sexp_of: (_, _) t]
+    failwiths
+      ~here:
+        { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+        ; pos_lnum = 349
+        ; pos_cnum = 9853
+        ; pos_bol = 9833
+        }
+      "[Bus.write] called on closed bus"
+      t
+      ((fun x__016_ ->
+         sexp_of_t
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           x__016_) [@merlin.hide])
   | Write_in_progress ->
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+        ; pos_lnum = 352
+        ; pos_cnum = 9970
+        ; pos_bol = 9958
+        }
       "[Bus.write] called from callback on the same bus"
       t
-      [%sexp_of: (_, _) t]
+      ((fun x__017_ ->
+         sexp_of_t
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           x__017_) [@merlin.hide])
   | Ok_to_write -> assert false
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
 let capacity t = Option_array.length t.subscribers
@@ -408,20 +1073,17 @@ let unsubscribe t subscriber =
     match t.state with
     | Write_in_progress ->
       t.unsubscribes_during_write <- subscriber :: t.unsubscribes_during_write
-    | Closed ->
-      (* This can happen if during [write], [unsubscribe] is called after [close].  We
-         don't do anything here because all subscribers will be unsubscribed after the
-         [write] finishes. *)
-      ()
+    | Closed -> ()
     | Ok_to_write -> unsubscribe_assuming_valid_subscriber t subscriber)
 ;;
 
-let[@cold] unsubscribe_after_finish_write t =
+let unsubscribe_after_finish_write t =
   List.iter t.unsubscribes_during_write ~f:(unsubscribe_assuming_valid_subscriber t);
   t.unsubscribes_during_write <- []
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
-let[@cold] unsubscribe_all t =
+let unsubscribe_all t =
   assert (is_closed t);
   for i = 0 to t.num_subscribers - 1 do
     let subscriber = Option_array.get_some_exn t.subscribers i in
@@ -430,23 +1092,26 @@ let[@cold] unsubscribe_all t =
   done;
   t.num_subscribers <- 0;
   maybe_shrink_capacity t
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
-let[@inline always] finish_write t =
+let finish_write t =
   if not (List.is_empty t.unsubscribes_during_write) then unsubscribe_after_finish_write t;
   match t.state with
   | Closed -> unsubscribe_all t
   | Ok_to_write -> assert false
   | Write_in_progress -> t.state <- Ok_to_write
+[@@inline always]
 ;;
 
-let[@cold] close t =
+let close t =
   match t.state with
   | Closed -> ()
   | Write_in_progress -> t.state <- Closed
   | Ok_to_write ->
     t.state <- Closed;
     unsubscribe_all t
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
 let call_on_callback_raise t error =
@@ -457,24 +1122,33 @@ let call_on_callback_raise t error =
 ;;
 
 let callback_raised t i exn =
-  (* [i] was incremented before the callback was called, so we have to subtract one
-     here.  We do this here, rather than at the call site, because there are multiple
-     call sites due to the optimizations needed to keep this zero-alloc. *)
   let subscriber = Option_array.get_some_exn t.subscribers (i - 1) in
   let error =
     match subscriber.extract_exn with
     | true -> Error.of_exn exn
     | false ->
-      (* This [Backtrace.Exn.most_recent ()] is intended to grab the backtrace of the [try
-         ... with]'s that call [callback_raised].  The call is here rather than earlier so
-         that we only do it when [subscriber.extract_exn = false]. *)
       let backtrace = Backtrace.Exn.most_recent () in
-      [%message
-        "Bus subscriber raised"
-          (exn : exn)
-          (backtrace : Backtrace.t)
-          (subscriber : _ Subscriber.t)]
-      |> [%of_sexp: Error.t]
+      (Error.t_of_sexp [@merlin.hide])
+        (let ppx_sexp_message () =
+           Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Conv.sexp_of_string "Bus subscriber raised"
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "exn"; (sexp_of_exn [@merlin.hide]) exn ]
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "backtrace"
+                 ; (Backtrace.sexp_of_t [@merlin.hide]) backtrace
+                 ]
+             ; Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "subscriber"
+                 ; ((fun x__018_ ->
+                      Subscriber.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__018_)
+                      [@merlin.hide])
+                     subscriber
+                 ]
+             ]
+             [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+         in
+         (ppx_sexp_message () [@nontail]))
   in
   match subscriber.on_callback_raise with
   | None -> call_on_callback_raise t error
@@ -485,19 +1159,31 @@ let callback_raised t i exn =
        call_on_callback_raise
          t
          (let original_error = error in
-          [%message
-            "Bus subscriber's [on_callback_raise] raised"
-              (exn : exn)
-              (backtrace : Backtrace.t)
-              (original_error : Error.t)]
-          |> [%of_sexp: Error.t]))
+          (Error.t_of_sexp [@merlin.hide])
+            (let ppx_sexp_message () =
+               Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                     "Bus subscriber's [on_callback_raise] raised"
+                 ; Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "exn"
+                     ; (sexp_of_exn [@merlin.hide]) exn
+                     ]
+                 ; Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "backtrace"
+                     ; (Backtrace.sexp_of_t [@merlin.hide]) backtrace
+                     ]
+                 ; Ppx_sexp_conv_lib.Sexp.List
+                     [ Ppx_sexp_conv_lib.Sexp.Atom "original_error"
+                     ; (Error.sexp_of_t [@merlin.hide]) original_error
+                     ]
+                 ]
+                 [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+             in
+             (ppx_sexp_message () [@nontail]))))
 ;;
 
-let[@inline always] unsafe_get_callback a i =
-  (* We considered using [Option_array.get_some_exn] and
-     [Option_array.unsafe_get_some_exn] here, but both are significantly slower.  Check
-     the write benchmarks in [bench_bus.ml] before changing this. *)
-  Option_array.unsafe_get_some_assuming_some a i
+let unsafe_get_callback a i = Option_array.unsafe_get_some_assuming_some a i
+[@@inline always]
 ;;
 
 let write_non_optimized t callbacks a1 =
@@ -584,12 +1270,7 @@ let write5_non_optimized t callbacks a1 a2 a3 a4 a5 =
   finish_write t
 ;;
 
-(* The [write_N] functions are written to minimise registers live across function calls
-   (these have to be spilled).  They are also annotated for partial inlining (the
-   one-callback case becomes inlined whereas the >1-callback-case requires a further
-   direct call). *)
-
-let[@inline always] write t a1 =
+let write t a1 =
   let callbacks = t.callbacks in
   t.write_ever_called <- true;
   match t.state with
@@ -607,9 +1288,10 @@ let[@inline always] write t a1 =
          | exn -> callback_raised t 1 exn);
         finish_write t)
       else (write_non_optimized [@inlined never]) t callbacks a1)
+[@@inline always]
 ;;
 
-let[@inline always] write_local t a1 =
+let write_local t a1 =
   let callbacks = t.callbacks in
   t.write_ever_called <- true;
   match t.state with
@@ -624,9 +1306,10 @@ let[@inline always] write_local t a1 =
          | exn -> callback_raised t 1 exn);
         finish_write t)
       else (write_local_non_optimized [@inlined never]) t callbacks a1)
+[@@inline always]
 ;;
 
-let[@inline always] write2 t a1 a2 =
+let write2 t a1 a2 =
   let callbacks = t.callbacks in
   t.write_ever_called <- true;
   match t.state with
@@ -644,9 +1327,10 @@ let[@inline always] write2 t a1 a2 =
          | exn -> callback_raised t 1 exn);
         finish_write t)
       else (write2_non_optimized [@inlined never]) t callbacks a1 a2)
+[@@inline always]
 ;;
 
-let[@inline always] write3 t a1 a2 a3 =
+let write3 t a1 a2 a3 =
   let callbacks = t.callbacks in
   t.write_ever_called <- true;
   match t.state with
@@ -664,9 +1348,10 @@ let[@inline always] write3 t a1 a2 a3 =
          | exn -> callback_raised t 1 exn);
         finish_write t)
       else (write3_non_optimized [@inlined never]) t callbacks a1 a2 a3)
+[@@inline always]
 ;;
 
-let[@inline always] write4 t a1 a2 a3 a4 =
+let write4 t a1 a2 a3 a4 =
   let callbacks = t.callbacks in
   t.write_ever_called <- true;
   match t.state with
@@ -684,9 +1369,10 @@ let[@inline always] write4 t a1 a2 a3 a4 =
          | exn -> callback_raised t 1 exn);
         finish_write t)
       else (write4_non_optimized [@inlined never]) t callbacks a1 a2 a3 a4)
+[@@inline always]
 ;;
 
-let[@inline always] write5 t a1 a2 a3 a4 a5 =
+let write5 t a1 a2 a3 a4 a5 =
   let callbacks = t.callbacks in
   t.write_ever_called <- true;
   match t.state with
@@ -704,6 +1390,7 @@ let[@inline always] write5 t a1 a2 a3 a4 a5 =
          | exn -> callback_raised t 1 exn);
         finish_write t)
       else (write5_non_optimized [@inlined never]) t callbacks a1 a2 a3 a4 a5)
+[@@inline always]
 ;;
 
 let allow_subscription_after_first_write t =
@@ -712,11 +1399,11 @@ let allow_subscription_after_first_write t =
 ;;
 
 let create_exn
-  ?name
-  created_from
-  callback_arity
-  ~(on_subscription_after_first_write : On_subscription_after_first_write.t)
-  ~on_callback_raise
+      ?name
+      created_from
+      callback_arity
+      ~(on_subscription_after_first_write : On_subscription_after_first_write.t)
+      ~on_callback_raise
   =
   let last_value =
     On_subscription_after_first_write.save_last_value_exn
@@ -754,24 +1441,43 @@ let enlarge_capacity t =
 ;;
 
 let subscribe_exn
-  ?(extract_exn = false)
-  ?on_callback_raise
-  ?on_close
-  t
-  subscribed_from
-  ~f:callback
+      ?(extract_exn = false)
+      ?on_callback_raise
+      ?on_close
+      t
+      subscribed_from
+      ~f:callback
   =
   if not (can_subscribe t)
   then
     failwiths
-      ~here:[%here]
+      ~here:
+        { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+        ; pos_lnum = 767
+        ; pos_cnum = 22333
+        ; pos_bol = 22321
+        }
       "Bus.subscribe_exn called after first write"
-      [%sexp ~~(subscribed_from : Source_code_position.t), { bus = (t : (_, _) t) }]
-      [%sexp_of: Sexp.t];
+      (Ppx_sexp_conv_lib.Sexp.List
+         [ Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Sexp.Atom "subscribed_from"
+             ; (Source_code_position.sexp_of_t [@merlin.hide]) subscribed_from
+             ]
+         ; Ppx_sexp_conv_lib.Sexp.List
+             [ Ppx_sexp_conv_lib.Sexp.List
+                 [ Ppx_sexp_conv_lib.Sexp.Atom "bus"
+                 ; ((fun x__019_ ->
+                      sexp_of_t
+                        (fun _ -> Sexplib0.Sexp.Atom "_")
+                        (fun _ -> Sexplib0.Sexp.Atom "_")
+                        x__019_) [@merlin.hide])
+                     t
+                 ]
+             ]
+         ])
+      (Sexp.sexp_of_t [@merlin.hide]);
   match t.state with
   | Closed ->
-    (* Anything that satisfies the return type will do.  Since the subscriber is never
-       stored in the arrays, the [on_close] callback will never be called. *)
     Subscriber.create
       subscribed_from
       ~bus_id:t.bus_id
@@ -781,11 +1487,6 @@ let subscribe_exn
       ~on_callback_raise
       ~on_close
   | Ok_to_write | Write_in_progress ->
-    (* The code below side effects [t], which potentially could interfere with a write in
-       progress.  However, the side effects don't change the prefix of [t.callbacks] that
-       write uses; they only change [t.callbacks] beyond that prefix.  And all writes
-       extract [t.num_subscribers] at the start, so that they will not see any subsequent
-       changes to it. *)
     let subscriber =
       Subscriber.create
         subscribed_from
@@ -808,7 +1509,20 @@ let subscribe_exn
 let iter_exn ?extract_exn t subscribed_from ~f =
   if not (can_subscribe t)
   then
-    failwiths ~here:[%here] "Bus.iter_exn called after first write" t [%sexp_of: (_, _) t];
+    failwiths
+      ~here:
+        { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+        ; pos_lnum = 811
+        ; pos_cnum = 23943
+        ; pos_bol = 23923
+        }
+      "Bus.iter_exn called after first write"
+      t
+      ((fun x__020_ ->
+         sexp_of_t
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           x__020_) [@merlin.hide]);
   ignore (subscribe_exn ?extract_exn t subscribed_from ~f : _ Subscriber.t)
 ;;
 
@@ -818,27 +1532,69 @@ module Fold_arity = struct
     | Arity2 : ('a -> 'b -> unit, 's -> 'a -> 'b -> 's, 's) t
     | Arity3 : ('a -> 'b -> 'c -> unit, 's -> 'a -> 'b -> 'c -> 's, 's) t
     | Arity4 : ('a -> 'b -> 'c -> 'd -> unit, 's -> 'a -> 'b -> 'c -> 'd -> 's, 's) t
-    | Arity5
-        : ( 'a -> 'b -> 'c -> 'd -> 'e -> unit
-          , 's -> 'a -> 'b -> 'c -> 'd -> 'e -> 's
-          , 's )
-          t
+    | Arity5 :
+        ('a -> 'b -> 'c -> 'd -> 'e -> unit, 's -> 'a -> 'b -> 'c -> 'd -> 'e -> 's, 's) t
   [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : (_, _, _) t) -> ()
+
+    let sexp_of_t
+      :  'a__021_ 'b__022_ 'c__023_.
+         ('a__021_ -> Sexplib0.Sexp.t)
+      -> ('b__022_ -> Sexplib0.Sexp.t)
+      -> ('c__023_ -> Sexplib0.Sexp.t)
+      -> ('a__021_, 'b__022_, 'c__023_) t
+      -> Sexplib0.Sexp.t
+      =
+      fun (type a__027_) ->
+      fun (type b__028_) ->
+      fun (type c__029_) ->
+      (fun _of_a__024_ _of_b__025_ _of_c__026_ -> function
+         | Arity1 -> Sexplib0.Sexp.Atom "Arity1"
+         | Arity2 -> Sexplib0.Sexp.Atom "Arity2"
+         | Arity3 -> Sexplib0.Sexp.Atom "Arity3"
+         | Arity4 -> Sexplib0.Sexp.Atom "Arity4"
+         | Arity5 -> Sexplib0.Sexp.Atom "Arity5"
+       : (a__027_ -> Sexplib0.Sexp.t)
+         -> (b__028_ -> Sexplib0.Sexp.t)
+         -> (c__029_ -> Sexplib0.Sexp.t)
+         -> (a__027_, b__028_, c__029_) t
+         -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 let fold_exn
-  ?extract_exn
-  (type c f s)
-  (t : (c, _) t)
-  subscribed_from
-  (fold_arity : (c, f, s) Fold_arity.t)
-  ~(init : s)
-  ~(f : f)
+      ?extract_exn
+      (type c)
+      (type f)
+      (type s)
+      (t : (c, _) t)
+      subscribed_from
+      (fold_arity : (c, f, s) Fold_arity.t)
+      ~(init : s)
+      ~(f : f)
   =
   let state = ref init in
   if not (can_subscribe t)
   then
-    failwiths ~here:[%here] "Bus.fold_exn called after first write" t [%sexp_of: (_, _) t];
+    failwiths
+      ~here:
+        { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+        ; pos_lnum = 841
+        ; pos_cnum = 24810
+        ; pos_bol = 24790
+        }
+      "Bus.fold_exn called after first write"
+      t
+      ((fun x__030_ ->
+         sexp_of_t
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           (fun _ -> Sexplib0.Sexp.Atom "_")
+           x__030_) [@merlin.hide]);
   iter_exn
     ?extract_exn
     t
@@ -852,47 +1608,157 @@ let fold_exn
        | Arity5 -> fun a1 a2 a3 a4 a5 -> state := f !state a1 a2 a3 a4 a5)
 ;;
 
-let%test_module _ =
-  (module struct
-    let assert_no_allocation bus callback write =
-      let bus_r = read_only bus in
-      ignore (subscribe_exn bus_r [%here] ~f:callback : _ Subscriber.t);
-      let starting_minor_words = Gc.minor_words () in
-      let starting_major_words = Gc.major_words () in
-      write ();
-      let ending_minor_words = Gc.minor_words () in
-      let ending_major_words = Gc.major_words () in
-      [%test_result: int] (ending_minor_words - starting_minor_words) ~expect:0;
-      [%test_result: int] (ending_major_words - starting_major_words) ~expect:0
-    ;;
+let () =
+  Ppx_inline_test_lib.test_module
+    ~config:(module Inline_test_config)
+    ~descr:(lazy "")
+    ~tags:[]
+    ~filename:"bus.ml.before-ppx"
+    ~line_number:855
+    ~start_pos:0
+    ~end_pos:1803
+    (fun () ->
+       let module M = struct
+         let assert_no_allocation bus callback write =
+           let bus_r = read_only bus in
+           ignore
+             (subscribe_exn
+                bus_r
+                { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+                ; pos_lnum = 859
+                ; pos_cnum = 25444
+                ; pos_bol = 25410
+                }
+                ~f:callback
+              : _ Subscriber.t);
+           let starting_minor_words = Gc.minor_words () in
+           let starting_major_words = Gc.major_words () in
+           write ();
+           let ending_minor_words = Gc.minor_words () in
+           let ending_major_words = Gc.major_words () in
+           (fun ?(here = []) ?message ?equal ~expect got ->
+              let pos = "bus.ml.before-ppx:865:21" in
+              let sexpifier = (sexp_of_int [@merlin.hide]) in
+              let comparator =
+                (fun (a__031_ : int) ((b__032_ : int) [@merlin.hide]) ->
+                (compare_int a__031_ b__032_ [@merlin.hide]))
+                [@merlin.hide]
+              in
+              Ppx_assert_lib.Runtime.test_result
+                ~pos
+                ~sexpifier
+                ~comparator
+                ~here
+                ?message
+                ?equal
+                ~expect
+                ~got)
+             (ending_minor_words - starting_minor_words)
+             ~expect:0;
+           (fun ?(here = []) ?message ?equal ~expect got ->
+              let pos = "bus.ml.before-ppx:866:21" in
+              let sexpifier = (sexp_of_int [@merlin.hide]) in
+              let comparator =
+                (fun (a__033_ : int) ((b__034_ : int) [@merlin.hide]) ->
+                (compare_int a__033_ b__034_ [@merlin.hide]))
+                [@merlin.hide]
+              in
+              Ppx_assert_lib.Runtime.test_result
+                ~pos
+                ~sexpifier
+                ~comparator
+                ~here
+                ?message
+                ?equal
+                ~expect
+                ~got)
+             (ending_major_words - starting_major_words)
+             ~expect:0
+         ;;
 
-    (* This test only works when [write] is properly inlined.  It does not guarantee that
-       [write] never allocates in any situation.  For example, if this test is moved to
-       another library and run with X_LIBRARY_INLINING=false, it fails. *)
-    let%test_unit "write doesn't allocate when inlined" =
-      let create created_from arity =
-        create_exn
-          created_from
-          arity
-          ~on_subscription_after_first_write:Raise
-          ~on_callback_raise:Error.raise
-      in
-      let bus1 = create [%here] Arity1 in
-      let bus2 = create [%here] Arity2 in
-      let bus3 = create [%here] Arity3 in
-      let bus4 = create [%here] Arity4 in
-      let bus5 = create [%here] Arity5 in
-      assert_no_allocation bus1 (fun () -> ()) (fun () -> write bus1 ());
-      assert_no_allocation bus2 (fun () () -> ()) (fun () -> write2 bus2 () ());
-      assert_no_allocation bus3 (fun () () () -> ()) (fun () -> write3 bus3 () () ());
-      assert_no_allocation
-        bus4
-        (fun () () () () -> ())
-        (fun () -> write4 bus4 () () () ());
-      assert_no_allocation
-        bus5
-        (fun () () () () () -> ())
-        (fun () -> write5 bus5 () () () () ())
-    ;;
-  end)
+         let () =
+           Ppx_inline_test_lib.test_unit
+             ~config:(module Inline_test_config)
+             ~descr:(lazy "write doesn't allocate when inlined")
+             ~tags:[]
+             ~filename:"bus.ml.before-ppx"
+             ~line_number:872
+             ~start_pos:4
+             ~end_pos:945
+             (fun () ->
+                (let create created_from arity =
+                   create_exn
+                     created_from
+                     arity
+                     ~on_subscription_after_first_write:Raise
+                     ~on_callback_raise:Error.raise
+                 in
+                 let bus1 =
+                   create
+                     { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+                     ; pos_lnum = 880
+                     ; pos_cnum = 26412
+                     ; pos_bol = 26388
+                     }
+                     Arity1
+                 in
+                 let bus2 =
+                   create
+                     { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+                     ; pos_lnum = 881
+                     ; pos_cnum = 26454
+                     ; pos_bol = 26430
+                     }
+                     Arity2
+                 in
+                 let bus3 =
+                   create
+                     { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+                     ; pos_lnum = 882
+                     ; pos_cnum = 26496
+                     ; pos_bol = 26472
+                     }
+                     Arity3
+                 in
+                 let bus4 =
+                   create
+                     { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+                     ; pos_lnum = 883
+                     ; pos_cnum = 26538
+                     ; pos_bol = 26514
+                     }
+                     Arity4
+                 in
+                 let bus5 =
+                   create
+                     { Ppx_here_lib.pos_fname = "bus.ml.before-ppx"
+                     ; pos_lnum = 884
+                     ; pos_cnum = 26580
+                     ; pos_bol = 26556
+                     }
+                     Arity5
+                 in
+                 assert_no_allocation bus1 (fun () -> ()) (fun () -> write bus1 ());
+                 assert_no_allocation bus2 (fun () () -> ()) (fun () -> write2 bus2 () ());
+                 assert_no_allocation
+                   bus3
+                   (fun () () () -> ())
+                   (fun () -> write3 bus3 () () ());
+                 assert_no_allocation
+                   bus4
+                   (fun () () () () -> ())
+                   (fun () -> write4 bus4 () () () ());
+                 assert_no_allocation
+                   bus5
+                   (fun () () () () () -> ())
+                   (fun () -> write5 bus5 () () () () ()));
+                ())
+         ;;
+       end
+       in
+       ())
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

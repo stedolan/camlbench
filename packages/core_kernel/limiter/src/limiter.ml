@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"limiter.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "limiter.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
@@ -7,6 +20,158 @@ module Infinite_or_finite = struct
       | Infinite
       | Finite of 'a
     [@@deriving sexp, bin_io]
+
+    include struct
+      let _ = fun (_ : 'a t) -> ()
+
+      let t_of_sexp : 'a. (Sexplib0.Sexp.t -> 'a) -> Sexplib0.Sexp.t -> 'a t =
+        fun (type a__011_) ->
+        (let error_source__004_ = "limiter.ml.before-ppx.Infinite_or_finite.T.t" in
+         fun _of_a__001_ -> function
+           | Sexplib0.Sexp.Atom ("infinite" | "Infinite") -> Infinite
+           | Sexplib0.Sexp.List
+               (Sexplib0.Sexp.Atom (("finite" | "Finite") as _tag__007_)
+               :: sexp_args__008_) as _sexp__006_ ->
+             (match sexp_args__008_ with
+              | arg0__009_ :: [] ->
+                let res0__010_ = _of_a__001_ arg0__009_ in
+                Finite res0__010_
+              | _ ->
+                Sexplib0.Sexp_conv_error.stag_incorrect_n_args
+                  error_source__004_
+                  _tag__007_
+                  _sexp__006_)
+           | Sexplib0.Sexp.List (Sexplib0.Sexp.Atom ("infinite" | "Infinite") :: _) as
+             sexp__005_ ->
+             Sexplib0.Sexp_conv_error.stag_no_args error_source__004_ sexp__005_
+           | Sexplib0.Sexp.Atom ("finite" | "Finite") as sexp__005_ ->
+             Sexplib0.Sexp_conv_error.stag_takes_args error_source__004_ sexp__005_
+           | Sexplib0.Sexp.List (Sexplib0.Sexp.List _ :: _) as sexp__003_ ->
+             Sexplib0.Sexp_conv_error.nested_list_invalid_sum
+               error_source__004_
+               sexp__003_
+           | Sexplib0.Sexp.List [] as sexp__003_ ->
+             Sexplib0.Sexp_conv_error.empty_list_invalid_sum error_source__004_ sexp__003_
+           | sexp__003_ ->
+             Sexplib0.Sexp_conv_error.unexpected_stag error_source__004_ sexp__003_
+         : (Sexplib0.Sexp.t -> a__011_) -> Sexplib0.Sexp.t -> a__011_ t)
+      ;;
+
+      let _ = t_of_sexp
+
+      let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+        fun (type a__015_) ->
+        (fun _of_a__012_ -> function
+           | Infinite -> Sexplib0.Sexp.Atom "Infinite"
+           | Finite arg0__013_ ->
+             let res0__014_ = _of_a__012_ arg0__013_ in
+             Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "Finite"; res0__014_ ]
+         : (a__015_ -> Sexplib0.Sexp.t) -> a__015_ t -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_t
+
+      let bin_shape_t =
+        let _group =
+          Bin_prot.Shape.group
+            (Bin_prot.Shape.Location.of_string "limiter.ml.before-ppx:6:4")
+            [ ( Bin_prot.Shape.Tid.of_string "t"
+              , [ Bin_prot.Shape.Vid.of_string "a" ]
+              , Bin_prot.Shape.variant
+                  [ "Infinite", []
+                  ; ( "Finite"
+                    , [ Bin_prot.Shape.var
+                          (Bin_prot.Shape.Location.of_string "limiter.ml.before-ppx:8:18")
+                          (Bin_prot.Shape.Vid.of_string "a")
+                      ] )
+                  ] )
+            ]
+        in
+        fun a -> (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) [ a ]
+      ;;
+
+      let _ = bin_shape_t
+
+      let bin_size_t : 'a. 'a Bin_prot.Size.sizer -> 'a t Bin_prot.Size.sizer =
+        fun _size_of_a -> function
+        | Finite v1 ->
+          let size = 1 in
+          Bin_prot.Common.( + ) size (_size_of_a v1)
+        | Infinite -> 1
+      ;;
+
+      let _ = bin_size_t
+
+      let bin_write_t : 'a. 'a Bin_prot.Write.writer -> 'a t Bin_prot.Write.writer =
+        fun _write_a buf ~pos -> function
+        | Infinite -> Bin_prot.Write.bin_write_int_8bit buf ~pos 0
+        | Finite v1 ->
+          let pos = Bin_prot.Write.bin_write_int_8bit buf ~pos 1 in
+          _write_a buf ~pos v1
+      ;;
+
+      let _ = bin_write_t
+
+      let bin_writer_t =
+        (fun bin_writer_a ->
+           { size = (fun v -> bin_size_t bin_writer_a.size v)
+           ; write = (fun v -> bin_write_t bin_writer_a.write v)
+           }
+         : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+      ;;
+
+      let _ = bin_writer_t
+
+      let __bin_read_t__
+        : 'a. 'a Bin_prot.Read.reader -> (int -> 'a t) Bin_prot.Read.reader
+        =
+        fun _of__a _buf ~pos_ref _vint ->
+        Bin_prot.Common.raise_variant_wrong_type
+          "limiter.ml.before-ppx.Infinite_or_finite.T.t"
+          !pos_ref
+      ;;
+
+      let _ = __bin_read_t__
+
+      let bin_read_t : 'a. 'a Bin_prot.Read.reader -> 'a t Bin_prot.Read.reader =
+        fun _of__a buf ~pos_ref ->
+        match Bin_prot.Read.bin_read_int_8bit buf ~pos_ref with
+        | 0 -> Infinite
+        | 1 ->
+          let arg_1 = _of__a buf ~pos_ref in
+          Finite arg_1
+        | _ ->
+          Bin_prot.Common.raise_read_error
+            (Bin_prot.Common.ReadError.Sum_tag
+               "limiter.ml.before-ppx.Infinite_or_finite.T.t")
+            !pos_ref
+      ;;
+
+      let _ = bin_read_t
+
+      let bin_reader_t =
+        (fun bin_reader_a ->
+           { read = (fun buf ~pos_ref -> (bin_read_t bin_reader_a.read) buf ~pos_ref)
+           ; vtag_read =
+               (fun buf ~pos_ref vtag ->
+                 (__bin_read_t__ bin_reader_a.read) buf ~pos_ref vtag)
+           }
+         : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+      ;;
+
+      let _ = bin_reader_t
+
+      let bin_t =
+        (fun bin_a ->
+           { writer = bin_writer_t bin_a.writer
+           ; reader = bin_reader_t bin_a.reader
+           ; shape = bin_shape_t bin_a.shape
+           }
+         : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+      ;;
+
+      let _ = bin_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   include T
@@ -20,9 +185,15 @@ module Infinite_or_finite = struct
   ;;
 end
 
-(** Mutable version of Infinite_or_finite, for internal use, to avoid allocation *)
 module Iofm : sig
   type 'a t [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   val infinite : unit -> 'a t
   val finite : 'a -> 'a t
@@ -35,6 +206,16 @@ module Iofm : sig
   val of_ordinary : 'a Infinite_or_finite.t -> 'a t
 end = struct
   type 'a t = 'a Moption.t [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : 'a t) -> ()
+
+    let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+      fun _of_a__016_ x__017_ -> Moption.sexp_of_t _of_a__016_ x__017_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let infinite () = Moption.create ()
 
@@ -50,36 +231,44 @@ end = struct
   let set_finite = Moption.set_some
   let get_finite_exn = Moption.get_some_exn
 
-  let[@inline always] to_ordinary t : _ Infinite_or_finite.t =
+  let to_ordinary t : _ Infinite_or_finite.t =
     if Moption.is_none t then Infinite else Finite (Moption.get_some_exn t)
+  [@@inline always]
   ;;
 
-  let[@inline always] of_ordinary (ext : _ Infinite_or_finite.t) =
+  let of_ordinary (ext : _ Infinite_or_finite.t) =
     match ext with
     | Infinite -> infinite ()
     | Finite v -> finite v
+  [@@inline always]
   ;;
 end
+[@@ocaml.doc
+  " Mutable version of Infinite_or_finite, for internal use, to avoid allocation "]
 
 open Infinite_or_finite.T
 
-(** Collect all the "dimensional analysis"-type things in one place.  Not every possible
-    function is exposed here, just the ones that are actually used.
-
-    These types are not exposed in the mli. *)
 module Float_types : sig
   module Tokens_per_sec : sig
     type t = private float
 
-    (** This is the only entry-point to the interface, as all arguments in the mli are
-        "*_per_sec".  *)
     val create : float -> t
+    [@@ocaml.doc
+      " This is the only entry-point to the interface, as all arguments in the mli are\n\
+      \        \"*_per_sec\".  "]
 
     val to_span : t -> tokens:int -> Time_ns.Span.t
   end
 
   module Tokens_per_ns : sig
     type t = private float [@@deriving sexp_of]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     val to_tokens_per_sec : t -> Tokens_per_sec.t
     val of_tokens_per_sec : Tokens_per_sec.t -> t
@@ -96,15 +285,21 @@ end = struct
   module Tokens_per_ns = struct
     type t = float [@@deriving sexp_of]
 
+    include struct
+      let _ = fun (_ : t) -> ()
+      let sexp_of_t = (sexp_of_float : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let to_tokens_per_sec x = x *. 1E9
     let of_tokens_per_sec x = x /. 1E9
-
-    (* this will raise when there is an int overflow, but in a way that will be annoying
-       to understand/track down if it fails.  This comment is here to help while keeping
-       the common case fast. *)
     let to_tokens t span = Float.iround_down_exn (t *. Time_ns.Span.to_ns span)
   end
 end
+[@@ocaml.doc
+  " Collect all the \"dimensional analysis\"-type things in one place.  Not every possible\n\
+  \    function is exposed here, just the ones that are actually used.\n\n\
+  \    These types are not exposed in the mli. "]
 
 open Float_types
 
@@ -133,6 +328,19 @@ module Try_reconfigure_result = struct
     | Reconfigured
     | Unable
   [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let sexp_of_t =
+      (function
+       | Reconfigured -> Sexplib0.Sexp.Atom "Reconfigured"
+       | Unable -> Sexplib0.Sexp.Atom "Unable"
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module Time_ns = struct
@@ -144,20 +352,98 @@ end
 type t =
   { start_time : Time_ns.t
   ; mutable time : Time_ns.t
-      (** The current time of the rate limiter.  Note that when this is moved forward,
-      [in_hopper] must be updated accordingly. *)
+        [@ocaml.doc
+          " The current time of the rate limiter.  Note that when this is moved forward,\n\
+          \      [in_hopper] must be updated accordingly. "]
   ; time_in_token_space : int Iofm.t
-      (** the amount of time that has passed expressed in token terms, since start_time. *)
-  ; mutable in_bucket : int (** number of tokens in the bucket *)
-  ; in_hopper : int Iofm.t (** number of tokens in the hopper.  May be [inf] *)
+        [@ocaml.doc
+          " the amount of time that has passed expressed in token terms, since \
+           start_time. "]
+  ; mutable in_bucket : int [@ocaml.doc " number of tokens in the bucket "]
+  ; in_hopper : int Iofm.t [@ocaml.doc " number of tokens in the hopper.  May be [inf] "]
   ; mutable in_flight : int
-      (** Everything that has been taken from bucket but not returned to hopper *)
-  ; mutable bucket_limit : int (** maximum size allowable in the bucket *)
-  ; in_flight_limit : int Iofm.t (** maximum size allowable in flight *)
+        [@ocaml.doc
+          " Everything that has been taken from bucket but not returned to hopper "]
+  ; mutable bucket_limit : int [@ocaml.doc " maximum size allowable in the bucket "]
+  ; in_flight_limit : int Iofm.t [@ocaml.doc " maximum size allowable in flight "]
   ; mutable hopper_to_bucket_rate_per_ns : Tokens_per_ns.t Iofm.t
-      (** rate at which tokens "fall" from the hopper into the bucket *)
+        [@ocaml.doc " rate at which tokens \"fall\" from the hopper into the bucket "]
   }
 [@@deriving sexp_of]
+
+include struct
+  let _ = fun (_ : t) -> ()
+
+  let sexp_of_t =
+    (fun { start_time = start_time__019_
+         ; time = time__021_
+         ; time_in_token_space = time_in_token_space__023_
+         ; in_bucket = in_bucket__025_
+         ; in_hopper = in_hopper__027_
+         ; in_flight = in_flight__029_
+         ; bucket_limit = bucket_limit__031_
+         ; in_flight_limit = in_flight_limit__033_
+         ; hopper_to_bucket_rate_per_ns = hopper_to_bucket_rate_per_ns__035_
+         } ->
+       let bnds__018_ = ([] : _ Stdlib.List.t) in
+       let bnds__018_ =
+         let arg__036_ =
+           Iofm.sexp_of_t Tokens_per_ns.sexp_of_t hopper_to_bucket_rate_per_ns__035_
+         in
+         (Sexplib0.Sexp.List
+            [ Sexplib0.Sexp.Atom "hopper_to_bucket_rate_per_ns"; arg__036_ ]
+          :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__034_ = Iofm.sexp_of_t sexp_of_int in_flight_limit__033_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "in_flight_limit"; arg__034_ ]
+          :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__032_ = sexp_of_int bucket_limit__031_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "bucket_limit"; arg__032_ ]
+          :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__030_ = sexp_of_int in_flight__029_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "in_flight"; arg__030_ ] :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__028_ = Iofm.sexp_of_t sexp_of_int in_hopper__027_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "in_hopper"; arg__028_ ] :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__026_ = sexp_of_int in_bucket__025_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "in_bucket"; arg__026_ ] :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__024_ = Iofm.sexp_of_t sexp_of_int time_in_token_space__023_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "time_in_token_space"; arg__024_ ]
+          :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__022_ = Time_ns.sexp_of_t time__021_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "time"; arg__022_ ] :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       let bnds__018_ =
+         let arg__020_ = Time_ns.sexp_of_t start_time__019_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "start_time"; arg__020_ ] :: bnds__018_
+          : _ Stdlib.List.t)
+       in
+       Sexplib0.Sexp.List bnds__018_
+     : t -> Sexplib0.Sexp.t)
+  ;;
+
+  let _ = sexp_of_t
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 let fill_rate_is_positive_or_zero fill_rate =
   Iofm.is_infinite fill_rate
@@ -174,26 +460,105 @@ let invariant t =
   if not (fill_rate_is_positive_or_zero t.hopper_to_bucket_rate_per_ns)
   then
     raise_s
-      [%message
-        "hopper_to_bucket_rate_per_ns must be >= 0"
-          (t.hopper_to_bucket_rate_per_ns : Tokens_per_ns.t Iofm.t)];
-  (* bucket is limited to size *)
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "hopper_to_bucket_rate_per_ns must be >= 0"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "t.hopper_to_bucket_rate_per_ns"
+               ; ((fun x__037_ -> Iofm.sexp_of_t Tokens_per_ns.sexp_of_t x__037_)
+                    [@merlin.hide])
+                   t.hopper_to_bucket_rate_per_ns
+               ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   if t.in_bucket > t.bucket_limit
   then
     failwithf
-      !"amount in_bucket (%{Int}) cannot be greater than bucket_limit (%{Int})"
+      ((Format
+          ( String_literal
+              ( "amount in_bucket ("
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__039_ -> Int.to_string _custom_printf__039_)
+                  , String_literal
+                      ( ") cannot be greater than bucket_limit ("
+                      , Custom
+                          ( Custom_succ Custom_zero
+                          , (fun () _custom_printf__038_ ->
+                              Int.to_string _custom_printf__038_)
+                          , Char_literal (')', End_of_format) ) ) ) )
+          , "amount in_bucket (%{Int}) cannot be greater than bucket_limit (%{Int})" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
       t.in_bucket
       t.bucket_limit
       ();
-  (* sizes must be positive *)
   if t.bucket_limit <= 0
-  then failwithf !"bucket_limit (burst_size) (%{Int}) must be > 0" t.bucket_limit ();
-  if t.in_bucket < 0 then failwithf !"in_bucket (%{Int}) must be >= 0." t.in_bucket ();
+  then
+    failwithf
+      ((Format
+          ( String_literal
+              ( "bucket_limit (burst_size) ("
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__040_ -> Int.to_string _custom_printf__040_)
+                  , String_literal (") must be > 0", End_of_format) ) )
+          , "bucket_limit (burst_size) (%{Int}) must be > 0" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      t.bucket_limit
+      ();
+  if t.in_bucket < 0
+  then
+    failwithf
+      ((Format
+          ( String_literal
+              ( "in_bucket ("
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__041_ -> Int.to_string _custom_printf__041_)
+                  , String_literal (") must be >= 0.", End_of_format) ) )
+          , "in_bucket (%{Int}) must be >= 0." )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      t.in_bucket
+      ();
   (match Iofm.to_ordinary t.in_hopper with
    | Infinite -> ()
    | Finite in_hopper ->
-     if in_hopper < 0 then failwithf !"in_hopper (%{Int}) must be >= 0." in_hopper ());
-  if t.in_flight < 0 then failwithf !"in_flight (%{Int}) must be >= 0." t.in_flight ();
+     if in_hopper < 0
+     then
+       failwithf
+         ((Format
+             ( String_literal
+                 ( "in_hopper ("
+                 , Custom
+                     ( Custom_succ Custom_zero
+                     , (fun () _custom_printf__042_ -> Int.to_string _custom_printf__042_)
+                     , String_literal (") must be >= 0.", End_of_format) ) )
+             , "in_hopper (%{Int}) must be >= 0." )
+          : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+          [@merlin.hide])
+         in_hopper
+         ());
+  if t.in_flight < 0
+  then
+    failwithf
+      ((Format
+          ( String_literal
+              ( "in_flight ("
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__043_ -> Int.to_string _custom_printf__043_)
+                  , String_literal (") must be >= 0.", End_of_format) ) )
+          , "in_flight (%{Int}) must be >= 0." )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      t.in_flight
+      ();
   match
     ( Iofm.to_ordinary t.hopper_to_bucket_rate_per_ns
     , Iofm.to_ordinary t.time_in_token_space )
@@ -207,13 +572,19 @@ let invariant t =
 
 type limiter = t [@@deriving sexp_of]
 
+include struct
+  let _ = fun (_ : limiter) -> ()
+  let sexp_of_limiter = (sexp_of_t : limiter -> Sexplib0.Sexp.t)
+  let _ = sexp_of_limiter
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 let create_exn
-  ~now
-  ~hopper_to_bucket_rate_per_sec
-  ~bucket_limit
-  ~in_flight_limit
-  ~initial_bucket_level
-  ~initial_hopper_level
+      ~now
+      ~hopper_to_bucket_rate_per_sec
+      ~bucket_limit
+      ~in_flight_limit
+      ~initial_bucket_level
+      ~initial_hopper_level
   =
   let in_hopper = Iofm.of_ordinary initial_hopper_level in
   let time_in_token_space =
@@ -253,10 +624,7 @@ let move_from_hopper_to_bucket t max_move =
     then Iofm.set_finite t.in_hopper (Iofm.get_finite_exn t.in_hopper - actual_move))
 ;;
 
-(* Computes the number of tokens that would have dropped since start_time given the
-   current rate *)
 let update_time_in_token_space (t : t) =
-  (* if it's infinite then time_in_token_space was set to infinite in [create_exn] *)
   if Iofm.is_finite t.hopper_to_bucket_rate_per_ns
   then (
     let tokens_per_ns = Iofm.get_finite_exn t.hopper_to_bucket_rate_per_ns in
@@ -266,11 +634,7 @@ let update_time_in_token_space (t : t) =
     Iofm.set_finite t.time_in_token_space time_in_token_space)
 ;;
 
-(* Advances [t]s notion of time, moving tokens from the hopper down into the bucket as
-   dictated by the passage of time and the [hopper_to_bucket_rate_per_ns]. *)
 let advance_time =
-  (* Just updates [t] to match the current value of [t.time]. We write it this way to make
-     it clear that now is not directly used in [update_tokens]. *)
   let update_tokens t =
     if Iofm.is_infinite t.time_in_token_space
     then (
@@ -285,7 +649,6 @@ let advance_time =
       update_time_in_token_space t;
       let new_time_in_token_space = Iofm.get_finite_exn t.time_in_token_space in
       let amount_that_could_fall =
-        (* this will always be >= 0 because time always moves forward *)
         new_time_in_token_space - previous_time_in_token_space
       in
       let max_move =
@@ -297,9 +660,6 @@ let advance_time =
   in
   fun t ~now ->
     if Time_ns.( > ) now t.time then t.time <- now;
-    (* this has to be run even if time doesn't move forward to handle the case of an
-       Infinite hopper to bucket drop rate.  In that case tokens in the hopper may
-       instantaneously move into the bucket. *)
     update_tokens t
 ;;
 
@@ -325,11 +685,39 @@ let try_take t ~now amount : Try_take_result.t =
 
 let return_to_hopper t ~now amount =
   if amount < 0
-  then failwithf !"return_to_hopper passed a negative amount (%{Int})" amount ();
+  then
+    failwithf
+      ((Format
+          ( String_literal
+              ( "return_to_hopper passed a negative amount ("
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__044_ -> Int.to_string _custom_printf__044_)
+                  , Char_literal (')', End_of_format) ) )
+          , "return_to_hopper passed a negative amount (%{Int})" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
+      amount
+      ();
   if amount > t.in_flight
   then
     failwithf
-      !"return_to_hopper passed an amount (%{Int}) > in_flight (%{Int})"
+      ((Format
+          ( String_literal
+              ( "return_to_hopper passed an amount ("
+              , Custom
+                  ( Custom_succ Custom_zero
+                  , (fun () _custom_printf__046_ -> Int.to_string _custom_printf__046_)
+                  , String_literal
+                      ( ") > in_flight ("
+                      , Custom
+                          ( Custom_succ Custom_zero
+                          , (fun () _custom_printf__045_ ->
+                              Int.to_string _custom_printf__045_)
+                          , Char_literal (')', End_of_format) ) ) ) )
+          , "return_to_hopper passed an amount (%{Int}) > in_flight (%{Int})" )
+       : (_, _, _, _, _, _) CamlinternalFormatBasics.format6)
+       [@merlin.hide])
       amount
       t.in_flight
       ();
@@ -369,7 +757,7 @@ let tokens_may_be_available_when t ~now amount : Tokens_may_be_available_result.
           (Tokens_per_ns.to_tokens_per_sec tokens_per_ns)
           ~tokens:amount_missing
       in
-      let (min_time : Tokens_may_be_available_result.t) =
+      let min_time : Tokens_may_be_available_result.t =
         At (Time_ns.add t.time min_time_left)
       in
       if Iofm.is_infinite t.in_hopper
@@ -420,12 +808,18 @@ let hopper_to_bucket_rate_per_sec t =
 module Token_bucket = struct
   type t = limiter [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : t) -> ()
+    let sexp_of_t = (sexp_of_limiter : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let create_exn
-    ~now
-    ~burst_size:bucket_limit
-    ~sustained_rate_per_sec:fill_rate
-    ?(initial_bucket_level = 0)
-    ()
+        ~now
+        ~burst_size:bucket_limit
+        ~sustained_rate_per_sec:fill_rate
+        ?(initial_bucket_level = 0)
+        ()
     =
     create_exn
       ~now
@@ -441,20 +835,27 @@ module Token_bucket = struct
   module Starts_full = struct
     type nonrec t = t [@@deriving sexp_of]
 
+    include struct
+      let _ = fun (_ : t) -> ()
+      let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let create_exn ~now ~burst_size =
       create_exn ~now ~burst_size ~initial_bucket_level:burst_size ()
     ;;
 
     let try_reconfigure
-      t
-      ~burst_size:new_bucket_limit
-      ~sustained_rate_per_sec:new_sustained_rate_per_sec
-      ~allow_limit_decrease
+          t
+          ~burst_size:new_bucket_limit
+          ~sustained_rate_per_sec:new_sustained_rate_per_sec
+          ~allow_limit_decrease
       : Try_reconfigure_result.t
       =
       let used = t.bucket_limit - t.in_bucket in
-      if ((not allow_limit_decrease) && t.bucket_limit > new_bucket_limit)
-         || used > new_bucket_limit
+      if
+        ((not allow_limit_decrease) && t.bucket_limit > new_bucket_limit)
+        || used > new_bucket_limit
       then Unable
       else (
         let hopper_to_bucket_rate_per_ns =
@@ -476,6 +877,12 @@ end
 module Throttled_rate_limiter = struct
   type t = limiter [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : t) -> ()
+    let sexp_of_t = (sexp_of_limiter : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let create_exn ~now ~burst_size ~sustained_rate_per_sec:fill_rate ~max_concurrent_jobs =
     let bucket_limit = burst_size in
     let initial_bucket_level = Int.min bucket_limit max_concurrent_jobs in
@@ -493,11 +900,11 @@ module Throttled_rate_limiter = struct
 
   let try_start_job t ~now =
     match try_take t ~now 1 with
-    | Asked_for_more_than_bucket_limit -> assert false (* see create *)
+    | Asked_for_more_than_bucket_limit -> assert false
     | Taken -> `Start
     | Unable ->
       (match tokens_may_be_available_when t ~now 1 with
-       | Never_because_greater_than_bucket_limit -> assert false (* see create *)
+       | Never_because_greater_than_bucket_limit -> assert false
        | When_return_to_hopper_is_called -> `Max_concurrent_jobs_running
        | At time -> `Unable_until_at_least time)
   ;;
@@ -509,8 +916,6 @@ module Throttle = struct
   include Throttled_rate_limiter
 
   let create_exn ~now ~max_concurrent_jobs =
-    (* the sustained rate is immediately overridden with
-       set_hopper_to_bucket_rate_per_sec *)
     let sustained_rate_unused = 1. in
     let t =
       create_exn
@@ -521,8 +926,6 @@ module Throttle = struct
     in
     Iofm.set_infinite t.hopper_to_bucket_rate_per_ns;
     Iofm.set_infinite t.time_in_token_space;
-    (* Since we set the hopper rate to infinite then the bucket can immediately be
-       filled. *)
     t.in_bucket <- t.bucket_limit;
     t
   ;;
@@ -542,3 +945,7 @@ module Expert = struct
   let try_return_to_bucket = try_return_to_bucket
   let tokens_may_be_available_when = tokens_may_be_available_when
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

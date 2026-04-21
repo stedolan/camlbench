@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"bigstring_unix.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "bigstring_unix.ml.before-ppx"
+;;
+
 [%%import "config.h"]
 
 open! Core
@@ -7,6 +20,21 @@ open Bigarray
 include Core.Bigstring
 
 exception IOError of int * exn [@@deriving sexp]
+
+include struct
+  let () =
+    Sexplib0.Sexp_conv.Exn_converter.add [%extension_constructor IOError] (function
+      | IOError (arg0__001_, arg1__002_) ->
+        let res0__003_ = sexp_of_int arg0__001_
+        and res1__004_ = sexp_of_exn arg1__002_ in
+        Sexplib0.Sexp.List
+          [ Sexplib0.Sexp.Atom "bigstring_unix.ml.before-ppx.IOError"
+          ; res0__003_
+          ; res1__004_
+          ]
+      | _ -> assert false)
+  ;;
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 external init_stub : unit -> unit = "bigstring_init_stub"
 
@@ -29,8 +57,6 @@ let check_min_len ~loc ~len = function
       invalid_arg msg);
     min_len
 ;;
-
-(* Input functions *)
 
 external unsafe_read
   :  min_len:int
@@ -171,8 +197,6 @@ let really_input ic ?(pos = 0) ?len bstr =
   ignore (unsafe_input ~min_len:len ic ~pos ~len bstr : int)
 ;;
 
-(* Output functions *)
-
 external unsafe_really_write
   :  Unix.File_descr.t
   -> pos:int
@@ -232,7 +256,7 @@ external unsafe_send_nonblocking_no_sigpipe
   -> t
   -> Syscall_result.Int.t
   = "bigstring_send_nonblocking_no_sigpipe_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let send_nonblocking_no_sigpipe fd ?(pos = 0) ?len bstr =
   let len = get_opt_len bstr ~pos len in
@@ -380,17 +404,11 @@ let recvmmsg_assume_fd_is_nonblocking fd ?count ?srcs iovecs ~lens =
 let unsafe_recvmmsg_assume_fd_is_nonblocking = Ok unsafe_recvmmsg_assume_fd_is_nonblocking
 
 let recvmmsg_assume_fd_is_nonblocking =
-  (* At Jane Street, we link with [--wrap recvmmsg] so that we can use our own wrapper
-     around [recvmmsg].  This allows us to compile an executable on a machine that has
-     recvmmsg (e.g., CentOS 6) but then run the executable on a machine that does not
-     (e.g., CentOS 5), but that has our wrapper library.  We set up our wrapper so that
-     when running on a machine that doesn't have it, [recvmmsg] always returns -1 and sets
-     errno to ENOSYS. *)
   let ok = Ok recvmmsg_assume_fd_is_nonblocking in
   try
     assert (
       recvmmsg_assume_fd_is_nonblocking (Unix.File_descr.of_int (-1)) [||] ~lens:[||] = 0);
-    ok (* maybe it will ignore the bogus sockfd *)
+    ok
   with
   | Unix.Unix_error (ENOSYS, _, _) ->
     Or_error.unimplemented "Bigstring.recvmmsg_assume_fd_is_nonblocking"
@@ -398,7 +416,6 @@ let recvmmsg_assume_fd_is_nonblocking =
 ;;
 
 [%%else]
-(* NDEF RECVMMSG *)
 
 let unsafe_recvmmsg_assume_fd_is_nonblocking =
   Or_error.unimplemented "Bigstring.unsafe_recvmmsg_assume_fd_is_nonblocking"
@@ -409,12 +426,7 @@ let recvmmsg_assume_fd_is_nonblocking =
 ;;
 
 [%%endif]
-(* RECVMMSG *)
-
-(* Memory mapping *)
-
 [%%ifdef JSC_MSG_NOSIGNAL]
-(* Input and output, linux only *)
 
 external unsafe_sendmsg_nonblocking_no_sigpipe
   :  Unix.File_descr.t
@@ -448,8 +460,10 @@ let unsafe_sendmsg_nonblocking_no_sigpipe =
 
 [%%endif]
 
-(* Memory mapping *)
-
 let map_file ~shared fd size =
   Bigarray.array1_of_genarray (Unix.map_file fd Bigarray.char c_layout ~shared [| size |])
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

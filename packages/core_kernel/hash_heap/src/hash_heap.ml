@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"hash_heap.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "hash_heap.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 open Hash_heap_intf
@@ -28,8 +41,6 @@ module Make (Key : Key) : S with module Key = Key = struct
 
   let comparator t = t.cmp
 
-  (* [push_new_key] adds an entry to the heap without checking for duplicates.  Thus it
-     should only be called when the key is known not to be present already. *)
   let push_new_key t ~key ~data =
     let el = Heap.add_removable t.heap (key, data) in
     Hashtbl.set t.tbl ~key ~data:el
@@ -44,6 +55,21 @@ module Make (Key : Key) : S with module Key = Key = struct
   ;;
 
   exception Key_already_present of Key.t [@@deriving sexp]
+
+  include struct
+    let () =
+      Sexplib0.Sexp_conv.Exn_converter.add
+        [%extension_constructor Key_already_present]
+        (function
+        | Key_already_present arg0__001_ ->
+          let res0__002_ = Key.sexp_of_t arg0__001_ in
+          Sexplib0.Sexp.List
+            [ Sexplib0.Sexp.Atom "hash_heap.ml.before-ppx.Make.Key_already_present"
+            ; res0__002_
+            ]
+        | _ -> assert false)
+    ;;
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let push_exn t ~key ~data =
     match push t ~key ~data with
@@ -125,6 +151,21 @@ module Make (Key : Key) : S with module Key = Key = struct
 
   exception Key_not_found of Key.t [@@deriving sexp]
 
+  include struct
+    let () =
+      Sexplib0.Sexp_conv.Exn_converter.add
+        [%extension_constructor Key_not_found]
+        (function
+        | Key_not_found arg0__003_ ->
+          let res0__004_ = Key.sexp_of_t arg0__003_ in
+          Sexplib0.Sexp.List
+            [ Sexplib0.Sexp.Atom "hash_heap.ml.before-ppx.Make.Key_not_found"
+            ; res0__004_
+            ]
+        | _ -> assert false)
+    ;;
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let find_exn t key =
     match find t key with
     | Some el -> el
@@ -170,3 +211,7 @@ module Make (Key : Key) : S with module Key = Key = struct
     Hashtbl.clear t.tbl
   ;;
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

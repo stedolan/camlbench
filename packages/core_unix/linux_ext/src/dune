@@ -6,9 +6,9 @@
  (public_name core_unix.linux_ext)
  (libraries core_kernel.bounded_int_table core core_thread filename_unix
    time_ns_unix)
- (preprocessor_deps config.h)
- (preprocess
-  (pps ppx_jane ppx_optcomp)))
+;; (preprocessor_deps config.h)
+;; (preprocess (pps ppx_jane ppx_optcomp))
+)
 
 (rule
  (targets config.h)

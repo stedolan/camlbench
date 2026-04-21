@@ -1,28 +1,48 @@
-(** See {{!Iobuf}[Iobuf]} for documentation. *)
+[@@@ocaml.text " See {{!Iobuf}[Iobuf]} for documentation. "]
+
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"iobuf_intf.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "iobuf_intf.ml.before-ppx"
+;;
 
 open! Core
 
-(** [no_seek] and [seek] are phantom types used in a similar manner to [read] and
-    [read_write]. *)
+[@@@ocaml.text
+  " [no_seek] and [seek] are phantom types used in a similar manner to [read] and\n\
+  \    [read_write]. "]
 
-(** Like [read]. *)
-type no_seek [@@deriving sexp_of]
+type no_seek [@@ocaml.doc " Like [read]. "] [@@deriving sexp_of]
 
-(** Like [read_write]. *)
-type seek = private no_seek [@@deriving sexp_of]
+include struct
+  let _ = fun (_ : no_seek) -> ()
+  let sexp_of_no_seek = (fun _ -> assert false : no_seek -> Sexplib0.Sexp.t)
+  let _ = sexp_of_no_seek
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
-(** Collections of access functions.  These abstract over [Iobuf.Consume], [Iobuf.Fill],
-    [Iobuf.Peek], and [Iobuf.Poke].
+type seek = private no_seek [@@ocaml.doc " Like [read_write]. "] [@@deriving sexp_of]
 
-    Make all labeled arguments mandatory in [string] and [bigstring] to avoid accidental
-    allocation in, e.g., [Iobuf.Poke.string].  For convenience, [stringo] and [bigstringo]
-    are available by analogy between [blit] and [blito].
+include struct
+  let _ = fun (_ : seek) -> ()
 
-    [_trunc] functions silently truncate values that don't fit.  For example,
-    [Iobuf.Unsafe.Poke.int8 128] effectively writes -128. *)
+  let sexp_of_seek =
+    (fun v__001_ -> sexp_of_no_seek (v__001_ : seek :> no_seek) : seek -> Sexplib0.Sexp.t)
+  ;;
+
+  let _ = sexp_of_seek
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 module type Accessors_common = sig
-  (** [('d, 'w) Iobuf.t] accessor function manipulating ['a], either writing it to the
-      iobuf or reading it from the iobuf. *)
+  [@@@ocaml.text
+    " [('d, 'w) Iobuf.t] accessor function manipulating ['a], either writing it to the\n\
+    \      iobuf or reading it from the iobuf. "]
 
   type ('a, 'd, 'w) t constraint 'd = [> read ]
   type ('a, 'd, 'w) t_local constraint 'd = [> read ]
@@ -31,6 +51,16 @@ module type Accessors_common = sig
   val char : (char, 'd, 'w) t
   val bin_prot : 'a bin_prot -> ('a, 'd, 'w) t
 end
+[@@ocaml.doc
+  " Collections of access functions.  These abstract over [Iobuf.Consume], [Iobuf.Fill],\n\
+  \    [Iobuf.Peek], and [Iobuf.Poke].\n\n\
+  \    Make all labeled arguments mandatory in [string] and [bigstring] to avoid \
+   accidental\n\
+  \    allocation in, e.g., [Iobuf.Poke.string].  For convenience, [stringo] and \
+   [bigstringo]\n\
+  \    are available by analogy between [blit] and [blito].\n\n\
+  \    [_trunc] functions silently truncate values that don't fit.  For example,\n\
+  \    [Iobuf.Unsafe.Poke.int8 128] effectively writes -128. "]
 
 module type Accessors_read = sig
   include Accessors_common
@@ -137,28 +167,36 @@ module type Accessors_write = sig
   end
 end
 
-(** An iobuf window bound, either upper or lower.  You can't see its int value, but you
-    can save and restore it. *)
 module type Bound = sig
   type ('d, 'w) iobuf
+  type t = private int [@@deriving compare, sexp_of]
 
-  type t = private int (*_ performance hack: avoid the write barrier *)
-  [@@deriving compare, sexp_of]
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   val window : (_, _) iobuf -> t
   val limit : (_, _) iobuf -> t
   val restore : t -> (_, seek) iobuf -> unit
 end
+[@@ocaml.doc
+  " An iobuf window bound, either upper or lower.  You can't see its int value, but you\n\
+  \    can save and restore it. "]
 
-(** The [src_pos] argument of {!Core.Blit.blit} doesn't make sense here. *)
+[@@@ocaml.text " The [src_pos] argument of {!Core.Blit.blit} doesn't make sense here. "]
 
 type ('src, 'dst) consuming_blit = src:'src -> dst:'dst -> dst_pos:int -> len:int -> unit
 
 type ('src, 'dst) consuming_blito =
   src:'src
-  -> ?src_len:int (** Default is [Iobuf.length src]. *)
+  -> ?src_len:(int[@ocaml.doc " Default is [Iobuf.length src]. "])
   -> dst:'dst
-  -> ?dst_pos:int (** Default is [0]. *)
+  -> ?dst_pos:(int[@ocaml.doc " Default is [0]. "])
   -> unit
   -> unit
 
@@ -170,8 +208,8 @@ module type Consuming_blit = sig
   val blit : (src, dst) consuming_blit
   val unsafe_blit : (src, dst) consuming_blit
 
-  (** [subo] defaults to using [Iobuf.length src] *)
   val subo : ?len:int -> src -> dst
+  [@@ocaml.doc " [subo] defaults to using [Iobuf.length src] "]
 
   val sub : src -> len:int -> dst
 end
@@ -182,6 +220,17 @@ module type Compound_hexdump = sig
   module Hexdump : sig
     type nonrec ('rw, 'seek) t = ('rw, 'seek) t [@@deriving sexp_of]
 
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t
+        :  ('rw -> Sexplib0.Sexp.t)
+        -> ('seek -> Sexplib0.Sexp.t)
+        -> ('rw, 'seek) t
+        -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     val to_string_hum : ?max_lines:int -> (_, _) t -> string
     val to_sequence : ?max_lines:int -> (_, _) t -> string Sequence.t
   end
@@ -191,7 +240,7 @@ module type Peek = sig
   type ('rw, 'seek) iobuf
   type 'seek src = (read, 'seek) iobuf
 
-  (** Similar to [Consume.To_*], but do not advance the buffer. *)
+  [@@@ocaml.text " Similar to [Consume.To_*], but do not advance the buffer. "]
 
   module To_bytes :
     Blit.S1_distinct with type 'seek src := 'seek src with type _ dst := Bytes.t
@@ -206,7 +255,11 @@ module type Peek = sig
 
   include
     Accessors_read
-      with type ('a, 'd, 'w) t = ('d, 'w) iobuf -> pos:int -> 'a
-      with type ('a, 'd, 'w) t_local = ('d, 'w) iobuf -> pos:int -> 'a
-      with type 'a bin_prot := 'a Bin_prot.Type_class.reader
+    with type ('a, 'd, 'w) t = ('d, 'w) iobuf -> pos:int -> 'a
+    with type ('a, 'd, 'w) t_local = ('d, 'w) iobuf -> pos:int -> 'a
+    with type 'a bin_prot := 'a Bin_prot.Type_class.reader
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

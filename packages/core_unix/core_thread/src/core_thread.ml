@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"core_thread.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "core_thread.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
@@ -8,11 +21,30 @@ include Caml_threads.Thread [@@ocaml.alert "-deprecated"]
 let wait_timed_read = wait_timed_read [@@ocaml.alert "-deprecated"]
 let wait_timed_write = wait_timed_write [@@ocaml.alert "-deprecated"]
 let exit = exit [@@ocaml.alert "-deprecated"]
-let sexp_of_t t = [%message "thread" ~id:(id t : int)]
+
+let sexp_of_t t =
+  let ppx_sexp_message () =
+    Ppx_sexp_conv_lib.Sexp.List
+      [ Ppx_sexp_conv_lib.Conv.sexp_of_string "thread"
+      ; Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.Atom "id"; (sexp_of_int [@merlin.hide]) (id t) ]
+      ]
+      [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+  in
+  (ppx_sexp_message () [@nontail])
+;;
+
 let create_should_raise = ref false
 
 let create ~on_uncaught_exn f arg =
-  if !create_should_raise then raise_s [%message "Core_thread.create requested to raise"];
+  if !create_should_raise
+  then
+    raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Conv.sexp_of_string "Core_thread.create requested to raise"
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   threads_have_been_created := true;
   let f arg : unit =
     let exit =
@@ -91,3 +123,7 @@ let getaffinity_self_exn = Error (not_supported "pthread_getaffinity_np")
 module For_testing = struct
   let create_should_raise = create_should_raise
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

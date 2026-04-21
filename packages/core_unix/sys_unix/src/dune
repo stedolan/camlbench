@@ -5,5 +5,5 @@
  (name sys_unix)
  (public_name core_unix.sys_unix)
  (libraries core_kernel.caml_unix core)
- (preprocess
-  (pps ppx_jane ppx_optcomp)))
+;; (preprocess  (pps ppx_jane ppx_optcomp))
+)

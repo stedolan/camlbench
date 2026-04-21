@@ -10,3 +10,10 @@ type t =
   | Inherit
   | Cpuset of Cpuset.t
 [@@deriving sexp]
+
+include sig
+  [@@@ocaml.warning "-32"]
+
+  include Sexplib0.Sexpable.S with type t := t
+end
+[@@ocaml.doc "@inline"] [@@merlin.hide]

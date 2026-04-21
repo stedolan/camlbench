@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"tuple_pool.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "tuple_pool.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 open Tuple_pool_intf
@@ -26,10 +39,24 @@ module Pool = struct
       if capacity <= old_capacity
       then
         failwiths
-          ~here:[%here]
+          ~here:
+            { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+            ; pos_lnum = 29
+            ; pos_cnum = 658
+            ; pos_bol = 642
+            }
           "Pool.grow got too small capacity"
           (`capacity capacity, `old_capacity old_capacity)
-          [%sexp_of: [ `capacity of int ] * [ `old_capacity of int ]];
+          ((fun (arg0__003_, arg1__004_) ->
+             let res0__005_ =
+               let (`capacity v__001_) = arg0__003_ in
+               Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "capacity"; sexp_of_int v__001_ ]
+             and res1__006_ =
+               let (`old_capacity v__002_) = arg1__004_ in
+               Sexplib0.Sexp.List
+                 [ Sexplib0.Sexp.Atom "old_capacity"; sexp_of_int v__002_ ]
+             in
+             Sexplib0.Sexp.List [ res0__005_; res1__006_ ]) [@merlin.hide]);
       capacity
   ;;
 
@@ -37,36 +64,24 @@ module Pool = struct
 
   let max_slot = 14
 
-  (* The pool is represented as a single [Uniform_array.t], where index zero has the
-     metadata about the pool and the remaining indices are the tuples layed out one after
-     the other.  Each tuple takes [1 + slots_per_tuple] indices in the pool, where the
-     first index holds a header and the remaining indices hold the tuple's slots:
-
-     {v
-     | header | s0 | s1 | ... | s<N-1> |
-     v}
-
-     A [Pointer.t] to a tuple contains the integer index where its header is, as well as
-     (a mask of) the tuple's unique id.
-
-     The free tuples are singly linked via the headers.
-
-     When a tuple is in use, its header is marked to indicate so, and also to include the
-     tuple's unique id.  This allows us to check in constant time whether a pointer is
-     valid, by comparing the id in the pointer with the id in the header.
-
-     When a tuple is not in use, its header is part of the free list, and its tuple slots
-     have dummy values of the appropriate types, from the [dummy] tuple supplied to
-     [create].  We must have dummy values of the correct type to prevent a segfault in
-     code that (mistakenly) uses a pointer to a free tuple.
-
-     For [Pool.Unsafe], a slot in a free object is guaranteed to be an int; it must not be
-     pointer to prevent a space leak.  However, the int in the slot may not represent a
-     valid value of the type.
-  *)
-
   module Slot = struct
     type ('slots, 'a) t = int [@@deriving sexp_of]
+
+    include struct
+      let _ = fun (_ : ('slots, 'a) t) -> ()
+
+      let sexp_of_t
+        :  'slots 'a.
+           ('slots -> Sexplib0.Sexp.t)
+        -> ('a -> Sexplib0.Sexp.t)
+        -> ('slots, 'a) t
+        -> Sexplib0.Sexp.t
+        =
+        fun _of_slots__007_ _of_a__008_ -> sexp_of_int
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let equal (t1 : (_, _) t) t2 = t1 = t2
     let t0 = 1
@@ -83,19 +98,19 @@ module Pool = struct
     let t11 = 12
     let t12 = 13
     let t13 = 14
-    let%test _ = t13 = max_slot
+
+    let () =
+      Ppx_inline_test_lib.test
+        ~config:(module Inline_test_config)
+        ~descr:(lazy "<<t13 = max_slot>>")
+        ~tags:[]
+        ~filename:"tuple_pool.ml.before-ppx"
+        ~line_number:86
+        ~start_pos:4
+        ~end_pos:31
+        (fun () -> t13 = max_slot)
+    ;;
   end
-
-  (* We only have [Int.num_bits] bits available for pool pointers.  The bits of a pool
-     pointer encode two things:
-
-     - the tuple's array index in the pool
-     - the tuple's identifier (not necessarily unique)
-
-     We choose [array_index_num_bits] as large as needed for the maximum pool capacity
-     that we want to support, and use the remaining [masked_tuple_id_num_bits] bits for
-     the identifier.  64-bit and 32-bit architectures typically have very different
-     address-space sizes, so we choose [array_index_num_bits] differently. *)
 
   let array_index_num_bits =
     if arch_sixtyfour
@@ -108,13 +123,54 @@ module Pool = struct
   ;;
 
   let masked_tuple_id_num_bits = Int.num_bits - array_index_num_bits
-  let%test _ = array_index_num_bits > 0
-  let%test _ = masked_tuple_id_num_bits > 0
-  let%test _ = array_index_num_bits + masked_tuple_id_num_bits <= Int.num_bits
+
+  let () =
+    Ppx_inline_test_lib.test
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<array_index_num_bits > 0>>")
+      ~tags:[]
+      ~filename:"tuple_pool.ml.before-ppx"
+      ~line_number:111
+      ~start_pos:2
+      ~end_pos:39
+      (fun () -> array_index_num_bits > 0)
+  ;;
+
+  let () =
+    Ppx_inline_test_lib.test
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<masked_tuple_id_num_bits > 0>>")
+      ~tags:[]
+      ~filename:"tuple_pool.ml.before-ppx"
+      ~line_number:112
+      ~start_pos:2
+      ~end_pos:43
+      (fun () -> masked_tuple_id_num_bits > 0)
+  ;;
+
+  let () =
+    Ppx_inline_test_lib.test
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<(array_index_num_bits + masked_tuple_id_num_b[...]>>")
+      ~tags:[]
+      ~filename:"tuple_pool.ml.before-ppx"
+      ~line_number:113
+      ~start_pos:2
+      ~end_pos:78
+      (fun () -> array_index_num_bits + masked_tuple_id_num_bits <= Int.num_bits)
+  ;;
+
   let max_array_length = 1 lsl array_index_num_bits
 
   module Tuple_id : sig
     type t = private int [@@deriving sexp_of]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     include Invariant.S with type t := t
 
@@ -128,8 +184,12 @@ module Pool = struct
   end = struct
     type t = int [@@deriving sexp_of]
 
-    (* We guarantee that tuple ids are nonnegative so that they can be encoded in
-       headers. *)
+    include struct
+      let _ = fun (_ : t) -> ()
+      let sexp_of_t = (sexp_of_int : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let invariant t = assert (t >= 0)
     let to_string = Int.to_string
     let equal (t1 : t) t2 = t1 = t2
@@ -139,7 +199,17 @@ module Pool = struct
 
     let of_int i =
       if i < 0
-      then failwiths ~here:[%here] "Tuple_id.of_int got negative int" i [%sexp_of: int];
+      then
+        failwiths
+          ~here:
+            { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+            ; pos_lnum = 142
+            ; pos_cnum = 4449
+            ; pos_bol = 4422
+            }
+          "Tuple_id.of_int got negative int"
+          i
+          (sexp_of_int [@merlin.hide]);
       i
     ;;
 
@@ -149,32 +219,23 @@ module Pool = struct
   let tuple_id_mask = (1 lsl masked_tuple_id_num_bits) - 1
 
   module Pointer : sig
-    (* [Pointer.t] is an encoding as an [int] of the following sum type:
-
-       {[
-         | Null
-         | Normal of { header_index : int; masked_tuple_id : int }
-       ]}
-
-       The encoding is chosen to optimize the most common operation, namely tuple-slot
-       access, the [slot_index] function.  The encoding is designed so that [slot_index]
-       produces a negative number for [Null], which will cause the subsequent array bounds
-       check to fail. *)
-
     type 'slots t = private int [@@deriving sexp_of, typerep]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : ('slots -> Sexplib0.Sexp.t) -> 'slots t -> Sexplib0.Sexp.t
+
+      include Typerep_lib.Typerepable.S1 with type 'slots t := 'slots t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     include Invariant.S1 with type 'a t := 'a t
 
     val phys_compare : 'a t -> 'a t -> int
     val phys_equal : 'a t -> 'a t -> bool
-
-    (* The null pointer.  [null] is a function due to issues with the value restriction. *)
-
     val null : unit -> _ t
     val is_null : _ t -> bool
-
-    (* Normal pointers. *)
-
     val create : header_index:int -> Tuple_id.t -> _ t
     val header_index : _ t -> int
     val masked_tuple_id : _ t -> int
@@ -184,6 +245,14 @@ module Pool = struct
     module Id : sig
       type t [@@deriving bin_io, sexp]
 
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        include Bin_prot.Binable.S with type t := t
+        include Sexplib0.Sexpable.S with type t := t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       val to_int63 : t -> Int63.t
       val of_int63 : Int63.t -> t
     end
@@ -191,9 +260,34 @@ module Pool = struct
     val to_id : _ t -> Id.t
     val of_id_exn : Id.t -> _ t
   end = struct
-    (* A pointer is either [null] or the (positive) index in the pool of the next-free
-       field preceeding the tuple's slots. *)
     type 'slots t = int [@@deriving typerep]
+
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : 'slots t) -> ()
+
+      module Typename_of_t = Typerep_lib.Std.Make_typename.Make1 (struct
+          type nonrec 'slots t = 'slots t
+
+          let name = "tuple_pool.ml.before-ppx.Pool.Pointer.t"
+          let _ = name
+        end)
+
+      let typename_of_t = Typename_of_t.typename_of_t
+      let _ = typename_of_t
+
+      let typerep_of_t
+        : 'slots. 'slots Typerep_lib.Std.Typerep.t -> 'slots t Typerep_lib.Std.Typerep.t
+        =
+        fun (type slots) ->
+        fun (_of_slots : slots Typerep_lib.Std.Typerep.t) ->
+        let name_of_t = Typename_of_t.named _of_slots in
+        Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy typerep_of_int))
+      ;;
+
+      let _ = typerep_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let sexp_of_t _ t = Sexp.Atom (sprintf "<Pool.Pointer.t: 0x%08x>" t)
     let phys_equal (t1 : _ t) t2 = phys_equal t1 t2
@@ -201,9 +295,17 @@ module Pool = struct
     let null () = -max_slot - 1
     let is_null t = phys_equal t (null ())
 
-    (* [null] must be such that [null + slot] is an invalid array index for all slots.
-       Otherwise get/set on the null pointer may lead to a segfault. *)
-    let%test _ = null () + max_slot < 0
+    let () =
+      Ppx_inline_test_lib.test
+        ~config:(module Inline_test_config)
+        ~descr:(lazy "<<((null ()) + max_slot) < 0>>")
+        ~tags:[]
+        ~filename:"tuple_pool.ml.before-ppx"
+        ~line_number:206
+        ~start_pos:4
+        ~end_pos:39
+        (fun () -> null () + max_slot < 0)
+    ;;
 
     let create ~header_index (tuple_id : Tuple_id.t) =
       header_index
@@ -214,11 +316,34 @@ module Pool = struct
     let masked_tuple_id t = t lsr array_index_num_bits
     let header_index t = t land header_index_mask
     let invariant _ t = if not (is_null t) then assert (header_index t > 0)
-    let%test_unit _ = invariant ignore (null ())
 
-    let%test_unit _ =
-      List.iter Tuple_id.examples ~f:(fun tuple_id ->
-        invariant ignore (create ~header_index:1 tuple_id))
+    let () =
+      Ppx_inline_test_lib.test_unit
+        ~config:(module Inline_test_config)
+        ~descr:(lazy "<<invariant ignore (null ())>>")
+        ~tags:[]
+        ~filename:"tuple_pool.ml.before-ppx"
+        ~line_number:217
+        ~start_pos:4
+        ~end_pos:48
+        (fun () ->
+           invariant ignore (null ());
+           ())
+    ;;
+
+    let () =
+      Ppx_inline_test_lib.test_unit
+        ~config:(module Inline_test_config)
+        ~descr:(lazy "<<List.iter Tuple_id.examples   ~f:(fun tuple_i[...]>>")
+        ~tags:[]
+        ~filename:"tuple_pool.ml.before-ppx"
+        ~line_number:219
+        ~start_pos:4
+        ~end_pos:135
+        (fun () ->
+           List.iter Tuple_id.examples ~f:(fun tuple_id ->
+             invariant ignore (create ~header_index:1 tuple_id));
+           ())
     ;;
 
     let slot_index t slot = header_index t + slot
@@ -244,52 +369,59 @@ module Pool = struct
           in
           if phys_equal t should_equal
           then t
-          else failwiths ~here:[%here] "should equal" should_equal [%sexp_of: _ t])
+          else
+            failwiths
+              ~here:
+                { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+                ; pos_lnum = 247
+                ; pos_cnum = 7731
+                ; pos_bol = 7700
+                }
+              "should equal"
+              should_equal
+              ((fun x__009_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__009_)
+                 [@merlin.hide]))
       with
       | exn ->
         failwiths
-          ~here:[%here]
+          ~here:
+            { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+            ; pos_lnum = 251
+            ; pos_cnum = 7844
+            ; pos_bol = 7828
+            }
           "Pointer.of_id_exn got strange id"
           (id, exn)
-          [%sexp_of: Id.t * exn]
+          ((fun (arg0__010_, arg1__011_) ->
+             let res0__012_ = Id.sexp_of_t arg0__010_
+             and res1__013_ = sexp_of_exn arg1__011_ in
+             Sexplib0.Sexp.List [ res0__012_; res1__013_ ]) [@merlin.hide])
     ;;
   end
 
   module Header : sig
-    (* A [Header.t] is an encoding as an [int] of the following type:
-
-       {[
-         | Null
-         | Free of { next_free_header_index : int }
-         | Used of { tuple_id : int }
-       ]}
-
-       If a tuple is free, its header is set to either [Null] or [Free] with
-       [next_free_header_index] indicating the header of the next tuple on the free list.
-       If a tuple is in use, it header is set to [Used]. *)
-
     type t = private int [@@deriving sexp_of]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     val null : t
     val is_null : t -> bool
     val free : next_free_header_index:int -> t
     val is_free : t -> bool
     val next_free_header_index : t -> int
-
-    (* only valid if [is_free t] *)
-
     val used : Tuple_id.t -> t
     val is_used : t -> bool
     val tuple_id : t -> Tuple_id.t
-
-    (* only valid if [is_used t] *)
   end = struct
     type t = int
 
     let null = 0
     let is_null t = t = 0
-
-    (* We know that header indices are [> 0], because index [0] holds the metadata. *)
     let free ~next_free_header_index = next_free_header_index
     let is_free t = t > 0
     let next_free_header_index t = t
@@ -297,19 +429,33 @@ module Pool = struct
     let is_used t = t < 0
     let tuple_id t = Tuple_id.of_int (-(t + 1))
 
-    let%test_unit _ =
-      List.iter Tuple_id.examples ~f:(fun id ->
-        let t = used id in
-        assert (is_used t);
-        assert (Tuple_id.equal (tuple_id t) id))
+    let () =
+      Ppx_inline_test_lib.test_unit
+        ~config:(module Inline_test_config)
+        ~descr:(lazy "<<List.iter Tuple_id.examples   ~f:(fun id ->  [...]>>")
+        ~tags:[]
+        ~filename:"tuple_pool.ml.before-ppx"
+        ~line_number:300
+        ~start_pos:4
+        ~end_pos:173
+        (fun () ->
+           List.iter Tuple_id.examples ~f:(fun id ->
+             let t = used id in
+             assert (is_used t);
+             assert (Tuple_id.equal (tuple_id t) id));
+           ())
     ;;
 
     let sexp_of_t t =
       if is_null t
       then Sexp.Atom "null"
       else if is_free t
-      then Sexp.(List [ Atom "Free"; Atom (Int.to_string (next_free_header_index t)) ])
-      else Sexp.(List [ Atom "Used"; Atom (Tuple_id.to_string (tuple_id t)) ])
+      then
+        let open Sexp in
+        List [ Atom "Free"; Atom (Int.to_string (next_free_header_index t)) ]
+      else
+        let open Sexp in
+        List [ Atom "Used"; Atom (Tuple_id.to_string (tuple_id t)) ]
     ;;
   end
 
@@ -320,33 +466,212 @@ module Pool = struct
     (max_array_length - start_of_tuples_index) / (1 + slots_per_tuple)
   ;;
 
-  let%test_unit _ =
-    for slots_per_tuple = 1 to max_slot do
-      assert (
-        start_of_tuples_index + ((1 + slots_per_tuple) * max_capacity ~slots_per_tuple)
-        <= max_array_length)
-    done
+  let () =
+    Ppx_inline_test_lib.test_unit
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<for slots_per_tuple = 1 to max_slot do   asse[...]>>")
+      ~tags:[]
+      ~filename:"tuple_pool.ml.before-ppx"
+      ~line_number:323
+      ~start_pos:2
+      ~end_pos:203
+      (fun () ->
+         for slots_per_tuple = 1 to max_slot do
+           assert (
+             start_of_tuples_index
+             + ((1 + slots_per_tuple) * max_capacity ~slots_per_tuple)
+             <= max_array_length)
+         done;
+         ())
   ;;
 
   module Metadata = struct
     type 'slots t =
-      { (* [slots_per_tuple] is number of slots in a tuple as seen by the user; i.e. not
-           counting the next-free pointer. *)
-        slots_per_tuple : int
+      { slots_per_tuple : int
       ; capacity : int
       ; mutable length : int
       ; mutable next_id : Tuple_id.t
       ; mutable first_free : Header.t
-          (* [dummy] is [None] in an unsafe pool.  In a safe pool, [dummy] is [Some a], with
-         [Uniform_array.length a = slots_per_tuple].  [dummy] is actually a tuple value
-         with the correct type (corresponding to ['slots]), but we make the type of
-         [dummy] be [Obj.t Uniform_array.t] because we can't write that type here.  Also,
-         the purpose of [dummy] is to initialize a pool element, making [dummy] an [Obj.t
-         Uniform_array.t] lets us initialize a pool element using [Uniform_array.blit]
-         from [dummy] to the pool, which is an [Obj.t Uniform_array.t]. *)
       ; dummy : (Obj.t Uniform_array.t[@sexp.opaque]) option
       }
     [@@deriving fields ~iterators:iter, sexp_of]
+
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : 'slots t) -> ()
+      let dummy _r__ = _r__.dummy
+      let _ = dummy
+      let first_free _r__ = _r__.first_free
+      let _ = first_free
+      let set_first_free _r__ v__ = _r__.first_free <- v__
+      let _ = set_first_free
+      let next_id _r__ = _r__.next_id
+      let _ = next_id
+      let set_next_id _r__ v__ = _r__.next_id <- v__
+      let _ = set_next_id
+      let length _r__ = _r__.length
+      let _ = length
+      let set_length _r__ v__ = _r__.length <- v__
+      let _ = set_length
+      let capacity _r__ = _r__.capacity
+      let _ = capacity
+      let slots_per_tuple _r__ = _r__.slots_per_tuple
+      let _ = slots_per_tuple
+
+      module Fields = struct
+        let dummy =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "dummy"
+             ; getter = dummy
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with dummy = v__ })
+             }
+           : ( [< `Read | `Set_and_create ]
+               , _
+               , (Obj.t Uniform_array.t[@sexp.opaque]) option )
+               Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = dummy
+
+        let first_free =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "first_free"
+             ; getter = first_free
+             ; setter = Some set_first_free
+             ; fset = (fun _r__ v__ -> { _r__ with first_free = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, Header.t) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = first_free
+
+        let next_id =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "next_id"
+             ; getter = next_id
+             ; setter = Some set_next_id
+             ; fset = (fun _r__ v__ -> { _r__ with next_id = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, Tuple_id.t) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = next_id
+
+        let length =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "length"
+             ; getter = length
+             ; setter = Some set_length
+             ; fset = (fun _r__ v__ -> { _r__ with length = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = length
+
+        let capacity =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "capacity"
+             ; getter = capacity
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with capacity = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = capacity
+
+        let slots_per_tuple =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "slots_per_tuple"
+             ; getter = slots_per_tuple
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with slots_per_tuple = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = slots_per_tuple
+
+        let iter
+              ~slots_per_tuple:slots_per_tuple_fun__
+              ~capacity:capacity_fun__
+              ~length:length_fun__
+              ~next_id:next_id_fun__
+              ~first_free:first_free_fun__
+              ~dummy:dummy_fun__
+          =
+          (slots_per_tuple_fun__ slots_per_tuple : unit);
+          (capacity_fun__ capacity : unit);
+          (length_fun__ length : unit);
+          (next_id_fun__ next_id : unit);
+          (first_free_fun__ first_free : unit);
+          (dummy_fun__ dummy : unit)
+        ;;
+
+        let _ = iter
+      end
+
+      let sexp_of_t : 'slots. ('slots -> Sexplib0.Sexp.t) -> 'slots t -> Sexplib0.Sexp.t =
+        fun _of_slots__014_
+          { slots_per_tuple = slots_per_tuple__016_
+          ; capacity = capacity__018_
+          ; length = length__020_
+          ; next_id = next_id__022_
+          ; first_free = first_free__024_
+          ; dummy = dummy__026_
+          } ->
+        let bnds__015_ = ([] : _ Stdlib.List.t) in
+        let bnds__015_ =
+          let arg__027_ = sexp_of_option Sexplib0.Sexp_conv.sexp_of_opaque dummy__026_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "dummy"; arg__027_ ] :: bnds__015_
+           : _ Stdlib.List.t)
+        in
+        let bnds__015_ =
+          let arg__025_ = Header.sexp_of_t first_free__024_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "first_free"; arg__025_ ] :: bnds__015_
+           : _ Stdlib.List.t)
+        in
+        let bnds__015_ =
+          let arg__023_ = Tuple_id.sexp_of_t next_id__022_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "next_id"; arg__023_ ] :: bnds__015_
+           : _ Stdlib.List.t)
+        in
+        let bnds__015_ =
+          let arg__021_ = sexp_of_int length__020_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "length"; arg__021_ ] :: bnds__015_
+           : _ Stdlib.List.t)
+        in
+        let bnds__015_ =
+          let arg__019_ = sexp_of_int capacity__018_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "capacity"; arg__019_ ] :: bnds__015_
+           : _ Stdlib.List.t)
+        in
+        let bnds__015_ =
+          let arg__017_ = sexp_of_int slots_per_tuple__016_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "slots_per_tuple"; arg__017_ ]
+           :: bnds__015_
+           : _ Stdlib.List.t)
+        in
+        Sexplib0.Sexp.List bnds__015_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let array_indices_per_tuple t = 1 + t.slots_per_tuple
     let array_length t = start_of_tuples_index + (t.capacity * array_indices_per_tuple t)
@@ -368,21 +693,17 @@ module Pool = struct
 
   open Metadata
 
-  (* We use type [Obj.t] because the array holds a mix of integers as well as OCaml values
-     of arbitrary type. *)
   type 'slots t = Obj.t Uniform_array.t
 
   let metadata (type slots) (t : slots t) =
-    Uniform_array.unsafe_get t metadata_index |> (Obj.obj : _ -> slots Metadata.t)
+    (Obj.obj : _ -> slots Metadata.t) (Uniform_array.unsafe_get t metadata_index)
   ;;
 
   let length t = (metadata t).length
   let sexp_of_t sexp_of_ty t = Metadata.sexp_of_t sexp_of_ty (metadata t)
 
-  (* Because [unsafe_header] and [unsafe_set_header] do not do a bounds check, one must be
-     sure that one has a valid [header_index] before calling them. *)
   let unsafe_header t ~header_index =
-    Uniform_array.unsafe_get t header_index |> (Obj.obj : _ -> Header.t)
+    (Obj.obj : _ -> Header.t) (Uniform_array.unsafe_get t header_index)
   ;;
 
   let unsafe_set_header t ~header_index (header : Header.t) =
@@ -403,9 +724,6 @@ module Pool = struct
 
   let pointer_is_valid t pointer =
     header_index_is_in_bounds t ~header_index:(Pointer.header_index pointer)
-    (* At this point, we know the pointer isn't [null] and is in bounds, so we know it is
-       the index of a header, since we maintain the invariant that all pointers other than
-       [null] are. *)
     && unsafe_pointer_is_live t pointer
   ;;
 
@@ -426,16 +744,35 @@ module Pool = struct
       then (
         let header_index = Pointer.header_index pointer in
         if not (is_valid_header_index t ~header_index)
-        then failwiths ~here:[%here] "invalid header index" header_index [%sexp_of: int];
+        then
+          failwiths
+            ~here:
+              { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+              ; pos_lnum = 429
+              ; pos_cnum = 13902
+              ; pos_bol = 13873
+              }
+            "invalid header index"
+            header_index
+            (sexp_of_int [@merlin.hide]);
         if not (unsafe_pointer_is_live t pointer) then failwith "pointer not live");
       pointer
     with
     | exn ->
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+          ; pos_lnum = 435
+          ; pos_cnum = 14114
+          ; pos_bol = 14100
+          }
         "Pool.pointer_of_id_exn got invalid id"
         (id, t, exn)
-        [%sexp_of: Pointer.Id.t * _ t * exn]
+        ((fun (arg0__028_, arg1__029_, arg2__030_) ->
+           let res0__031_ = Pointer.Id.sexp_of_t arg0__028_
+           and res1__032_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__029_
+           and res2__033_ = sexp_of_exn arg2__030_ in
+           Sexplib0.Sexp.List [ res0__031_; res1__032_; res2__033_ ]) [@merlin.hide])
   ;;
 
   let invariant _invariant_a t : unit =
@@ -464,27 +801,50 @@ module Pool = struct
                assert (is_valid_header_index t ~header_index);
                let tuple_num = header_index_to_tuple_num metadata ~header_index in
                if free.(tuple_num)
-               then failwiths ~here:[%here] "cycle in free list" tuple_num [%sexp_of: int];
+               then
+                 failwiths
+                   ~here:
+                     { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+                     ; pos_lnum = 467
+                     ; pos_cnum = 15430
+                     ; pos_bol = 15394
+                     }
+                   "cycle in free list"
+                   tuple_num
+                   (sexp_of_int [@merlin.hide]);
                free.(tuple_num) <- true;
                r := unsafe_header t ~header_index
              done))
         ~dummy:
           (check (function
-            | Some dummy -> assert (Uniform_array.length dummy = metadata.slots_per_tuple)
-            | None ->
-              for tuple_num = 0 to metadata.capacity - 1 do
-                let header_index = tuple_num_to_header_index metadata tuple_num in
-                let header = unsafe_header t ~header_index in
-                if Header.is_free header
-                then (
-                  let first_slot = tuple_num_to_first_slot_index metadata tuple_num in
-                  for slot = 0 to metadata.slots_per_tuple - 1 do
-                    assert (Obj.is_int (Uniform_array.get t (first_slot + slot)))
-                  done)
-              done))
+             | Some dummy ->
+               assert (Uniform_array.length dummy = metadata.slots_per_tuple)
+             | None ->
+               for tuple_num = 0 to metadata.capacity - 1 do
+                 let header_index = tuple_num_to_header_index metadata tuple_num in
+                 let header = unsafe_header t ~header_index in
+                 if Header.is_free header
+                 then (
+                   let first_slot = tuple_num_to_first_slot_index metadata tuple_num in
+                   for slot = 0 to metadata.slots_per_tuple - 1 do
+                     assert (Obj.is_int (Uniform_array.get t (first_slot + slot)))
+                   done)
+               done))
     with
     | exn ->
-      failwiths ~here:[%here] "Pool.invariant failed" (exn, t) [%sexp_of: exn * _ t]
+      failwiths
+        ~here:
+          { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+          ; pos_lnum = 487
+          ; pos_cnum = 16346
+          ; pos_bol = 16324
+          }
+        "Pool.invariant failed"
+        (exn, t)
+        ((fun (arg0__034_, arg1__035_) ->
+           let res0__036_ = sexp_of_exn arg0__034_
+           and res1__037_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__035_ in
+           Sexplib0.Sexp.List [ res0__036_; res1__037_ ]) [@merlin.hide])
   ;;
 
   let capacity t = (metadata t).capacity
@@ -505,9 +865,6 @@ module Pool = struct
     t
   ;;
 
-  (* Initialize tuples numbered from [lo] (inclusive) up to [hi] (exclusive).  For each
-     tuple, this puts dummy values in the tuple's slots and adds the tuple to the free
-     list. *)
   let unsafe_init_range t metadata ~lo ~hi =
     (match metadata.dummy with
      | None -> ()
@@ -531,16 +888,36 @@ module Pool = struct
   let create_with_dummy slots ~capacity ~dummy =
     if capacity < 0
     then
-      failwiths ~here:[%here] "Pool.create got invalid capacity" capacity [%sexp_of: int];
+      failwiths
+        ~here:
+          { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+          ; pos_lnum = 534
+          ; pos_cnum = 17885
+          ; pos_bol = 17863
+          }
+        "Pool.create got invalid capacity"
+        capacity
+        (sexp_of_int [@merlin.hide]);
     let slots_per_tuple = Slots.slots_per_tuple slots in
     let max_capacity = max_capacity ~slots_per_tuple in
     if capacity > max_capacity
     then
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+          ; pos_lnum = 540
+          ; pos_cnum = 18137
+          ; pos_bol = 18123
+          }
         "Pool.create got too large capacity"
         (capacity, `max max_capacity)
-        [%sexp_of: int * [ `max of int ]];
+        ((fun (arg0__039_, arg1__040_) ->
+           let res0__041_ = sexp_of_int arg0__039_
+           and res1__042_ =
+             let (`max v__038_) = arg1__040_ in
+             Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "max"; sexp_of_int v__038_ ]
+           in
+           Sexplib0.Sexp.List [ res0__041_; res1__042_ ]) [@merlin.hide]);
     let metadata =
       { Metadata.slots_per_tuple
       ; capacity
@@ -564,13 +941,8 @@ module Pool = struct
     create_with_dummy slots ~capacity ~dummy:(Some dummy)
   ;;
 
-  (* Purge a pool and make it unusable. *)
   let destroy t =
     let metadata = metadata t in
-    (* We clear out all the pool's entries, which causes all pointers to be invalid.  This
-       also prevents the destroyed pool from unnecessarily keeping heap blocks alive.
-       This is similar to [free]ing all the entries with the difference that we make the
-       free list empty as well. *)
     (match metadata.dummy with
      | None ->
        for i = start_of_tuples_index to Uniform_array.length t - 1 do
@@ -599,7 +971,7 @@ module Pool = struct
     set_metadata t metadata
   ;;
 
-  let[@cold] grow ?capacity t =
+  let grow ?capacity t =
     let { Metadata.slots_per_tuple
         ; capacity = old_capacity
         ; length
@@ -616,10 +988,15 @@ module Pool = struct
     if capacity = old_capacity
     then
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+          ; pos_lnum = 619
+          ; pos_cnum = 20510
+          ; pos_bol = 20496
+          }
         "Pool.grow cannot grow pool; capacity already at maximum"
         capacity
-        [%sexp_of: int];
+        (sexp_of_int [@merlin.hide]);
     let metadata =
       { Metadata.slots_per_tuple
       ; capacity
@@ -645,10 +1022,22 @@ module Pool = struct
       then unsafe_add_to_free_list t' metadata ~header_index
     done;
     t'
+  [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
   ;;
 
-  let[@cold] raise_malloc_full t =
-    failwiths ~here:[%here] "Pool.malloc of full pool" t [%sexp_of: _ t]
+  let raise_malloc_full t =
+    failwiths
+      ~here:
+        { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+        ; pos_lnum = 651
+        ; pos_cnum = 21452
+        ; pos_bol = 21432
+        }
+      "Pool.malloc of full pool"
+      t
+      ((fun x__043_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__043_)
+         [@merlin.hide])
+  [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
   ;;
 
   let malloc (type slots) (t : slots t) : slots Pointer.t =
@@ -684,17 +1073,21 @@ module Pool = struct
   ;;
 
   let free (type slots) (t : slots t) (pointer : slots Pointer.t) =
-    (* Check [pointer_is_valid] to:
-       - avoid freeing a null pointer
-       - avoid freeing a free pointer (this would lead to a pool inconsistency)
-       - be able to use unsafe functions after. *)
     if not (pointer_is_valid t pointer)
     then
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+          ; pos_lnum = 694
+          ; pos_cnum = 23079
+          ; pos_bol = 23065
+          }
         "Pool.free of invalid pointer"
         (pointer, t)
-        [%sexp_of: _ Pointer.t * _ t];
+        ((fun (arg0__044_, arg1__045_) ->
+           let res0__046_ = Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg0__044_
+           and res1__047_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__045_ in
+           Sexplib0.Sexp.List [ res0__046_; res1__047_ ]) [@merlin.hide]);
     unsafe_free t pointer
   ;;
 
@@ -907,8 +1300,8 @@ module Pool = struct
     else
       (Obj.magic
          (Uniform_array.sub t ~pos:(Pointer.first_slot_index pointer) ~len
-           : Obj.t Uniform_array.t)
-        : tuple)
+          : Obj.t Uniform_array.t)
+       : tuple)
   ;;
 end
 
@@ -936,7 +1329,8 @@ module Debug (Pool : S) = struct
       Debug.eprints
         (concat [ prefix; name; " result" ])
         result_or_exn
-        [%sexp_of: (result, exn) Result.t];
+        ((fun x__048_ -> Result.sexp_of_t sexp_of_result sexp_of_exn x__048_)
+           [@merlin.hide]);
     Result.ok_exn result_or_exn
   ;;
 
@@ -948,13 +1342,49 @@ module Debug (Pool : S) = struct
 
     type nonrec 'slots t = 'slots t [@@deriving sexp_of, typerep]
 
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : 'slots t) -> ()
+
+      let sexp_of_t : 'slots. ('slots -> Sexplib0.Sexp.t) -> 'slots t -> Sexplib0.Sexp.t =
+        fun _of_slots__049_ x__050_ -> sexp_of_t _of_slots__049_ x__050_
+      ;;
+
+      let _ = sexp_of_t
+
+      module Typename_of_t = Typerep_lib.Std.Make_typename.Make1 (struct
+          type nonrec 'slots t = 'slots t
+
+          let name = "tuple_pool.ml.before-ppx.Debug.Pointer.t"
+          let _ = name
+        end)
+
+      let typename_of_t = Typename_of_t.typename_of_t
+      let _ = typename_of_t
+
+      let typerep_of_t
+        : 'slots. 'slots Typerep_lib.Std.Typerep.t -> 'slots t Typerep_lib.Std.Typerep.t
+        =
+        fun (type slots) ->
+        fun (_of_slots : slots Typerep_lib.Std.Typerep.t) ->
+        let name_of_t = Typename_of_t.named _of_slots in
+        Typerep_lib.Std.Typerep.Named (name_of_t, Some (lazy (typerep_of_t _of_slots)))
+      ;;
+
+      let _ = typerep_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let phys_compare t1 t2 =
       debug
         "Pointer.phys_compare"
         []
         (t1, t2)
-        [%sexp_of: _ t * _ t]
-        [%sexp_of: int]
+        ((fun (arg0__051_, arg1__052_) ->
+           let res0__053_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg0__051_
+           and res1__054_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__052_ in
+           Sexplib0.Sexp.List [ res0__053_; res1__054_ ]) [@merlin.hide])
+        (sexp_of_int [@merlin.hide])
         (fun () -> phys_compare t1 t2)
     ;;
 
@@ -963,13 +1393,23 @@ module Debug (Pool : S) = struct
         "Pointer.phys_equal"
         []
         (t1, t2)
-        [%sexp_of: _ t * _ t]
-        [%sexp_of: bool]
+        ((fun (arg0__055_, arg1__056_) ->
+           let res0__057_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg0__055_
+           and res1__058_ = sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") arg1__056_ in
+           Sexplib0.Sexp.List [ res0__057_; res1__058_ ]) [@merlin.hide])
+        (sexp_of_bool [@merlin.hide])
         (fun () -> phys_equal t1 t2)
     ;;
 
     let is_null t =
-      debug "Pointer.is_null" [] t [%sexp_of: _ t] [%sexp_of: bool] (fun () -> is_null t)
+      debug
+        "Pointer.is_null"
+        []
+        t
+        ((fun x__059_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__059_)
+           [@merlin.hide])
+        (sexp_of_bool [@merlin.hide])
+        (fun () -> is_null t)
     ;;
 
     let null = null
@@ -979,19 +1419,86 @@ module Debug (Pool : S) = struct
 
       type nonrec t = t [@@deriving bin_io, sexp]
 
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "tuple_pool.ml.before-ppx:980:6")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+        let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+        let _ = t_of_sexp
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       let of_int63 i =
-        debug "Pointer.Id.of_int63" [] i [%sexp_of: Int63.t] [%sexp_of: t] (fun () ->
-          of_int63 i)
+        debug
+          "Pointer.Id.of_int63"
+          []
+          i
+          (Int63.sexp_of_t [@merlin.hide])
+          (sexp_of_t [@merlin.hide])
+          (fun () -> of_int63 i)
       ;;
 
       let to_int63 t =
-        debug "Pointer.Id.to_int63" [] t [%sexp_of: t] [%sexp_of: Int63.t] (fun () ->
-          to_int63 t)
+        debug
+          "Pointer.Id.to_int63"
+          []
+          t
+          (sexp_of_t [@merlin.hide])
+          (Int63.sexp_of_t [@merlin.hide])
+          (fun () -> to_int63 t)
       ;;
     end
   end
 
   type nonrec 'slots t = 'slots t [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : 'slots t) -> ()
+
+    let sexp_of_t : 'slots. ('slots -> Sexplib0.Sexp.t) -> 'slots t -> Sexplib0.Sexp.t =
+      fun _of_slots__061_ x__062_ -> sexp_of_t _of_slots__061_ x__062_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let invariant = invariant
   let length = length
@@ -1001,8 +1508,9 @@ module Debug (Pool : S) = struct
       "id_of_pointer"
       [ t ]
       pointer
-      [%sexp_of: _ Pointer.t]
-      [%sexp_of: Pointer.Id.t]
+      ((fun x__063_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__063_)
+         [@merlin.hide])
+      (Pointer.Id.sexp_of_t [@merlin.hide])
       (fun () -> id_of_pointer t pointer)
   ;;
 
@@ -1011,8 +1519,9 @@ module Debug (Pool : S) = struct
       "pointer_of_id_exn"
       [ t ]
       id
-      [%sexp_of: Pointer.Id.t]
-      [%sexp_of: _ Pointer.t]
+      (Pointer.Id.sexp_of_t [@merlin.hide])
+      ((fun x__064_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__064_)
+         [@merlin.hide])
       (fun () -> pointer_of_id_exn t id)
   ;;
 
@@ -1021,23 +1530,42 @@ module Debug (Pool : S) = struct
       "pointer_is_valid"
       [ t ]
       pointer
-      [%sexp_of: _ Pointer.t]
-      [%sexp_of: bool]
+      ((fun x__065_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__065_)
+         [@merlin.hide])
+      (sexp_of_bool [@merlin.hide])
       (fun () -> pointer_is_valid t pointer)
   ;;
 
   let create slots ~capacity ~dummy =
-    debug "create" [] capacity [%sexp_of: int] [%sexp_of: _ t] (fun () ->
-      create slots ~capacity ~dummy)
+    debug
+      "create"
+      []
+      capacity
+      (sexp_of_int [@merlin.hide])
+      ((fun x__066_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__066_)
+         [@merlin.hide])
+      (fun () -> create slots ~capacity ~dummy)
   ;;
 
   let max_capacity ~slots_per_tuple =
-    debug "max_capacity" [] slots_per_tuple [%sexp_of: int] [%sexp_of: int] (fun () ->
-      max_capacity ~slots_per_tuple)
+    debug
+      "max_capacity"
+      []
+      slots_per_tuple
+      (sexp_of_int [@merlin.hide])
+      (sexp_of_int [@merlin.hide])
+      (fun () -> max_capacity ~slots_per_tuple)
   ;;
 
   let capacity t =
-    debug "capacity" [ t ] t [%sexp_of: _ t] [%sexp_of: int] (fun () -> capacity t)
+    debug
+      "capacity"
+      [ t ]
+      t
+      ((fun x__067_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__067_)
+         [@merlin.hide])
+      (sexp_of_int [@merlin.hide])
+      (fun () -> capacity t)
   ;;
 
   let grow ?capacity t =
@@ -1045,25 +1573,59 @@ module Debug (Pool : S) = struct
       "grow"
       [ t ]
       (`capacity capacity)
-      [%sexp_of: [ `capacity of int option ]]
-      [%sexp_of: _ t]
+      ((fun (`capacity v__068_) ->
+         Sexplib0.Sexp.List
+           [ Sexplib0.Sexp.Atom "capacity"; sexp_of_option sexp_of_int v__068_ ])
+         [@merlin.hide])
+      ((fun x__069_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__069_)
+         [@merlin.hide])
       (fun () -> grow ?capacity t)
   ;;
 
   let is_full t =
-    debug "is_full" [ t ] t [%sexp_of: _ t] [%sexp_of: bool] (fun () -> is_full t)
+    debug
+      "is_full"
+      [ t ]
+      t
+      ((fun x__070_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__070_)
+         [@merlin.hide])
+      (sexp_of_bool [@merlin.hide])
+      (fun () -> is_full t)
   ;;
 
   let unsafe_free t p =
-    debug "unsafe_free" [ t ] p [%sexp_of: _ Pointer.t] [%sexp_of: unit] (fun () ->
-      unsafe_free t p)
+    debug
+      "unsafe_free"
+      [ t ]
+      p
+      ((fun x__071_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__071_)
+         [@merlin.hide])
+      (sexp_of_unit [@merlin.hide])
+      (fun () -> unsafe_free t p)
   ;;
 
   let free t p =
-    debug "free" [ t ] p [%sexp_of: _ Pointer.t] [%sexp_of: unit] (fun () -> free t p)
+    debug
+      "free"
+      [ t ]
+      p
+      ((fun x__072_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__072_)
+         [@merlin.hide])
+      (sexp_of_unit [@merlin.hide])
+      (fun () -> free t p)
   ;;
 
-  let debug_new t f = debug "new" [ t ] () [%sexp_of: unit] [%sexp_of: _ Pointer.t] f
+  let debug_new t f =
+    debug
+      "new"
+      [ t ]
+      ()
+      (sexp_of_unit [@merlin.hide])
+      ((fun x__073_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__073_)
+         [@merlin.hide])
+      f
+  ;;
+
   let new1 t a0 = debug_new t (fun () -> new1 t a0)
   let new2 t a0 a1 = debug_new t (fun () -> new2 t a0 a1)
   let new3 t a0 a1 a2 = debug_new t (fun () -> new3 t a0 a1 a2)
@@ -1101,20 +1663,39 @@ module Debug (Pool : S) = struct
   ;;
 
   let get_tuple t pointer =
-    debug "get_tuple" [ t ] pointer [%sexp_of: _ Pointer.t] [%sexp_of: _] (fun () ->
-      get_tuple t pointer)
+    debug
+      "get_tuple"
+      [ t ]
+      pointer
+      ((fun x__074_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__074_)
+         [@merlin.hide])
+      ((fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide])
+      (fun () -> get_tuple t pointer)
   ;;
 
   let debug_get name f t pointer =
-    debug name [ t ] pointer [%sexp_of: _ Pointer.t] [%sexp_of: _] (fun () -> f t pointer)
+    debug
+      name
+      [ t ]
+      pointer
+      ((fun x__075_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__075_)
+         [@merlin.hide])
+      ((fun _ -> Sexplib0.Sexp.Atom "_") [@merlin.hide])
+      (fun () -> f t pointer)
   ;;
 
   let get t pointer slot = debug_get "get" get t pointer slot
   let unsafe_get t pointer slot = debug_get "unsafe_get" unsafe_get t pointer slot
 
   let debug_set name f t pointer slot a =
-    debug name [ t ] pointer [%sexp_of: _ Pointer.t] [%sexp_of: unit] (fun () ->
-      f t pointer slot a)
+    debug
+      name
+      [ t ]
+      pointer
+      ((fun x__076_ -> Pointer.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__076_)
+         [@merlin.hide])
+      (sexp_of_unit [@merlin.hide])
+      (fun () -> f t pointer slot a)
   ;;
 
   let set t pointer slot a = debug_set "set" set t pointer slot a
@@ -1133,6 +1714,98 @@ module Error_check (Pool : S) = struct
       }
     [@@deriving sexp_of, typerep]
 
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : 'slots t) -> ()
+
+      let sexp_of_t : 'slots. ('slots -> Sexplib0.Sexp.t) -> 'slots t -> Sexplib0.Sexp.t =
+        fun _of_slots__077_ { is_valid = is_valid__079_; pointer = pointer__081_ } ->
+        let bnds__078_ = ([] : _ Stdlib.List.t) in
+        let bnds__078_ =
+          let arg__082_ = Pointer.sexp_of_t _of_slots__077_ pointer__081_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "pointer"; arg__082_ ] :: bnds__078_
+           : _ Stdlib.List.t)
+        in
+        let bnds__078_ =
+          let arg__080_ = sexp_of_bool is_valid__079_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "is_valid"; arg__080_ ] :: bnds__078_
+           : _ Stdlib.List.t)
+        in
+        Sexplib0.Sexp.List bnds__078_
+      ;;
+
+      let _ = sexp_of_t
+
+      module Typename_of_t = Typerep_lib.Std.Make_typename.Make1 (struct
+          type nonrec 'slots t = 'slots t
+
+          let name = "tuple_pool.ml.before-ppx.Error_check.Pointer.t"
+          let _ = name
+        end)
+
+      let typename_of_t = Typename_of_t.typename_of_t
+      let _ = typename_of_t
+
+      let typerep_of_t
+        : 'slots. 'slots Typerep_lib.Std.Typerep.t -> 'slots t Typerep_lib.Std.Typerep.t
+        =
+        fun (type slots) ->
+        fun (_of_slots : slots Typerep_lib.Std.Typerep.t) ->
+        let name_of_t = Typename_of_t.named _of_slots in
+        Typerep_lib.Std.Typerep.Named
+          ( name_of_t
+          , Some
+              (lazy
+                (let field0 =
+                   Typerep_lib.Std.Typerep.Field.internal_use_only
+                     { Typerep_lib.Std.Typerep.Field_internal.label = "is_valid"
+                     ; index = 0
+                     ; is_mutable = true
+                     ; rep = typerep_of_bool
+                     ; tyid = Typerep_lib.Std.Typename.create ()
+                     ; get = (fun t -> t.is_valid)
+                     }
+                 in
+                 let field1 =
+                   Typerep_lib.Std.Typerep.Field.internal_use_only
+                     { Typerep_lib.Std.Typerep.Field_internal.label = "pointer"
+                     ; index = 1
+                     ; is_mutable = false
+                     ; rep = Pointer.typerep_of_t _of_slots
+                     ; tyid = Typerep_lib.Std.Typename.create ()
+                     ; get = (fun t -> t.pointer)
+                     }
+                 in
+                 let typename = Typerep_lib.Std.Typerep.Named.typename_of_t name_of_t in
+                 let has_double_array_tag =
+                   Typerep_lib.Std.Typerep_obj.has_double_array_tag
+                     { is_valid = Typerep_lib.Std.Typerep_obj.double_array_value ()
+                     ; pointer = Typerep_lib.Std.Typerep_obj.double_array_value ()
+                     }
+                 in
+                 let fields =
+                   [| Typerep_lib.Std.Typerep.Record_internal.Field field0
+                    ; Typerep_lib.Std.Typerep.Record_internal.Field field1
+                   |]
+                 in
+                 let create { Typerep_lib.Std.Typerep.Record_internal.get } =
+                   let is_valid = get field0
+                   and pointer = get field1 in
+                   { is_valid; pointer }
+                 in
+                 Typerep_lib.Std.Typerep.Record
+                   (Typerep_lib.Std.Typerep.Record.internal_use_only
+                      { Typerep_lib.Std.Typerep.Record_internal.typename
+                      ; Typerep_lib.Std.Typerep.Record_internal.has_double_array_tag
+                      ; Typerep_lib.Std.Typerep.Record_internal.fields
+                      ; Typerep_lib.Std.Typerep.Record_internal.create
+                      }))) )
+      ;;
+
+      let _ = typerep_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     let create pointer = { is_valid = true; pointer }
     let null () = { is_valid = false; pointer = Pointer.null () }
     let phys_compare t1 t2 = Pointer.phys_compare t1.pointer t2.pointer
@@ -1141,7 +1814,18 @@ module Error_check (Pool : S) = struct
 
     let follow t =
       if not t.is_valid
-      then failwiths ~here:[%here] "attempt to use invalid pointer" t [%sexp_of: _ t];
+      then
+        failwiths
+          ~here:
+            { Ppx_here_lib.pos_fname = "tuple_pool.ml.before-ppx"
+            ; pos_lnum = 1144
+            ; pos_cnum = 38374
+            ; pos_bol = 38347
+            }
+          "attempt to use invalid pointer"
+          t
+          ((fun x__083_ -> sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__083_)
+             [@merlin.hide]);
       t.pointer
     ;;
 
@@ -1152,6 +1836,16 @@ module Error_check (Pool : S) = struct
 
   type 'slots t = 'slots Pool.t [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : 'slots t) -> ()
+
+    let sexp_of_t : 'slots. ('slots -> Sexplib0.Sexp.t) -> 'slots t -> Sexplib0.Sexp.t =
+      fun _of_slots__084_ x__085_ -> Pool.sexp_of_t _of_slots__084_ x__085_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let invariant = invariant
   let length = length
 
@@ -1159,8 +1853,6 @@ module Error_check (Pool : S) = struct
     is_valid && pointer_is_valid t pointer
   ;;
 
-  (* We don't do [Pointer.follow pointer], because that would disallow [id_of_pointer t
-     (Pointer.null ())]. *)
   let id_of_pointer t pointer = id_of_pointer t pointer.Pointer.pointer
 
   let pointer_of_id_exn t id =
@@ -1226,3 +1918,7 @@ module Error_check (Pool : S) = struct
     Pointer.create (Pool.new14 t a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13)
   ;;
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

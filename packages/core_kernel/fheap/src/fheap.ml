@@ -1,3 +1,13 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"fheap.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "fheap.ml.before-ppx"
+;;
+
 open! Core
 module Array = Base.Array
 module List = Base.List
@@ -22,9 +32,9 @@ type 'a t =
 let create ~compare = { compare; length = 0; heap = None }
 
 let merge
-  ~compare
-  ({ value = e1; children = nl1 } as n1)
-  ({ value = e2; children = nl2 } as n2)
+      ~compare
+      ({ value = e1; children = nl1 } as n1)
+      ({ value = e2; children = nl2 } as n2)
   =
   if compare e1 e2 < 0
   then { value = e1; children = n2 :: nl1 }
@@ -35,12 +45,12 @@ let merge_pairs ~compare t =
   let rec loop acc t =
     match t with
     | [] -> acc
-    | [ head ] -> head :: acc
+    | head :: [] -> head :: acc
     | head :: next1 :: next2 -> loop (merge ~compare head next1 :: acc) next2
   in
   match loop [] t with
   | [] -> None
-  | [ h ] -> Some h
+  | h :: [] -> Some h
   | x :: xs -> Some (List.fold xs ~init:x ~f:(merge ~compare))
 ;;
 
@@ -113,12 +123,12 @@ let fold t ~init ~f =
 let length t = t.length
 
 module C = Container.Make (struct
-  type nonrec 'a t = 'a t
+    type nonrec 'a t = 'a t
 
-  let fold = fold
-  let iter = `Define_using_fold
-  let length = `Custom length
-end)
+    let fold = fold
+    let iter = `Define_using_fold
+    let length = `Custom length
+  end)
 
 let is_empty t = Option.is_none t.heap
 let iter = C.iter
@@ -134,8 +144,6 @@ let count = C.count
 let to_list = C.to_list
 let fold_result = C.fold_result
 let fold_until = C.fold_until
-
-(* We could avoid the intermediate list here, but it doesn't seem like a big deal. *)
 let to_array = C.to_array
 
 type ('a, 'at, 'accum) folder = 'at -> init:'accum -> f:('accum -> 'a -> 'accum) -> 'accum
@@ -149,3 +157,6 @@ let of_list l ~compare = of_fold l ~compare List.fold
 let of_array arr ~compare = of_fold arr ~compare Array.fold
 let sexp_of_t sexp_of_a t = List.sexp_of_t sexp_of_a (to_list t)
 let to_sequence t = Sequence.unfold ~init:t ~f:pop
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

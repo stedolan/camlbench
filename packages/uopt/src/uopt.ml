@@ -1,63 +1,73 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"uopt.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "uopt.ml.before-ppx"
+;;
+
 open Base
 module Obj = Stdlib.Obj
 module Obj_local = Base.Exported_for_specific_uses.Obj_local
 
 type +'a t
 
-(* This [Obj.magic] is OK because we never allow user code access to [none] (except via
-   [unsafe_value]).  We disallow [_ Uopt.t Uopt.t], so there is no chance of confusing
-   [none] with [some none].  And [float Uopt.t array] is similarly disallowed. *)
 let none : _ t = Obj.magic "Uopt.none"
 
-let[@inline] some (x : 'a) =
+let some (x : 'a) =
   let r : 'a t = Obj.magic x in
   if phys_equal r none then failwith "Uopt.some Uopt.none";
   r
+[@@inline]
 ;;
 
-let[@inline] some_local (type a) (x : a) : a t =
+let some_local (type a) (x : a) : a t =
   let r : a t = Obj_local.magic x in
   if phys_equal r none then failwith "Uopt.Local.some Uopt.none";
   r
+[@@inline]
 ;;
 
 let unsafe_value : 'a t -> 'a = Obj.magic
 let unsafe_value_local : 'a t -> 'a = Obj_local.magic
-let[@inline] is_none t = phys_equal t none
-let[@inline] is_some t = not (is_none t)
-let[@inline] invariant invariant_a t = if is_some t then invariant_a (unsafe_value t)
-let[@inline] value_exn t = if is_none t then failwith "Uopt.value_exn" else unsafe_value t
-let[@inline] value t ~default = Bool.select (is_none t) default (unsafe_value t)
+let is_none t = phys_equal t none [@@inline]
+let is_some t = not (is_none t) [@@inline]
+let invariant invariant_a t = if is_some t then invariant_a (unsafe_value t) [@@inline]
 
-let[@inline] value_local t ~default =
-  Bool.select (is_none t) default (unsafe_value_local t)
+let value_exn t = if is_none t then failwith "Uopt.value_exn" else unsafe_value t
+[@@inline]
 ;;
 
-let[@inline] some_if cond x = Bool.select cond (some x) none
-let[@inline] some_if_local cond x = Bool.select cond (some_local x) none
+let value t ~default = Bool.select (is_none t) default (unsafe_value t) [@@inline]
 
-(* [to_option] prioritizes not allocating in the [None] case. Allocation is far cheaper
-   for [to_option_local], so it instead prioritizes minimizing unpredictable branches. *)
-
-let[@inline] to_option t = if is_none t then None else Some (unsafe_value t)
-
-let[@inline] to_option_local t =
-  Bool.select (is_none t) None (Some (unsafe_value_local t))
+let value_local t ~default = Bool.select (is_none t) default (unsafe_value_local t)
+[@@inline]
 ;;
 
-let[@inline] of_option_local opt =
+let some_if cond x = Bool.select cond (some x) none [@@inline]
+let some_if_local cond x = Bool.select cond (some_local x) none [@@inline]
+let to_option t = if is_none t then None else Some (unsafe_value t) [@@inline]
+
+let to_option_local t = Bool.select (is_none t) None (Some (unsafe_value_local t))
+[@@inline]
+;;
+
+let of_option_local opt =
   match opt with
   | None -> none
   | Some x -> some_local x
+[@@inline]
 ;;
 
-let[@inline] of_option opt =
+let of_option opt =
   match opt with
   | None -> none
   | Some a -> some a
+[@@inline]
 ;;
 
-(* Note [sexp_of_t] and [t_of_sexp] must remain stable; see [Uopt_core.Stable]. *)
 include
   Sexpable.Of_sexpable1
     (Option)
@@ -92,17 +102,59 @@ module Local = struct
 end
 
 let globalize globalize_a t =
-  match%optional.Local t with
-  | None -> none
-  | Some x -> some (globalize_a x)
+  let __ppx_optional_e_0 = t in
+  if false
+  then (
+    (match
+       if Local.Optional_syntax.Optional_syntax.is_none __ppx_optional_e_0
+       then None
+       else Some (Local.Optional_syntax.Optional_syntax.unsafe_value __ppx_optional_e_0)
+     with
+     | None -> none
+     | Some x -> some (globalize_a x))
+    [@merlin.focus])
+  else (
+    (match Local.Optional_syntax.Optional_syntax.is_none __ppx_optional_e_0 with
+     | (true [@merlin.hide]) -> none
+     | (false [@merlin.hide]) ->
+       let x : _ =
+         Local.Optional_syntax.Optional_syntax.unsafe_value __ppx_optional_e_0
+       in
+       some (globalize_a x))
+    [@merlin.hide] [@ocaml.warning "-a"])
 ;;
 
-let%test_module _ =
-  (module struct
-    let%test_unit ("using the same sentinel value" [@tags "no-js"]) =
-      match some "Uopt.none" with
-      | (_ : string t) -> failwith "should not have gotten to this point"
-      | exception _ -> ()
-    ;;
-  end)
+let () =
+  Ppx_inline_test_lib.test_module
+    ~config:(module Inline_test_config)
+    ~descr:(lazy "")
+    ~tags:[]
+    ~filename:"uopt.ml.before-ppx"
+    ~line_number:100
+    ~start_pos:0
+    ~end_pos:253
+    (fun () ->
+       let module M = struct
+         let () =
+           Ppx_inline_test_lib.test_unit
+             ~config:(module Inline_test_config)
+             ~descr:(lazy "using the same sentinel value")
+             ~tags:[ "no-js" ]
+             ~filename:"uopt.ml.before-ppx"
+             ~line_number:102
+             ~start_pos:4
+             ~end_pos:203
+             (fun () ->
+                (match some "Uopt.none" with
+                 | (_ : string t) -> failwith "should not have gotten to this point"
+                 | exception _ -> ());
+                ())
+         ;;
+       end
+       in
+       ())
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

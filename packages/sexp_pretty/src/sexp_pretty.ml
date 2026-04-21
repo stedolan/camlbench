@@ -60,17 +60,16 @@ let rainbow_open_tag conf tag =
   match args with
   | [ "d"; n ] ->
     let i = Int.of_string n in
-    "["
+    "\027["
     ^ Int.to_string
         (color_to_code
            (if i < 0 || color_count < 1
             then Default
             else conf.color_scheme.(i % color_count)))
     ^ "m"
-  (* Printing out comments. *)
   | [ "c"; _ ] ->
     (match conf.comments with
-     | Print (_, Some clr, _) -> "[" ^ Int.to_string (color_to_code clr) ^ "m"
+     | Print (_, Some clr, _) -> "\027[" ^ Int.to_string (color_to_code clr) ^ "m"
      | _ -> "")
   | _ -> tag
 ;;
@@ -78,8 +77,8 @@ let rainbow_open_tag conf tag =
 let rainbow_tags conf =
   { Format.mark_open_stag =
       (function
-       | Format.String_tag tag -> rainbow_open_tag conf tag
-       | _ -> "")
+        | Format.String_tag tag -> rainbow_open_tag conf tag
+        | _ -> "")
   ; Format.mark_close_stag =
       (fun _ ->
         match conf.comments with
@@ -90,10 +89,8 @@ let rainbow_tags conf =
   }
 ;;
 
-(* Opens n parentheses, starting at level depth. *)
 let open_parens conf state ~depth fmt n =
   match conf.paren_coloring, state.content_kind, conf.comments with
-  (* Overrides the option not to color parentheses. *)
   | _, Comment _, Print (_, Some _, _) ->
     for i = depth to depth + n - 1 do
       Format.fprintf fmt "@{<c %d>(@}" i
@@ -108,9 +105,7 @@ let open_parens conf state ~depth fmt n =
     done
 ;;
 
-(* Closes n parentheses, starting at level depth+(n-1) to depth. *)
 let close_parens conf state ~depth fmt n =
-  (* Overrides the option not to color parentheses. *)
   match conf.paren_coloring, state.content_kind, conf.comments with
   | _, Comment _, Print (_, Some _, _) ->
     for i = depth + (n - 1) downto depth do
@@ -165,9 +160,7 @@ let atom_printing_len_exn conf at =
 let pp_atom conf state ~depth ~len index fmt at =
   let at =
     match state.content_kind with
-    | Comment Line_comment ->
-      (* we never need to escape a line comment *)
-      at
+    | Comment Line_comment -> at
     | Sexp | Comment Sexp_comment ->
       if must_escape at
       then (
@@ -225,13 +218,13 @@ module Normalize = struct
 
   let block_comment =
     lazy
-      Re.(
-        seq
-          [ str "#|"
-          ; group (seq [ group (rep (set "\t ")); rep (alt [ char '\n'; any ]) ])
-          ; str "|#"
-          ]
-        |> compile)
+      (let open Re in
+       seq
+         [ str "#|"
+         ; group (seq [ group (rep (set "\t ")); rep (alt [ char '\n'; any ]) ])
+         ; str "|#"
+         ]
+       |> compile)
   ;;
 
   let word_split = lazy (Re.Str.regexp "[ \n\t]+")
@@ -250,10 +243,11 @@ module Normalize = struct
       | [] -> acc, []
       | W.Sexp _ :: _ as list -> acc, list
       | (W.Comment (W.Plain_comment (cpos, content)) as comment) :: rest ->
-        if (match dimension with
-            | Horizontal -> pos.Pos.row = cpos.Pos.row
-            | Vertical -> pos.Pos.col = cpos.Pos.col)
-           && not (is_block_comment content)
+        if
+          (match dimension with
+           | Horizontal -> pos.Pos.row = cpos.Pos.row
+           | Vertical -> pos.Pos.col = cpos.Pos.col)
+          && not (is_block_comment content)
         then loop Vertical (content :: acc) cpos rest
         else acc, comment :: rest
       | W.Comment (W.Sexp_comment _) :: _ as list -> acc, list
@@ -270,47 +264,22 @@ module Normalize = struct
         ~default:(`Atom atom)
         (Option.try_with (fun () ->
            match parse_sexps (Lexing.from_string atom) with
-           (* Perhaps normalized the atom, but nothing more to do. *)
-           | [ W.Sexp (W.Atom (_, _atom_without_spaces, None)) ] -> `Atom atom
-           (* Nested atom, try again. *)
-           | [ W.Sexp (W.Atom (_, inner_atom, Some source)) ] ->
+           | W.Sexp (W.Atom (_, _atom_without_spaces, None)) :: [] -> `Atom atom
+           | W.Sexp (W.Atom (_, inner_atom, Some source)) :: [] ->
              if String.equal inner_atom source
-             then `Atom atom (* avoid an infinite loop of reinterpreting the atom *)
+             then `Atom atom
              else (
                match pre_process_atom conf pos inner_atom with
                | `Atom _ -> `Atom atom
-               (* original atom is better since it contains original
-                  spacing which will be stripped off by
-                  pre_process_atom *)
                | `List lst -> `List lst)
-           (* Parsed one whole sexp, bubble it up. *)
-           | [ W.Sexp (W.List (_, list, _)) ] -> `List list
-           (* It would cause problems if we parsed a comment in the case the atom is a
-              commented out sexp. We will be conservative here and we won't parse the
-              comment.
-           *)
-           | [ W.Comment _ ] -> `Atom atom
-           (* Results in an empty. We keep the original. *)
+           | W.Sexp (W.List (_, list, _)) :: [] -> `List list
+           | W.Comment _ :: [] -> `Atom atom
            | [] -> `Atom atom
-           (* Parsed a list of multiple sexps. It could either be spliced into the current
-              list, or put into a new Sexp list.
-              At the moment, they are put into separate lists.
-           *)
-           (* If needed, we could traverse [sexps] and adjust positions so that they
-              corespond to the respective positions in the original file. Also, we could
-              calculate the end position of this list correctly.
-           *)
            | sexps
              when List.for_all sexps ~f:(function
                     | W.Sexp (W.Atom _) -> true
-                    | _ -> false) -> (* we parsed a plain string *) `Atom atom
+                    | _ -> false) -> `Atom atom
            | sexps ->
-             (* If atom was created by failwiths or structural_sexp, it would looks like
-                this:
-                "human-readable message followed by (potentially (long and (ugly sexp)))"
-
-                We will try to preserve human-readable part by concatenating all sequences
-                of top-level atoms into singe atom *)
              let break a b =
                match a, b with
                | W.Sexp (W.Atom _), W.Sexp (W.Atom _) -> false
@@ -319,23 +288,21 @@ module Normalize = struct
              let concatenate_atoms lst =
                List.group ~break lst
                |> List.map ~f:(function
-                    | W.Sexp (W.Atom (pos, _, _)) :: _ as atoms ->
-                      let get_atom_contents = function
-                        | W.Sexp (W.Atom (_, a, _)) -> a
-                        | _ -> assert false
-                        (* List.group guarantees that we have only Atoms
-                        here *)
-                      in
-                      let atom_contents =
-                        List.map ~f:get_atom_contents atoms |> String.concat ~sep:" "
-                      in
-                      let escaped_atom_contents =
-                        Sexplib.Pre_sexp.mach_maybe_esc_str atom_contents
-                      in
-                      [ W.Sexp (W.Atom (pos, atom_contents, Some escaped_atom_contents)) ]
-                    | W.Sexp (W.List _) :: _ as lists -> lists
-                    | W.Comment _ :: _ as comments -> comments
-                    | [] -> [] (* cant really happen *))
+                 | W.Sexp (W.Atom (pos, _, _)) :: _ as atoms ->
+                   let get_atom_contents = function
+                     | W.Sexp (W.Atom (_, a, _)) -> a
+                     | _ -> assert false
+                   in
+                   let atom_contents =
+                     List.map ~f:get_atom_contents atoms |> String.concat ~sep:" "
+                   in
+                   let escaped_atom_contents =
+                     Sexplib.Pre_sexp.mach_maybe_esc_str atom_contents
+                   in
+                   [ W.Sexp (W.Atom (pos, atom_contents, Some escaped_atom_contents)) ]
+                 | W.Sexp (W.List _) :: _ as lists -> lists
+                 | W.Comment _ :: _ as comments -> comments
+                 | [] -> [])
                |> List.concat
              in
              `List (concatenate_atoms sexps)))
@@ -348,9 +315,9 @@ module Normalize = struct
       String.strip comment
       |> Re.Str.split (force word_split)
       |> List.map ~f:(fun line ->
-           if Re.Str.string_match (force trailing) line 0
-           then Re.Str.matched_group 1 line
-           else line)
+        if Re.Str.string_match (force trailing) line 0
+        then Re.Str.matched_group 1 line
+        else line)
       |> List.filter ~f:(fun s -> String.length s > 0)
   ;;
 
@@ -371,9 +338,6 @@ module Normalize = struct
 
   exception Drop_exn
 
-  (* Converts to t, does initial pre-processing - interprets/escapes atoms,
-     reorders/drops/normalizes comments.
-  *)
   let rec of_sexp_or_comment conf : W.t_or_comment -> t = function
     | W.Comment comment -> Comment (of_comment conf comment)
     | W.Sexp sexp -> Sexp (of_sexp conf sexp, [])
@@ -395,8 +359,6 @@ module Normalize = struct
            | t -> Some t
            | exception Drop_exn -> None))
     | Print _ ->
-      (* Re-orders comments to have comment that belong to a sexp before it, not after. If
-         [conf.sticky_comments = Same_line], it ties the comments to the sexp instead *)
       let rec reorder acc = function
         | [] -> acc
         | W.Sexp (W.Atom (pos, atom, quoted) as sexp) :: rest ->
@@ -449,8 +411,6 @@ end
 module Print = struct
   module N = Normalize
 
-  (* [associated_comments] are line comments correspond to a sexp that are expected to be
-     printed on the same line *)
   type associated_comments = string list
   type forces_breakline = bool
 
@@ -462,7 +422,6 @@ module Print = struct
     | Node of 'a tree list
     | Leaf of 'a
 
-  (* Also contains the first atom list. *)
   type shape = (int * string) tree
 
   type t =
@@ -471,14 +430,12 @@ module Print = struct
 
   and comment =
     | Line_comment of string
-    | Block_comment of int * string list (* Does not contain the #| |#*)
+    | Block_comment of int * string list
     | Sexp_comment of (comment list * forces_breakline) * sexp
 
   and sexp =
     | Atom of string
-    (* With leading atoms. *)
     | List of string array * t_or_aligned array * forces_breakline
-    (* Sexp is a tree - List, Aligned, or Singleton *)
     | Singleton of string array * int * sexp * forces_breakline
 
   and t_or_aligned =
@@ -491,10 +448,9 @@ module Print = struct
     | Atom_line of string tree * associated_comments
     | Comment_line of comment
 
-  (* Unwraps singleton lists. *)
   let unwrap sexp =
     let rec inner level = function
-      | N.List [ N.Sexp ((N.List _ as sexp_list), []) ] -> inner (level + 1) sexp_list
+      | N.List (N.Sexp ((N.List _ as sexp_list), []) :: []) -> inner (level + 1) sexp_list
       | N.List _ as sexp_list -> level + 1, sexp_list
       | N.Atom _ as atom -> level, atom
     in
@@ -516,7 +472,7 @@ module Print = struct
               tl
               ~atom_count:(atom_count + 1)
               ~char_count
-        | [ N.Sexp ((N.List _ as list), []) ] ->
+        | N.Sexp ((N.List _ as list), []) :: [] ->
           let level, list = unwrap list in
           Some (Array.of_list_rev acc, level, list)
         | N.Comment _ :: _ -> None
@@ -557,7 +513,6 @@ module Print = struct
 
   exception Cant_align
 
-  (* Check that the shape is the same and returns a new shape with updated sizes of tabs. *)
   let try_check_shape conf shape =
     let rec try_check_shape_inner shape t =
       match shape, t with
@@ -595,7 +550,6 @@ module Print = struct
         in
         get_shape_from_list (shape :: list_acc) tl ~depth ~atom_count ~char_count
     and get_shape_inner ~depth ~atom_count ~char_count t =
-      (* Breached the depth threshold. *)
       if depth > depth_thresh then raise Cant_align;
       match t with
       | N.Comment _ -> raise Cant_align
@@ -609,9 +563,7 @@ module Print = struct
          | Some atom_len ->
            let char_count = char_count + atom_len in
            if atom_count < atom_thresh && char_count <= char_thresh
-           then
-             Leaf (atom_len, atom), atom_count + 1, char_count
-             (* Breached the number of atoms threshold or the number of characters threshold. *)
+           then Leaf (atom_len, atom), atom_count + 1, char_count
            else raise Cant_align
          | None -> raise Cant_align)
       | N.Sexp (_, _ :: _) -> raise Cant_align
@@ -637,9 +589,7 @@ module Print = struct
          | None -> shape, Array.of_list_rev res_acc, hd :: tl
          | Some (new_shape, res) ->
            if shape_size new_shape <= char_thresh
-           then
-             find_alignable new_shape (res :: res_acc) tl
-             (* Breached the number of characters threshold. *)
+           then find_alignable new_shape (res :: res_acc) tl
            else shape, Array.of_list_rev res_acc, hd :: tl)
     in
     find_alignable shape [] list
@@ -658,7 +608,6 @@ module Print = struct
            | false ->
              let char_count = char_count + String.length atom in
              if atom_count = leading_atom_threshold || char_count > leading_char_threshold
-                (* Breached the threshold for number of leading atoms. *)
              then raise Too_many_atoms
              else
                get_leading_atoms_inner
@@ -714,7 +663,7 @@ module Print = struct
     and try_align ~atom_thresh ~char_thresh ~depth_thresh list =
       let rec try_align_inner acc = function
         | [] -> Array.of_list_rev acc
-        | [ last ] -> Array.of_list_rev (T (preprocess_t last) :: acc)
+        | last :: [] -> Array.of_list_rev (T (preprocess_t last) :: acc)
         | (N.Comment _ as comment) :: tl ->
           try_align_inner (T (preprocess_t comment) :: acc) tl
         | N.Sexp ((N.Atom _ as sexp), associated_comments) :: tl ->
@@ -728,9 +677,10 @@ module Print = struct
                tl
            | Some shape ->
              let shape, aligned, rest = find_alignable conf shape tl ~char_thresh in
-             if Array.exists aligned ~f:(function
-                  | Atom_line _ -> true
-                  | _ -> false)
+             if
+               Array.exists aligned ~f:(function
+                 | Atom_line _ -> true
+                 | _ -> false)
              then
                try_align_inner
                  (Aligned ((shape, associated_comments), aligned) :: acc)
@@ -750,7 +700,6 @@ module Print = struct
       | Leaf (tab, at) ->
         Format.pp_set_tab fmt ();
         pp_atom conf state ~depth ~len:1 index fmt at;
-        (* Spaces that should still be printed*)
         tab - atom_printing_len_exn conf at
       | Node shape_list ->
         Format.pp_set_tab fmt ();
@@ -778,7 +727,6 @@ module Print = struct
     ignore (set_up_markers ~depth ~index:0 shape : int)
   ;;
 
-  (* The closing paren goes on a new line, or the last element forces a breakline. *)
   let newline_at_end conf sexp =
     match conf.closing_parens with
     | New_line -> true
@@ -787,15 +735,14 @@ module Print = struct
        | List (_, list, true) ->
          (not (Array.is_empty list))
          &&
-         (match Array.last list with
-          | Aligned (_, line_list) ->
-            (* Would not create an [Aligned] with an empty [line_list] *)
-            (match Array.last line_list with
-             | Comment_line (Line_comment _) | Atom_line (_, _ :: _) -> true
-             | Comment_line (Block_comment _ | Sexp_comment _) | Atom_line (_, []) ->
-               false)
-          | T (Comment (Line_comment _) | Sexp (_, _ :: _)) -> true
-          | T (Comment (Block_comment _ | Sexp_comment _) | Sexp (_, [])) -> false)
+           (match Array.last list with
+           | Aligned (_, line_list) ->
+             (match Array.last line_list with
+              | Comment_line (Line_comment _) | Atom_line (_, _ :: _) -> true
+              | Comment_line (Block_comment _ | Sexp_comment _) | Atom_line (_, []) ->
+                false)
+           | T (Comment (Line_comment _) | Sexp (_, _ :: _)) -> true
+           | T (Comment (Block_comment _ | Sexp_comment _) | Sexp (_, [])) -> false)
        | List (_, _, false) | Atom _ | Singleton _ -> false)
   ;;
 
@@ -819,14 +766,14 @@ module Print = struct
         Format.pp_arrayi
           "@ "
           (fun i fmt el ->
-            pp_t_or_aligned
-              conf
-              state
-              (depth + 1)
-              ~index:(i + off)
-              ~len:(Array.length rest)
-              fmt
-              el)
+             pp_t_or_aligned
+               conf
+               state
+               (depth + 1)
+               ~index:(i + off)
+               ~len:(Array.length rest)
+               fmt
+               el)
           fmt
           rest
       in
@@ -852,16 +799,15 @@ module Print = struct
           (fun fmt () -> open_parens conf state ~depth:(depth + 1) fmt 1)
           ()
           (fun fmt (leading, rest) ->
-            if leading_not_empty then print_leading leading_len fmt leading;
-            (* Close the leading atom block. *)
-            Format.pp_close_box fmt ();
-            if rest_not_empty
-            then
-              if leading_not_empty
-              then Format.pp_print_space fmt ()
-              else if not same_line_rest
-              then Format.pp_print_cut fmt ();
-            if rest_not_empty then print_rest leading_len fmt rest)
+             if leading_not_empty then print_leading leading_len fmt leading;
+             Format.pp_close_box fmt ();
+             if rest_not_empty
+             then
+               if leading_not_empty
+               then Format.pp_print_space fmt ()
+               else if not same_line_rest
+               then Format.pp_print_cut fmt ();
+             if rest_not_empty then print_rest leading_len fmt rest)
           (leading, rest)
           (fun fmt () -> close_parens conf state ~depth:(depth + 1) fmt 1)
           ()
@@ -876,10 +822,8 @@ module Print = struct
          Format.pp_close_box fmt ()
        | leading, rest, true, Opened, _ -> print_opened fmt leading rest
        | leading, rest, true, Closed, true ->
-         (* There must be something in the list, if it forces a breakline *)
          print_closed (Format.fprintf fmt "@[<v %d>@[<h>%a%a@]@,%a") leading rest
        | leading, rest, true, Closed, false ->
-         (* There must be something in the list, if it forces a breakline *)
          print_closed (Format.fprintf fmt "@[<v %d>@[<h>%a%a@]%a") leading rest
        | leading, rest, false, Closed, true ->
          print_closed
@@ -912,14 +856,14 @@ module Print = struct
           (open_parens conf state ~depth:(depth + 1))
           1
           (fun fmt -> function
-            | [||] -> ()
-            | atoms ->
-              Format.pp_arrayi
-                "@ "
-                (pp_atom conf state ~depth:(depth + 1) ~len:(Array.length atoms))
-                fmt
-                atoms;
-              Format.pp_print_space fmt ())
+             | [||] -> ()
+             | atoms ->
+               Format.pp_arrayi
+                 "@ "
+                 (pp_atom conf state ~depth:(depth + 1) ~len:(Array.length atoms))
+                 fmt
+                 atoms;
+               Format.pp_print_space fmt ())
           atoms
           (open_parens conf state ~depth:(depth + 2))
           d
@@ -977,25 +921,21 @@ module Print = struct
            comment
        | Block_comment (indent, comment_list) ->
          (match conf.comments with
-          | Drop -> assert false (* Would have dropped the comment at pre-processing. *)
+          | Drop -> assert false
           | Print (_, color, Conservative_print) ->
             let f =
               match color with
               | Some _ -> Format.fprintf fmt "@{<c %d>@[<h>#|%a|#@]@}"
-              (* This is an ugly hack not to print anything if colors are disabled. The opening
-                 tag works fine, as it checks whether or not anything should be printed. The
-                 closing one doesn't (it can't have any arguments, which is bad).
-              *)
               | None -> Format.fprintf fmt "@{<c %d}@[<h>#|%a|#@]"
             in
             f
               depth
               (fun fmt comment_list ->
-                Format.pp_list
-                  "@."
-                  (fun fmt comm -> Format.fprintf fmt "%s" comm)
-                  fmt
-                  comment_list)
+                 Format.pp_list
+                   "@."
+                   (fun fmt comm -> Format.fprintf fmt "%s" comm)
+                   fmt
+                   comment_list)
               comment_list
           | Print (_, color, Pretty_print) ->
             let f =
@@ -1013,7 +953,7 @@ module Print = struct
               (fun fmt spaces -> Format.pp_print_break fmt spaces 0)
               (if indent > 2 && not (List.is_empty comment_list) then indent - 2 else 0)
               (fun fmt comment_list ->
-                Format.pp_list "@ " Format.pp_print_string fmt comment_list)
+                 Format.pp_list "@ " Format.pp_print_string fmt comment_list)
               comment_list)
        | Sexp_comment ((comments, _), sexp) ->
          (match conf.comments with
@@ -1050,7 +990,6 @@ module Print = struct
         close_parens conf state ~depth:(depth + 1) fmt 1
     in
     let print_aligned_or_comment index = function
-      (* Comments on a separate line for now. *)
       | Comment_line comm ->
         Format.pp_print_cut fmt ();
         pp_comment conf state depth ~index fmt comm
@@ -1105,8 +1044,7 @@ let run ~next conf fmt =
   in
   Format.pp_open_vbox fmt 0;
   loop false;
-  if conf.paren_coloring then (* Reset all formatting *)
-                           Format.pp_print_string fmt "[0m";
+  if conf.paren_coloring then Format.pp_print_string fmt "\027[0m";
   Format.pp_close_box fmt ();
   Format.pp_print_flush fmt ()
 ;;
@@ -1122,10 +1060,10 @@ let rec sexp_to_sexp_or_comment = function
 ;;
 
 module Make (M : sig
-  type t
+    type t
 
-  val to_sexp_or_comment : t -> Sexp.With_layout.t_or_comment
-end) : S with type sexp := M.t = struct
+    val to_sexp_or_comment : t -> Sexp.With_layout.t_or_comment
+  end) : S with type sexp := M.t = struct
   type 'a writer = Config.t -> 'a -> M.t -> unit
 
   let pp_formatter conf fmt sexp =
@@ -1180,13 +1118,13 @@ end) : S with type sexp := M.t = struct
 end
 
 include Make (struct
-  type t = Sexp.t
+    type t = Sexp.t
 
-  let to_sexp_or_comment = sexp_to_sexp_or_comment
-end)
+    let to_sexp_or_comment = sexp_to_sexp_or_comment
+  end)
 
 module Sexp_with_layout = Make (struct
-  type t = W.t_or_comment
+    type t = W.t_or_comment
 
-  let to_sexp_or_comment = Fn.id
-end)
+    let to_sexp_or_comment = Fn.id
+  end)

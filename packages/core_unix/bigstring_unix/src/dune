@@ -5,9 +5,9 @@
  (name bigstring_unix)
  (public_name core_unix.bigstring_unix)
  (libraries core core_unix ocaml_c_utils)
- (preprocessor_deps config.h)
- (preprocess
-  (pps ppx_jane ppx_optcomp)))
+;; (preprocessor_deps config.h)
+;; (preprocess (pps ppx_jane ppx_optcomp))
+)
 
 (rule
  (targets config.h)

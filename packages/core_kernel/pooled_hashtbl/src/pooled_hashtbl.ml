@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"pooled_hashtbl.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "pooled_hashtbl.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 open Hashtbl_intf
@@ -16,6 +29,17 @@ module Entry : sig
   module Pool : sig
     type ('k, 'd) t [@@deriving sexp_of]
 
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t
+        :  ('k -> Sexplib0.Sexp.t)
+        -> ('d -> Sexplib0.Sexp.t)
+        -> ('k, 'd) t
+        -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     val invariant : ('k, 'd) t -> unit
     val create : capacity:int -> (_, _) t
     val grow : ?capacity:int -> ('k, 'd) t -> ('k, 'd) t
@@ -23,6 +47,17 @@ module Entry : sig
   end
 
   type ('k, 'd) t = private int [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t
+      :  ('k -> Sexplib0.Sexp.t)
+      -> ('d -> Sexplib0.Sexp.t)
+      -> ('k, 'd) t
+      -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   val null : unit -> (_, _) t
   val is_null : (_, _) t -> bool
@@ -34,16 +69,51 @@ module Entry : sig
   val set_next : ('k, 'd) Pool.t -> ('k, 'd) t -> ('k, 'd) t -> unit
   val set_data : ('k, 'd) Pool.t -> ('k, 'd) t -> 'd -> unit
 end = struct
-  (* It is OK to use [Pool.Unsafe] because entries are never exposed to user code.  Thus,
-     we can convince ourselves solely from looking at the implementation of
-     [Pooled_hashtbl] that an entry is never used after it is freed. *)
   module Unsafe = Pool.Unsafe
   module Pointer = Unsafe.Pointer
 
   type ('k, 'd) fields = (('k, 'd) fields Pointer.t, 'k, 'd) Unsafe.Slots.t3
   [@@deriving sexp_of]
 
+  include struct
+    let _ = fun (_ : ('k, 'd) fields) -> ()
+
+    let rec sexp_of_fields
+      :  'k 'd.
+         ('k -> Sexplib0.Sexp.t)
+      -> ('d -> Sexplib0.Sexp.t)
+      -> ('k, 'd) fields
+      -> Sexplib0.Sexp.t
+      =
+      fun _of_k__001_ _of_d__002_ x__003_ ->
+      Unsafe.Slots.sexp_of_t3
+        (Pointer.sexp_of_t (sexp_of_fields _of_k__001_ _of_d__002_))
+        _of_k__001_
+        _of_d__002_
+        x__003_
+    ;;
+
+    let _ = sexp_of_fields
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   type ('k, 'd) t = ('k, 'd) fields Pointer.t [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : ('k, 'd) t) -> ()
+
+    let sexp_of_t
+      :  'k 'd.
+         ('k -> Sexplib0.Sexp.t)
+      -> ('d -> Sexplib0.Sexp.t)
+      -> ('k, 'd) t
+      -> Sexplib0.Sexp.t
+      =
+      fun _of_k__004_ _of_d__005_ x__006_ ->
+      Pointer.sexp_of_t (sexp_of_fields _of_k__004_ _of_d__005_) x__006_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let create pool ~next ~key ~data = Unsafe.new3 pool next key data
   let free = Unsafe.free
@@ -55,6 +125,23 @@ end = struct
 
   module Pool = struct
     type ('k, 'd) t = ('k, 'd) fields Unsafe.t [@@deriving sexp_of]
+
+    include struct
+      let _ = fun (_ : ('k, 'd) t) -> ()
+
+      let sexp_of_t
+        :  'k 'd.
+           ('k -> Sexplib0.Sexp.t)
+        -> ('d -> Sexplib0.Sexp.t)
+        -> ('k, 'd) t
+        -> Sexplib0.Sexp.t
+        =
+        fun _of_k__007_ _of_d__008_ x__009_ ->
+        Unsafe.sexp_of_t (sexp_of_fields _of_k__007_ _of_d__008_) x__009_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let invariant t = Unsafe.invariant ignore t
     let create ~capacity = Unsafe.create Unsafe.Slots.t3 ~capacity
@@ -109,14 +196,10 @@ let without_mutating t f v =
   else f v
 ;;
 
-(* We match want to match Core's interface completely, so you can't change the load
-   factor. If we care, we can add a new create function, put it back in the record, and
-   plumb it through functions like map which call create. *)
 let load_factor = 0.85
 let max_table_length = Int.floor_pow2 Sys.max_array_length
 
 let calculate_table_size size =
-  (* Ensure we can fit size elements in the table. *)
   let size = Int.min size Sys.max_array_length in
   let capacity = Int.ceil_pow2 size in
   let n_entries = int_of_float (Float.round_up (float capacity *. load_factor)) in
@@ -212,12 +295,12 @@ let resize =
 let on_grow ~before ~after =
   let old_before = !on_grow in
   on_grow
-    := fun () ->
-         let old_after = Staged.unstage (old_before ()) in
-         let v = before () in
-         Staged.stage (fun ~old_capacity ~new_capacity ->
-           old_after ~old_capacity ~new_capacity;
-           after v ~old_capacity ~new_capacity)
+  := fun () ->
+       let old_after = Staged.unstage (old_before ()) in
+       let v = before () in
+       Staged.stage (fun ~old_capacity ~new_capacity ->
+         old_after ~old_capacity ~new_capacity;
+         after v ~old_capacity ~new_capacity)
 ;;
 
 let rec find_entry t ~key ~it =
@@ -237,9 +320,7 @@ let mem t key =
   not (Entry.is_null e)
 ;;
 
-(* we assume here that [Entry.create] will succeed *)
 let insert_link_pool_not_full t ~index ~key ~data ~it =
-  (* New entry adds to the beginning of the list, which is t.table.(index) or `it`. *)
   let e = Entry.create t.entries ~next:it ~key ~data in
   table_set t.table index e;
   t.length <- t.length + 1
@@ -264,14 +345,15 @@ let delete_link t ~index ~prev ~e =
   t.length <- t.length - 1
 ;;
 
-(** If key is already in t, return the entry it was found at. Otherwise, create an entry,
-    set it to data and return the empty entry. *)
 let set_or_entry t ~key ~data =
   let index = slot t key in
   let it = table_get t.table index in
   let e = find_entry t ~key ~it in
   if Entry.is_null e then insert_link t ~index ~key ~data ~it;
   e
+[@@ocaml.doc
+  " If key is already in t, return the entry it was found at. Otherwise, create an entry,\n\
+  \    set it to data and return the empty entry. "]
 ;;
 
 let set t ~key ~data =
@@ -299,7 +381,7 @@ let add_exn t ~key ~data =
     Error.raise error
 ;;
 
-let[@inline always] find_or_add_impl t key ~without_mutating_make_default ~default =
+let find_or_add_impl t key ~without_mutating_make_default ~default =
   ensure_mutation_allowed t;
   let index = slot t key in
   let it = table_get t.table index in
@@ -310,6 +392,7 @@ let[@inline always] find_or_add_impl t key ~without_mutating_make_default ~defau
     let data = without_mutating_make_default t default key in
     insert_link t ~index ~key ~data ~it;
     data)
+[@@inline always]
 ;;
 
 let findi_or_add =
@@ -330,22 +413,21 @@ let find t key =
 ;;
 
 let find_exn t key =
-  (* We could call find here, but that returns a boxed option. *)
   let index = slot t key in
   let it = table_get t.table index in
   let e = find_entry t ~key ~it in
   if not (Entry.is_null e) then Entry.data t.entries e else raise Stdlib.Not_found
 ;;
 
-let[@inline always] find_and_call_impl
-  t
-  key
-  ~call_if_found
-  ~call_if_not_found
-  ~if_found
-  ~if_not_found
-  arg1
-  arg2
+let find_and_call_impl
+      t
+      key
+      ~call_if_found
+      ~call_if_not_found
+      ~if_found
+      ~if_not_found
+      arg1
+      arg2
   =
   let index = slot t key in
   let it = table_get t.table index in
@@ -359,6 +441,7 @@ let[@inline always] find_and_call_impl
       arg1
       arg2
   else call_if_not_found ~if_not_found key arg1 arg2
+[@@inline always]
 ;;
 
 let find_and_call =
@@ -435,8 +518,6 @@ let findi_and_call2 =
     find_and_call_impl t key ~call_if_found ~call_if_not_found ~if_found ~if_not_found a b
 ;;
 
-(* This is split in a rather odd way so as to make find_and_remove for a single entry
-   chain able to be inlined. *)
 let rec remove_key_r t index key e prev =
   if compare_key t (Entry.key t.entries e) key = 0
   then (
@@ -452,7 +533,6 @@ let find_and_remove t key =
   ensure_mutation_allowed t;
   let index = slot t key in
   let e = table_get t.table index in
-  (* can't reuse find_entry given that we require the prev pointer *)
   if not (Entry.is_null e)
   then
     if compare_key t (Entry.key t.entries e) key = 0
@@ -467,7 +547,7 @@ let find_and_remove t key =
 ;;
 
 let change =
-  let call t f x = without_mutating t (fun () -> f x) () [@nontail] in
+  let call t f x = (without_mutating t (fun () -> f x) () [@nontail]) in
   let rec change_key t key f index e prev =
     if Entry.is_null e
     then `Not_found
@@ -488,7 +568,6 @@ let change =
     match change_key t key f index it (Entry.null ()) with
     | `Changed -> ()
     | `Not_found ->
-      (* New entry is inserted in the beginning of the list (it) *)
       (match call t f None with
        | None -> ()
        | Some data -> insert_link t ~index ~key ~data ~it)
@@ -514,14 +593,11 @@ let incr ?(by = 1) ?(remove_if_zero = false) t key = incr_by ~remove_if_zero t k
 let decr ?(by = 1) ?(remove_if_zero = false) t key = incr_by ~remove_if_zero t key (-by)
 let update t key ~f = change t key ~f:(fun data -> Some (f data)) [@nontail]
 
-(* This could be optimized if desired. *)
 let update_and_return t key ~f =
   update t key ~f;
   find_exn t key
 ;;
 
-(* Split similar to find and removed. Code duplicated to avoid allocation and
-   unroll/inline the single entry case *)
 let rec remove_key_r t index key e prev =
   if compare_key t (Entry.key t.entries e) key = 0
   then delete_link t ~index ~prev ~e
@@ -534,7 +610,6 @@ let remove t key =
   ensure_mutation_allowed t;
   let index = slot t key in
   let e = table_get t.table index in
-  (* can't reuse find_entry given that we require the prev pointer *)
   if not (Entry.is_null e)
   then
     if compare_key t (Entry.key t.entries e) key = 0
@@ -543,11 +618,6 @@ let remove t key =
       let next = Entry.next t.entries e in
       if not (Entry.is_null next) then remove_key_r t index key next e)
 ;;
-
-(* TODO: If we care, these can be optimized to avoid option boxes, allocating closures,
-   etc. These are largely copied from core_hashtbl.ml. If we do care about performance
-   here, we should, at the least, allow you to determine, given an entry, whether it has
-   a key. Then we could just iterate over the Entry_pool and get better cache behavior. *)
 
 let add_multi t ~key ~data =
   match find t key with
@@ -564,7 +634,7 @@ let find_multi t key =
 let remove_multi t key =
   match find t key with
   | None -> ()
-  | Some [] | Some [ _ ] -> remove t key
+  | Some [] | Some (_ :: []) -> remove t key
   | Some (_ :: tl) -> replace t ~key ~data:tl
 ;;
 
@@ -605,7 +675,15 @@ let rec choose_nonempty t i =
 let choose t = if t.length = 0 then None else Some (choose_nonempty t 0)
 
 let choose_exn t =
-  if t.length = 0 then raise_s [%message "[Pooled_hashtbl.choose_exn] of empty hashtbl"];
+  if t.length = 0
+  then
+    raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Conv.sexp_of_string
+           "[Pooled_hashtbl.choose_exn] of empty hashtbl"
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   choose_nonempty t 0
 ;;
 
@@ -620,7 +698,14 @@ let choose_randomly ?(random_state = Random.State.default) t =
 
 let choose_randomly_exn ?(random_state = Random.State.default) t =
   if t.length = 0
-  then raise_s [%message "[Pooled_hashtbl.choose_randomly_exn] of empty hashtbl"];
+  then
+    raise_s
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Conv.sexp_of_string
+           "[Pooled_hashtbl.choose_randomly_exn] of empty hashtbl"
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]));
   choose_randomly_nonempty ~random_state t
 ;;
 
@@ -681,7 +766,8 @@ let sexp_of_t sexp_of_k sexp_of_d t =
 let existsi t ~f =
   with_return (fun r ->
     iteri t ~f:(fun ~key ~data -> if f ~key ~data then r.return true);
-    false) [@nontail]
+    false)
+  [@nontail]
 ;;
 
 let exists t ~f = existsi t ~f:(fun ~key:_ ~data -> f data) [@nontail]
@@ -689,8 +775,8 @@ let for_alli t ~f = not (existsi t ~f:(fun ~key ~data -> not (f ~key ~data)))
 let for_all t ~f = not (existsi t ~f:(fun ~key:_ ~data -> not (f data)))
 
 let counti t ~f =
-  fold t ~init:0 ~f:(fun ~key ~data acc -> if f ~key ~data then acc + 1 else acc) [@nontail
-                                                                                    ]
+  fold t ~init:0 ~f:(fun ~key ~data acc -> if f ~key ~data then acc + 1 else acc)
+  [@nontail]
 ;;
 
 let count t ~f =
@@ -744,7 +830,7 @@ let partition_mapi t ~f =
 let partition_map t ~f = partition_mapi t ~f:(fun ~key:_ ~data -> f data) [@nontail]
 
 let partitioni_tf t ~f =
-  partition_mapi t ~f:(fun ~key ~data -> if f ~key ~data then First data else Second data) 
+  partition_mapi t ~f:(fun ~key ~data -> if f ~key ~data then First data else Second data)
   [@nontail]
 ;;
 
@@ -796,7 +882,10 @@ let of_alist_or_error ?growth_allowed ?size ~hashable lst =
   | `Ok v -> Result.Ok v
   | `Duplicate_key key ->
     let sexp_of_key = hashable.Hashable.sexp_of_t in
-    Or_error.error "Pooled_hashtbl.of_alist_exn: duplicate key" key [%sexp_of: key]
+    Or_error.error
+      "Pooled_hashtbl.of_alist_exn: duplicate key"
+      key
+      (sexp_of_key [@merlin.hide])
 ;;
 
 let of_alist_exn ?growth_allowed ?size ~hashable lst =
@@ -823,7 +912,8 @@ let add_to_groups groups ~get_key ~get_data ~combine ~rows =
       | None -> data
       | Some old -> combine old data
     in
-    replace groups ~key ~data) [@nontail]
+    replace groups ~key ~data)
+  [@nontail]
 ;;
 
 let group ?growth_allowed ?size ~hashable ~get_key ~get_data ~combine rows =
@@ -841,10 +931,8 @@ let create_with_key_or_error ?growth_allowed ?size ~hashable ~get_key rows =
   | `Ok t -> Result.Ok t
   | `Duplicate_keys keys ->
     let sexp_of_key = hashable.Hashable.sexp_of_t in
-    Or_error.error
-      "Pooled_hashtbl.create_with_key: duplicate keys"
-      keys
-      [%sexp_of: key list]
+    Or_error.error "Pooled_hashtbl.create_with_key: duplicate keys" keys ((fun x__010_ ->
+      sexp_of_list sexp_of_key x__010_) [@merlin.hide])
 ;;
 
 let create_with_key_exn ?growth_allowed ?size ~hashable ~get_key rows =
@@ -870,19 +958,19 @@ let merge =
     without_mutating
       t_left
       (fun () ->
-        without_mutating
-          t_right
-          (fun () ->
-            iteri t_left ~f:(fun ~key ~data:left ->
-              match find t_right key with
-              | None -> maybe_set new_t ~key ~f (`Left left)
-              | Some right -> maybe_set new_t ~key ~f (`Both (left, right)));
-            iteri t_right ~f:(fun ~key ~data:right ->
-              match find t_left key with
-              | None -> maybe_set new_t ~key ~f (`Right right)
-              | Some _ -> ()
-              (* already done above *)) [@nontail])
-          () [@nontail])
+         (without_mutating
+            t_right
+            (fun () ->
+               iteri t_left ~f:(fun ~key ~data:left ->
+                 match find t_right key with
+                 | None -> maybe_set new_t ~key ~f (`Left left)
+                 | Some right -> maybe_set new_t ~key ~f (`Both (left, right)));
+               iteri t_right ~f:(fun ~key ~data:right ->
+                 match find t_left key with
+                 | None -> maybe_set new_t ~key ~f (`Right right)
+                 | Some _ -> ())
+               [@nontail])
+            () [@nontail]))
       ();
     new_t
 ;;
@@ -896,8 +984,8 @@ let merge_into ~src ~dst ~f =
     | Set_to data ->
       (match dst_data with
        | None -> replace dst ~key ~data
-       | Some dst_data -> if not (phys_equal dst_data data) then replace dst ~key ~data)) [@nontail
-                                                                                          ]
+       | Some dst_data -> if not (phys_equal dst_data data) then replace dst ~key ~data))
+  [@nontail]
 ;;
 
 let filteri_inplace t ~f =
@@ -932,13 +1020,12 @@ let map_inplace t ~f = mapi_inplace t ~f:(fun ~key:_ ~data -> f data) [@nontail]
 let equal equal t t' =
   length t = length t'
   && with_return (fun r ->
-       iteri t ~f:(fun ~key ~data ->
-         match find t' key with
-         | None -> r.return false
-         | Some data' ->
-           if not (without_mutating t' (fun () -> equal data data') ())
-           then r.return false);
-       true)
+    iteri t ~f:(fun ~key ~data ->
+      match find t' key with
+      | None -> r.return false
+      | Some data' ->
+        if not (without_mutating t' (fun () -> equal data data') ()) then r.return false);
+    true)
 ;;
 
 let similar = equal
@@ -1042,20 +1129,20 @@ module type Key_stable = Key_stable
 module type For_deriving = For_deriving
 
 module Creators (Key : sig
-  type 'a t
+    type 'a t
 
-  val hashable : 'a t Hashable.t
-end) : sig
+    val hashable : 'a t Hashable.t
+  end) : sig
   type ('a, 'b) t_ = ('a Key.t, 'b) t
 
   val t_of_sexp : (Sexp.t -> 'a Key.t) -> (Sexp.t -> 'b) -> Sexp.t -> ('a, 'b) t_
 
   include
     Creators
-      with type ('a, 'b) t := ('a, 'b) t_
-      with type 'a key := 'a Key.t
-      with type ('key, 'data, 'a) create_options :=
-        ('key, 'data, 'a) create_options_without_hashable
+    with type ('a, 'b) t := ('a, 'b) t_
+    with type 'a key := 'a Key.t
+    with type ('key, 'data, 'a) create_options :=
+      ('key, 'data, 'a) create_options_without_hashable
 end = struct
   let hashable = Key.hashable
 
@@ -1077,7 +1164,25 @@ end = struct
   ;;
 
   let t_of_sexp k_of_sexp d_of_sexp sexp =
-    let alist = [%of_sexp: (k * d) list] sexp in
+    let alist =
+      (let error_source__016_ =
+         "pooled_hashtbl.ml.before-ppx.Creators line 1080: (k * d) list"
+       in
+       (fun x__017_ ->
+         list_of_sexp
+           (function
+             | Sexplib0.Sexp.List [ arg0__011_; arg1__012_ ] ->
+               let res0__013_ = k_of_sexp arg0__011_
+               and res1__014_ = d_of_sexp arg1__012_ in
+               res0__013_, res1__014_
+             | sexp__015_ ->
+               Sexplib0.Sexp_conv_error.tuple_of_size_n_expected
+                 error_source__016_
+                 2
+                 sexp__015_)
+           x__017_) [@merlin.hide])
+        sexp
+    in
     of_alist_exn alist ~size:(List.length alist)
   ;;
 
@@ -1114,10 +1219,10 @@ module Poly = struct
   let invariant = invariant
 
   include Creators (struct
-    type 'a t = 'a
+      type 'a t = 'a
 
-    let hashable = hashable
-  end)
+      let hashable = hashable
+    end)
 
   include Accessors
 
@@ -1128,40 +1233,171 @@ module Poly = struct
   ;;
 
   include Bin_prot.Utils.Make_iterable_binable2 (struct
-    type ('a, 'b) z = ('a, 'b) t
-    type ('a, 'b) t = ('a, 'b) z
-    type ('a, 'b) el = 'a * 'b [@@deriving bin_io]
+      type ('a, 'b) z = ('a, 'b) t
+      type ('a, 'b) t = ('a, 'b) z
+      type ('a, 'b) el = 'a * 'b [@@deriving bin_io]
 
-    let caller_identity =
-      Bin_prot.Shape.Uuid.of_string "a9b0d5e8-4992-11e6-a717-dfe192342aee"
-    ;;
+      include struct
+        let _ = fun (_ : ('a, 'b) el) -> ()
 
-    let module_name = Some "Pooled_hashtbl"
-    let length = length
-    let iter t ~f = iteri t ~f:(fun ~key ~data -> f (key, data))
+        let bin_shape_el =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "pooled_hashtbl.ml.before-ppx:1133:4")
+              [ ( Bin_prot.Shape.Tid.of_string "el"
+                , [ Bin_prot.Shape.Vid.of_string "a"; Bin_prot.Shape.Vid.of_string "b" ]
+                , Bin_prot.Shape.tuple
+                    [ Bin_prot.Shape.var
+                        (Bin_prot.Shape.Location.of_string
+                           "pooled_hashtbl.ml.before-ppx:1133:23")
+                        (Bin_prot.Shape.Vid.of_string "a")
+                    ; Bin_prot.Shape.var
+                        (Bin_prot.Shape.Location.of_string
+                           "pooled_hashtbl.ml.before-ppx:1133:28")
+                        (Bin_prot.Shape.Vid.of_string "b")
+                    ] )
+              ]
+          in
+          fun a b ->
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "el")) [ a; b ]
+        ;;
 
-    let init ~len ~next =
-      let t = create ~size:len () in
-      for _i = 0 to len - 1 do
-        let key, data = next () in
-        match find t key with
-        | None -> replace t ~key ~data
-        | Some _ -> failwith "Pooled_hashtbl.bin_read_t_: duplicate key"
-      done;
-      t
-    ;;
-  end)
+        let _ = bin_shape_el
+
+        let bin_size_el
+          :  'a 'b.
+             'a Bin_prot.Size.sizer
+          -> 'b Bin_prot.Size.sizer
+          -> ('a, 'b) el Bin_prot.Size.sizer
+          =
+          fun _size_of_a _size_of_b -> function
+          | v1, v2 ->
+            let size = 0 in
+            let size = Bin_prot.Common.( + ) size (_size_of_a v1) in
+            Bin_prot.Common.( + ) size (_size_of_b v2)
+        ;;
+
+        let _ = bin_size_el
+
+        let bin_write_el
+          :  'a 'b.
+             'a Bin_prot.Write.writer
+          -> 'b Bin_prot.Write.writer
+          -> ('a, 'b) el Bin_prot.Write.writer
+          =
+          fun _write_a _write_b buf ~pos -> function
+          | v1, v2 ->
+            let pos = _write_a buf ~pos v1 in
+            _write_b buf ~pos v2
+        ;;
+
+        let _ = bin_write_el
+
+        let bin_writer_el =
+          (fun bin_writer_a bin_writer_b ->
+             { size = (fun v -> bin_size_el bin_writer_a.size bin_writer_b.size v)
+             ; write = (fun v -> bin_write_el bin_writer_a.write bin_writer_b.write v)
+             }
+           : _ Bin_prot.Type_class.writer
+             -> _ Bin_prot.Type_class.writer
+             -> _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_el
+
+        let __bin_read_el__
+          :  'a 'b.
+             'a Bin_prot.Read.reader
+          -> 'b Bin_prot.Read.reader
+          -> (int -> ('a, 'b) el) Bin_prot.Read.reader
+          =
+          fun _of__a _of__b _buf ~pos_ref _vint ->
+          Bin_prot.Common.raise_variant_wrong_type
+            "pooled_hashtbl.ml.before-ppx.Poly.el"
+            !pos_ref
+        ;;
+
+        let _ = __bin_read_el__
+
+        let bin_read_el
+          :  'a 'b.
+             'a Bin_prot.Read.reader
+          -> 'b Bin_prot.Read.reader
+          -> ('a, 'b) el Bin_prot.Read.reader
+          =
+          fun _of__a _of__b buf ~pos_ref ->
+          let v1 = _of__a buf ~pos_ref in
+          let v2 = _of__b buf ~pos_ref in
+          v1, v2
+        ;;
+
+        let _ = bin_read_el
+
+        let bin_reader_el =
+          (fun bin_reader_a bin_reader_b ->
+             { read =
+                 (fun buf ~pos_ref ->
+                   (bin_read_el bin_reader_a.read bin_reader_b.read) buf ~pos_ref)
+             ; vtag_read =
+                 (fun buf ~pos_ref vtag ->
+                   (__bin_read_el__ bin_reader_a.read bin_reader_b.read) buf ~pos_ref vtag)
+             }
+           : _ Bin_prot.Type_class.reader
+             -> _ Bin_prot.Type_class.reader
+             -> _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_el
+
+        let bin_el =
+          (fun bin_a bin_b ->
+             { writer = bin_writer_el bin_a.writer bin_b.writer
+             ; reader = bin_reader_el bin_a.reader bin_b.reader
+             ; shape = bin_shape_el bin_a.shape bin_b.shape
+             }
+           : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_el
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let caller_identity =
+        Bin_prot.Shape.Uuid.of_string "a9b0d5e8-4992-11e6-a717-dfe192342aee"
+      ;;
+
+      let module_name = Some "Pooled_hashtbl"
+      let length = length
+      let iter t ~f = iteri t ~f:(fun ~key ~data -> f (key, data))
+
+      let init ~len ~next =
+        let t = create ~size:len () in
+        for _i = 0 to len - 1 do
+          let key, data = next () in
+          match find t key with
+          | None -> replace t ~key ~data
+          | Some _ -> failwith "Pooled_hashtbl.bin_read_t_: duplicate key"
+        done;
+        t
+      ;;
+    end)
 end
 
 module Make_plain_with_hashable (T : sig
-  module Key : Key_plain
+    module Key : Key_plain
 
-  val hashable : Key.t Hashable.t
-end) =
+    val hashable : Key.t Hashable.t
+  end) =
 struct
   let hashable = T.hashable
 
   type key = T.Key.t [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : key) -> ()
+    let sexp_of_key = (T.Key.sexp_of_t : key -> Sexplib0.Sexp.t)
+    let _ = sexp_of_key
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   type ('a, 'b) hashtbl = ('a, 'b) t
   type 'a t = (key, 'a) hashtbl
   type 'a key_ = key
@@ -1169,79 +1405,192 @@ struct
   let invariant invariant_data t = invariant ignore invariant_data t
 
   include Creators (struct
-    type 'a t = T.Key.t
+      type 'a t = T.Key.t
 
-    let hashable = hashable
-  end)
+      let hashable = hashable
+    end)
 
   include Accessors
 
   let sexp_of_t sexp_of_v t = Poly.sexp_of_t T.Key.sexp_of_t sexp_of_v t
 
   module Provide_of_sexp
-    (X : sig
-      type t [@@deriving of_sexp]
-    end
-    with type t := key) =
+      (X : sig
+             type t [@@deriving of_sexp]
+
+             include sig
+               [@@@ocaml.warning "-32"]
+
+               val t_of_sexp : Sexplib0.Sexp.t -> t
+             end
+             [@@ocaml.doc "@inline"] [@@merlin.hide]
+           end
+           with type t := key) =
   struct
     let t_of_sexp v_of_sexp sexp = t_of_sexp X.t_of_sexp v_of_sexp sexp
   end
 
   module Provide_bin_io
-    (X : sig
-      type t [@@deriving bin_io]
-    end
-    with type t := key) =
+      (X : sig
+             type t [@@deriving bin_io]
+
+             include sig
+               [@@@ocaml.warning "-32"]
+
+               include Bin_prot.Binable.S with type t := t
+             end
+             [@@ocaml.doc "@inline"] [@@merlin.hide]
+           end
+           with type t := key) =
   Bin_prot.Utils.Make_iterable_binable1 (struct
-    module Key = struct
-      include T.Key
-      include X
-    end
+      module Key = struct
+        include T.Key
+        include X
+      end
 
-    type nonrec 'a t = 'a t
-    type 'a el = Key.t * 'a [@@deriving bin_io]
+      type nonrec 'a t = 'a t
+      type 'a el = Key.t * 'a [@@deriving bin_io]
 
-    let caller_identity =
-      Bin_prot.Shape.Uuid.of_string "aa942e1a-4992-11e6-8f73-876922b0953c"
-    ;;
+      include struct
+        let _ = fun (_ : 'a el) -> ()
 
-    let module_name = Some "Pooled_hashtbl"
-    let length = length
-    let iter t ~f = iteri t ~f:(fun ~key ~data -> f (key, data))
+        let bin_shape_el =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "pooled_hashtbl.ml.before-ppx:1202:4")
+              [ ( Bin_prot.Shape.Tid.of_string "el"
+                , [ Bin_prot.Shape.Vid.of_string "a" ]
+                , Bin_prot.Shape.tuple
+                    [ Key.bin_shape_t
+                    ; Bin_prot.Shape.var
+                        (Bin_prot.Shape.Location.of_string
+                           "pooled_hashtbl.ml.before-ppx:1202:25")
+                        (Bin_prot.Shape.Vid.of_string "a")
+                    ] )
+              ]
+          in
+          fun a ->
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "el")) [ a ]
+        ;;
 
-    let init ~len ~next =
-      let t = create ~size:len () in
-      for _i = 0 to len - 1 do
-        let key, data = next () in
-        match find t key with
-        | None -> replace t ~key ~data
-        | Some _ ->
-          failwiths
-            ~here:[%here]
-            "Pooled_hashtbl.bin_read_t: duplicate key"
-            key
-            [%sexp_of: Key.t]
-      done;
-      t
-    ;;
-  end)
+        let _ = bin_shape_el
+
+        let bin_size_el : 'a. 'a Bin_prot.Size.sizer -> 'a el Bin_prot.Size.sizer =
+          fun _size_of_a -> function
+          | v1, v2 ->
+            let size = 0 in
+            let size = Bin_prot.Common.( + ) size (Key.bin_size_t v1) in
+            Bin_prot.Common.( + ) size (_size_of_a v2)
+        ;;
+
+        let _ = bin_size_el
+
+        let bin_write_el : 'a. 'a Bin_prot.Write.writer -> 'a el Bin_prot.Write.writer =
+          fun _write_a buf ~pos -> function
+          | v1, v2 ->
+            let pos = Key.bin_write_t buf ~pos v1 in
+            _write_a buf ~pos v2
+        ;;
+
+        let _ = bin_write_el
+
+        let bin_writer_el =
+          (fun bin_writer_a ->
+             { size = (fun v -> bin_size_el bin_writer_a.size v)
+             ; write = (fun v -> bin_write_el bin_writer_a.write v)
+             }
+           : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_el
+
+        let __bin_read_el__
+          : 'a. 'a Bin_prot.Read.reader -> (int -> 'a el) Bin_prot.Read.reader
+          =
+          fun _of__a _buf ~pos_ref _vint ->
+          Bin_prot.Common.raise_variant_wrong_type
+            "pooled_hashtbl.ml.before-ppx.Make_plain_with_hashable.Provide_bin_io.el"
+            !pos_ref
+        ;;
+
+        let _ = __bin_read_el__
+
+        let bin_read_el : 'a. 'a Bin_prot.Read.reader -> 'a el Bin_prot.Read.reader =
+          fun _of__a buf ~pos_ref ->
+          let v1 = Key.bin_read_t buf ~pos_ref in
+          let v2 = _of__a buf ~pos_ref in
+          v1, v2
+        ;;
+
+        let _ = bin_read_el
+
+        let bin_reader_el =
+          (fun bin_reader_a ->
+             { read = (fun buf ~pos_ref -> (bin_read_el bin_reader_a.read) buf ~pos_ref)
+             ; vtag_read =
+                 (fun buf ~pos_ref vtag ->
+                   (__bin_read_el__ bin_reader_a.read) buf ~pos_ref vtag)
+             }
+           : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_el
+
+        let bin_el =
+          (fun bin_a ->
+             { writer = bin_writer_el bin_a.writer
+             ; reader = bin_reader_el bin_a.reader
+             ; shape = bin_shape_el bin_a.shape
+             }
+           : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_el
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let caller_identity =
+        Bin_prot.Shape.Uuid.of_string "aa942e1a-4992-11e6-8f73-876922b0953c"
+      ;;
+
+      let module_name = Some "Pooled_hashtbl"
+      let length = length
+      let iter t ~f = iteri t ~f:(fun ~key ~data -> f (key, data))
+
+      let init ~len ~next =
+        let t = create ~size:len () in
+        for _i = 0 to len - 1 do
+          let key, data = next () in
+          match find t key with
+          | None -> replace t ~key ~data
+          | Some _ ->
+            failwiths
+              ~here:
+                { Ppx_here_lib.pos_fname = "pooled_hashtbl.ml.before-ppx"
+                ; pos_lnum = 1220
+                ; pos_cnum = 35894
+                ; pos_bol = 35876
+                }
+              "Pooled_hashtbl.bin_read_t: duplicate key"
+              key
+              (Key.sexp_of_t [@merlin.hide])
+        done;
+        t
+      ;;
+    end)
 
   module Provide_stable_witness
-    (Key' : sig
-      type t [@@deriving stable_witness]
-    end
-    with type t := key) =
-  struct
-    (* I'm not sure whether it makes sense for pooled hashtbl to be used as a stable type,
-       since pooling seems like an in-process thing, but in order to satisfy the entire
-       [Hashtbl_intf.Hashtbl] module type, we need to provide a stable witness.
+      (Key' : sig
+                type t [@@deriving stable_witness]
 
-       The implementation and comment from hashtbl.ml is copied below.
-    *)
-    (* The binary representation of hashtbl is relied on by stable modules
-       (e.g. Hashtable.Stable) and is therefore assumed to be stable.  So, if the key and
-       data can provide a stable witnesses, then we can safely say the hashtbl is also
-       stable. *)
+                include sig
+                  [@@@ocaml.warning "-32"]
+
+                  val stable_witness : t Ppx_stable_witness_runtime.Stable_witness.t
+                end
+                [@@ocaml.doc "@inline"] [@@merlin.hide]
+              end
+              with type t := key) =
+  struct
     let stable_witness (type data) (_data_stable_witness : data Stable_witness.t)
       : data t Stable_witness.t
       =
@@ -1252,42 +1601,42 @@ struct
 end
 
 module Make_with_hashable (T : sig
-  module Key : Key
+    module Key : Key
 
-  val hashable : Key.t Hashable.t
-end) =
+    val hashable : Key.t Hashable.t
+  end) =
 struct
   include Make_plain_with_hashable (T)
   include Provide_of_sexp (T.Key)
 end
 
 module Make_binable_with_hashable (T : sig
-  module Key : Key_binable
+    module Key : Key_binable
 
-  val hashable : Key.t Hashable.t
-end) =
+    val hashable : Key.t Hashable.t
+  end) =
 struct
   include Make_with_hashable (T)
   include Provide_bin_io (T.Key)
 end
 
 module Make_stable_with_hashable (T : sig
-  module Key : Key_stable
+    module Key : Key_stable
 
-  val hashable : Key.t Hashable.t
-end) =
+    val hashable : Key.t Hashable.t
+  end) =
 struct
   include Make_binable_with_hashable (T)
   include Provide_stable_witness (T.Key)
 end
 
 module Make_plain (Key : Key_plain) = Make_plain_with_hashable (struct
-  module Key = Key
+    module Key = Key
 
-  let hashable =
-    { Hashable.hash = Key.hash; compare = Key.compare; sexp_of_t = Key.sexp_of_t }
-  ;;
-end)
+    let hashable =
+      { Hashable.hash = Key.hash; compare = Key.compare; sexp_of_t = Key.sexp_of_t }
+    ;;
+  end)
 
 module Make (Key : Key) = struct
   include Make_plain (Key)
@@ -1295,9 +1644,9 @@ module Make (Key : Key) = struct
 end
 
 module Make_binable (Key : sig
-  include Key
-  include Binable.S with type t := t
-end) =
+    include Key
+    include Binable.S with type t := t
+  end) =
 struct
   include Make (Key)
   include Provide_bin_io (Key)
@@ -1314,16 +1663,37 @@ end
 
 module type Sexp_of_m = sig
   type t [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type M_of_sexp = sig
   type t [@@deriving of_sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val t_of_sexp : Sexplib0.Sexp.t -> t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Key with type t := t
 end
 
 module type M_sexp_grammar = sig
   type t [@@deriving sexp_grammar]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val t_sexp_grammar : t Sexplib0.Sexp_grammar.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
 module type Equal_m = sig end
@@ -1333,22 +1703,42 @@ let t_of_sexp ~hashable k_of_sexp d_of_sexp sexp =
   of_alist_exn ~hashable alist ~size:(List.length alist)
 ;;
 
-let sexp_of_m__t (type k) (module K : Sexp_of_m with type t = k) sexp_of_v t =
+let sexp_of_m__t (type k) ((module K) : (module Sexp_of_m with type t = k)) sexp_of_v t =
   sexp_of_t K.sexp_of_t sexp_of_v t
 ;;
 
-let m__t_of_sexp (type k) (module K : M_of_sexp with type t = k) v_of_sexp s =
+let m__t_of_sexp (type k) ((module K) : (module M_of_sexp with type t = k)) v_of_sexp s =
   t_of_sexp ~hashable:(Hashable.of_key (module K)) K.t_of_sexp v_of_sexp s
 ;;
 
-let m__t_sexp_grammar (type k) (module K : M_sexp_grammar with type t = k) v_grammar =
+let m__t_sexp_grammar
+      (type k)
+      ((module K) : (module M_sexp_grammar with type t = k))
+      v_grammar
+  =
   Sexplib.Sexp_grammar.coerce (List.Assoc.t_sexp_grammar K.t_sexp_grammar v_grammar)
 ;;
 
-let equal_m__t (module _ : Equal_m) equal_v t1 t2 = equal equal_v t1 t2
+let equal_m__t ((module _) : (module Equal_m)) equal_v t1 t2 = equal equal_v t1 t2
 
 module Using_hashable = struct
   type nonrec ('a, 'b) t = ('a, 'b) t [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : ('a, 'b) t) -> ()
+
+    let sexp_of_t
+      :  'a 'b.
+         ('a -> Sexplib0.Sexp.t)
+      -> ('b -> Sexplib0.Sexp.t)
+      -> ('a, 'b) t
+      -> Sexplib0.Sexp.t
+      =
+      fun _of_a__018_ _of_b__019_ x__020_ -> sexp_of_t _of_a__018_ _of_b__019_ x__020_
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let create = create
   let of_alist = of_alist
@@ -1412,27 +1802,78 @@ module type M_quickcheck = M_quickcheck
 let of_alist_option m alist = Result.ok (of_alist_or_error m alist)
 
 let quickcheck_generator_m__t
-  (type key)
-  (module Key : M_quickcheck with type t = key)
-  quickcheck_generator_data
+      (type key)
+      ((module Key) : (module M_quickcheck with type t = key))
+      quickcheck_generator_data
   =
-  [%quickcheck.generator: (Key.t * data) List.t]
-  |> Quickcheck.Generator.filter_map ~f:(of_alist_option (module Key))
+  Quickcheck.Generator.filter_map
+    ~f:(of_alist_option (module Key))
+    (List.quickcheck_generator
+       (Ppx_quickcheck_runtime.Base_quickcheck.Generator.create
+          (fun ~size:_size__021_ ~random:_random__022_ ->
+             ( Ppx_quickcheck_runtime.Base_quickcheck.Generator.generate
+                 Key.quickcheck_generator
+                 ~size:_size__021_
+                 ~random:_random__022_
+             , Ppx_quickcheck_runtime.Base_quickcheck.Generator.generate
+                 quickcheck_generator_data
+                 ~size:_size__021_
+                 ~random:_random__022_ ))))
 ;;
 
 let quickcheck_observer_m__t
-  (type key)
-  (module Key : M_quickcheck with type t = key)
-  quickcheck_observer_data
+      (type key)
+      ((module Key) : (module M_quickcheck with type t = key))
+      quickcheck_observer_data
   =
-  [%quickcheck.observer: (Key.t * data) List.t] |> Quickcheck.Observer.unmap ~f:to_alist
+  Quickcheck.Observer.unmap
+    ~f:to_alist
+    (List.quickcheck_observer
+       (Ppx_quickcheck_runtime.Base_quickcheck.Observer.create
+          (fun _x__023_ ~size:_size__026_ ~hash:_hash__027_ ->
+             let _x__024_, _x__025_ = _x__023_ in
+             let _hash__027_ =
+               Ppx_quickcheck_runtime.Base_quickcheck.Observer.observe
+                 Key.quickcheck_observer
+                 _x__024_
+                 ~size:_size__026_
+                 ~hash:_hash__027_
+             in
+             let _hash__027_ =
+               Ppx_quickcheck_runtime.Base_quickcheck.Observer.observe
+                 quickcheck_observer_data
+                 _x__025_
+                 ~size:_size__026_
+                 ~hash:_hash__027_
+             in
+             _hash__027_)))
 ;;
 
 let quickcheck_shrinker_m__t
-  (type key)
-  (module Key : M_quickcheck with type t = key)
-  quickcheck_shrinker_data
+      (type key)
+      ((module Key) : (module M_quickcheck with type t = key))
+      quickcheck_shrinker_data
   =
-  [%quickcheck.shrinker: (Key.t * data) List.t]
-  |> Quickcheck.Shrinker.filter_map ~f:(of_alist_option (module Key)) ~f_inverse:to_alist
+  Quickcheck.Shrinker.filter_map
+    ~f:(of_alist_option (module Key))
+    ~f_inverse:to_alist
+    (List.quickcheck_shrinker
+       (Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.create
+          (fun (_x__028_, _x__029_) ->
+             Ppx_quickcheck_runtime.Base.Sequence.round_robin
+               [ Ppx_quickcheck_runtime.Base.Sequence.map
+                   (Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.shrink
+                      Key.quickcheck_shrinker
+                      _x__028_)
+                   ~f:(fun _x__028_ -> _x__028_, _x__029_)
+               ; Ppx_quickcheck_runtime.Base.Sequence.map
+                   (Ppx_quickcheck_runtime.Base_quickcheck.Shrinker.shrink
+                      quickcheck_shrinker_data
+                      _x__029_)
+                   ~f:(fun _x__029_ -> _x__028_, _x__029_)
+               ])))
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

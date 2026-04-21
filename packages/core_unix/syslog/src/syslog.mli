@@ -1,41 +1,50 @@
-(** Send log messages via the Unix Syslog interface.
-
-    Syslog is great for system daemons that log free-form human readable status messages
-    or other debugging output, but not so great for archiving structured data.  Access to
-    read Syslog's messages may also be restricted.  [syslogd]'s logs are also not
-    necessarily kept forever.  For application level logging consider
-    {!Core_extended.Std.Logger} instead. *)
+[@@@ocaml.text
+  " Send log messages via the Unix Syslog interface.\n\n\
+  \    Syslog is great for system daemons that log free-form human readable status \
+   messages\n\
+  \    or other debugging output, but not so great for archiving structured data.  \
+   Access to\n\
+  \    read Syslog's messages may also be restricted.  [syslogd]'s logs are also not\n\
+  \    necessarily kept forever.  For application level logging consider\n\
+  \    {!Core_extended.Std.Logger} instead. "]
 
 open! Import
 
 module Open_option : sig
   type t =
-    | PID (** Include PID with each message *)
+    | PID [@ocaml.doc " Include PID with each message "]
     | CONS
-        (** Write directly to system console if there is an error
-                  while sending to system logger *)
-    | ODELAY (** Delay opening of the connection until syslog is called *)
-    | NDELAY (** No delay opening connection to syslog daemon *)
-    | NOWAIT (** Do not wait for child processes while logging message *)
-    | PERROR (** Print to stderr as well *)
+    [@ocaml.doc
+      " Write directly to system console if there is an error\n\
+      \                  while sending to system logger "]
+    | ODELAY [@ocaml.doc " Delay opening of the connection until syslog is called "]
+    | NDELAY [@ocaml.doc " No delay opening connection to syslog daemon "]
+    | NOWAIT [@ocaml.doc " Do not wait for child processes while logging message "]
+    | PERROR [@ocaml.doc " Print to stderr as well "]
   [@@deriving sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
 
-(** Types of messages *)
 module Facility : sig
   type t =
-    | KERN (** Kernel messages *)
-    | USER (** Generic user-level message (default) *)
-    | MAIL (** Mail subsystem *)
-    | DAEMON (** System daemons without separate facility value *)
-    | AUTH (** Security/authorization messages (DEPRECATED, use AUTHPRIV) *)
-    | SYSLOG (** Messages generated internally by syslogd *)
-    | LPR (** Line printer subsystem *)
-    | NEWS (** USENET news subsystem *)
-    | UUCP (** UUCP subsystem *)
-    | CRON (** Clock daemon (cron and at) *)
-    | AUTHPRIV (** Security/authorization messages (private) *)
-    | FTP (** FTP daemon *)
+    | KERN [@ocaml.doc " Kernel messages "]
+    | USER [@ocaml.doc " Generic user-level message (default) "]
+    | MAIL [@ocaml.doc " Mail subsystem "]
+    | DAEMON [@ocaml.doc " System daemons without separate facility value "]
+    | AUTH [@ocaml.doc " Security/authorization messages (DEPRECATED, use AUTHPRIV) "]
+    | SYSLOG [@ocaml.doc " Messages generated internally by syslogd "]
+    | LPR [@ocaml.doc " Line printer subsystem "]
+    | NEWS [@ocaml.doc " USENET news subsystem "]
+    | UUCP [@ocaml.doc " UUCP subsystem "]
+    | CRON [@ocaml.doc " Clock daemon (cron and at) "]
+    | AUTHPRIV [@ocaml.doc " Security/authorization messages (private) "]
+    | FTP [@ocaml.doc " FTP daemon "]
     | LOCAL0
     | LOCAL1
     | LOCAL2
@@ -43,68 +52,89 @@ module Facility : sig
     | LOCAL4
     | LOCAL5
     | LOCAL6
-    | LOCAL7 (** LOCAL0-7 reserved for local use *)
+    | LOCAL7 [@ocaml.doc " LOCAL0-7 reserved for local use "]
   [@@deriving sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 end
+[@@ocaml.doc " Types of messages "]
 
 module Level : sig
-  (** [DEBUG] < [EMERG] *)
   type t =
-    | EMERG (** System is unusable *)
-    | ALERT (** Action must be taken immediately *)
-    | CRIT (** Critical condition *)
-    | ERR (** Error conditions *)
-    | WARNING (** Warning conditions *)
-    | NOTICE (** Normal, but significant, condition *)
-    | INFO (** Informational message *)
-    | DEBUG (** Debug-level message *)
-  [@@deriving compare, enumerate, sexp]
+    | EMERG [@ocaml.doc " System is unusable "]
+    | ALERT [@ocaml.doc " Action must be taken immediately "]
+    | CRIT [@ocaml.doc " Critical condition "]
+    | ERR [@ocaml.doc " Error conditions "]
+    | WARNING [@ocaml.doc " Warning conditions "]
+    | NOTICE [@ocaml.doc " Normal, but significant, condition "]
+    | INFO [@ocaml.doc " Informational message "]
+    | DEBUG [@ocaml.doc " Debug-level message "]
+  [@@ocaml.doc " [DEBUG] < [EMERG] "] [@@deriving compare, enumerate, sexp]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Comparable.S with type t := t
+    include Ppx_enumerate_lib.Enumerable.S with type t := t
+    include Sexplib0.Sexpable.S with type t := t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   include Stringable.S with type t := t
 end
 
-(** All levels in [allowed_levels] will be allowed, and additionally all ranging from
-    [from_level] to [to_level] (inclusive). *)
 val setlogmask
-  :  ?allowed_levels:Level.t list (** default is {!List.empty} *)
-  -> ?from_level:Level.t (** default is [DEBUG] *)
-  -> ?to_level:Level.t (** default is [EMERG] *)
+  :  ?allowed_levels:(Level.t list[@ocaml.doc " default is {!List.empty} "])
+  -> ?from_level:(Level.t[@ocaml.doc " default is [DEBUG] "])
+  -> ?to_level:(Level.t[@ocaml.doc " default is [EMERG] "])
   -> unit
   -> unit
+[@@ocaml.doc
+  " All levels in [allowed_levels] will be allowed, and additionally all ranging from\n\
+  \    [from_level] to [to_level] (inclusive). "]
 
-(** {2 Logging functions} *)
+[@@@ocaml.text " {2 Logging functions} "]
 
-(** [openlog ~id ~options ~facility ()] opens a connection to the system logger (possibly
-    delayed) using prefixed identifier [id], [options], and [facility].
-
-    WARNING: this function leaks the [id] argument, if provided.  There is no way around
-    that if syslog is called in a multi-threaded environment!  Therefore it shouldn't be
-    called too often.  What for, anyway?
-
-    Calling [openlog] before [syslog] is optional.  If you forget, syslog will do it for
-    you with the defaults. *)
 val openlog
-  :  ?id:string (** default is [Sys.argv.(0)] *)
-  -> ?options:Open_option.t list (** default is [[ODELAY]] *)
-  -> ?facility:Facility.t (** default is [USER] *)
+  :  ?id:(string[@ocaml.doc " default is [Sys.argv.(0)] "])
+  -> ?options:(Open_option.t list[@ocaml.doc " default is [[ODELAY]] "])
+  -> ?facility:(Facility.t[@ocaml.doc " default is [USER] "])
   -> unit
   -> unit
+[@@ocaml.doc
+  " [openlog ~id ~options ~facility ()] opens a connection to the system logger (possibly\n\
+  \    delayed) using prefixed identifier [id], [options], and [facility].\n\n\
+  \    WARNING: this function leaks the [id] argument, if provided.  There is no way \
+   around\n\
+  \    that if syslog is called in a multi-threaded environment!  Therefore it shouldn't \
+   be\n\
+  \    called too often.  What for, anyway?\n\n\
+  \    Calling [openlog] before [syslog] is optional.  If you forget, syslog will do it \
+   for\n\
+  \    you with the defaults. "]
 
-(** [syslog ~facility ~level message] logs [message] using syslog with [facility] at
-    [level]. *)
 val syslog
-  :  ?facility:Facility.t (** default is [USER] *)
-  -> ?level:Level.t (** default is [INFO] *)
+  :  ?facility:(Facility.t[@ocaml.doc " default is [USER] "])
+  -> ?level:(Level.t[@ocaml.doc " default is [INFO] "])
   -> string
   -> unit
+[@@ocaml.doc
+  " [syslog ~facility ~level message] logs [message] using syslog with [facility] at\n\
+  \    [level]. "]
 
-(** [syslog_printf] acts like [syslog], but allows [printf]-style specification of the
-    message. *)
 val syslogf
   :  ?facility:Facility.t
   -> ?level:Level.t
   -> ('a, unit, string, unit) format4
   -> 'a
+[@@ocaml.doc
+  " [syslog_printf] acts like [syslog], but allows [printf]-style specification of the\n\
+  \    message. "]
 
-(** [closelog ()] closes the connection to the [syslog] daemon. *)
 val closelog : unit -> unit
+[@@ocaml.doc " [closelog ()] closes the connection to the [syslog] daemon. "]

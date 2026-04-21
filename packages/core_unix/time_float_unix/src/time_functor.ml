@@ -1,44 +1,48 @@
-(**
+[@@@ocaml.text
+  "\n\n\
+  \   Outside of Core Time appears to be a single module with a number of submodules:\n\n\
+  \   - Time\n\
+  \   - Span\n\
+  \   - Ofday\n\
+  \   - Zone\n\n\
+  \   The reality under the covers isn't as simple for a three reasons:\n\n\
+  \   - We want as much Time functionality available to Core as possible, and Core modules\n\
+  \     shouldn't rely on Unix functions.  Some functions in Time require Unix, which \
+   creates\n\
+  \     one split.\n\n\
+  \   - We want some functionality to be functorized so that code can be shared\n\
+  \     between Time and Time_ns.\n\n\
+  \   - Time has internal circular dependencies.  For instance, Ofday.now relies on\n\
+  \     Time.now, but Time also wants to expose Time.to_date_ofday, which relies on Ofday.\n\
+  \     We use a stack of modules to break the cycle.\n\n\
+  \   This leads to the following modules within Core:\n\n\
+  \   Core.Span  - the core type of span\n\
+  \   Core.Ofday - the core type of ofday, which is really a constrained span\n\
+  \   Core.Date  - the core type of date\n\
+  \   Core.Zone  - the base functor for creating a Zone type\n\
+  \   Core.Time_float0 - contains the base Time.t type and lays out the basic\n\
+  \   relationship between Time, Span, Ofday, and Zone\n\
+  \   Core.Time_float  - ties Time, Span, Ofday, Zone, and Date together and provides\n\
+  \   the higher level functions for them that don't rely on Unix\n\
+  \   Core.Time    - re-exposes Time_float\n\n\
+  \   Core.Zone_cache   - implements a caching layer between the Unix filesystem and Zones\n\
+  \   Core.Core_date    - adds the Unix dependent functions to Date\n\
+  \   Core.Core_time    - adds the Unix dependent functions to Time\n\n\
+  \   Core          - renames the Core_{base} modules to {base} for ease of access in\n\
+  \   modules outside of Core\n"]
 
-   Outside of Core Time appears to be a single module with a number of submodules:
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
 
-   - Time
-   - Span
-   - Ofday
-   - Zone
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"time_functor.ml.before-ppx"
+;;
 
-   The reality under the covers isn't as simple for a three reasons:
-
-   - We want as much Time functionality available to Core as possible, and Core modules
-     shouldn't rely on Unix functions.  Some functions in Time require Unix, which creates
-     one split.
-
-   - We want some functionality to be functorized so that code can be shared
-     between Time and Time_ns.
-
-   - Time has internal circular dependencies.  For instance, Ofday.now relies on
-     Time.now, but Time also wants to expose Time.to_date_ofday, which relies on Ofday.
-     We use a stack of modules to break the cycle.
-
-   This leads to the following modules within Core:
-
-   Core.Span  - the core type of span
-   Core.Ofday - the core type of ofday, which is really a constrained span
-   Core.Date  - the core type of date
-   Core.Zone  - the base functor for creating a Zone type
-   Core.Time_float0 - contains the base Time.t type and lays out the basic
-   relationship between Time, Span, Ofday, and Zone
-   Core.Time_float  - ties Time, Span, Ofday, Zone, and Date together and provides
-   the higher level functions for them that don't rely on Unix
-   Core.Time    - re-exposes Time_float
-
-   Core.Zone_cache   - implements a caching layer between the Unix filesystem and Zones
-   Core.Core_date    - adds the Unix dependent functions to Date
-   Core.Core_time    - adds the Unix dependent functions to Time
-
-   Core          - renames the Core_{base} modules to {base} for ease of access in
-   modules outside of Core
-*)
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "time_functor.ml.before-ppx"
+;;
 
 open! Core
 open! Import
@@ -46,8 +50,8 @@ open! Int.Replace_polymorphic_compare
 include Time_functor_intf
 
 module Make
-  (Time0 : Time_float.S_kernel_without_zone)
-  (Time : Time_float.S_kernel with module Time := Time0) =
+    (Time0 : Time_float.S_kernel_without_zone)
+    (Time : Time_float.S_kernel with module Time := Time0) =
 struct
   module Span = struct
     include Time.Span
@@ -75,12 +79,172 @@ struct
         }
       [@@deriving bin_io, fields ~getters, compare, equal, hash]
 
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "time_functor.ml.before-ppx:72:6")
+              [ ( Bin_prot.Shape.Tid.of_string "t"
+                , []
+                , Bin_prot.Shape.record
+                    [ "ofday", Time.Ofday.bin_shape_t; "zone", Zone.bin_shape_t ] )
+              ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+
+        let bin_size_t : t Bin_prot.Size.sizer = function
+          | { ofday = v1; zone = v2 } ->
+            let size = 0 in
+            let size = Bin_prot.Common.( + ) size (Time.Ofday.bin_size_t v1) in
+            Bin_prot.Common.( + ) size (Zone.bin_size_t v2)
+        ;;
+
+        let _ = bin_size_t
+
+        let bin_write_t : t Bin_prot.Write.writer =
+          fun buf ~pos -> function
+          | { ofday = v1; zone = v2 } ->
+            let pos = Time.Ofday.bin_write_t buf ~pos v1 in
+            Zone.bin_write_t buf ~pos v2
+        ;;
+
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader =
+          fun _buf ~pos_ref _vint ->
+          Bin_prot.Common.raise_variant_wrong_type
+            "time_functor.ml.before-ppx.Make.Ofday.Zoned.t"
+            !pos_ref
+        ;;
+
+        let _ = __bin_read_t__
+
+        let bin_read_t : t Bin_prot.Read.reader =
+          fun buf ~pos_ref ->
+          let v_ofday = Time.Ofday.bin_read_t buf ~pos_ref in
+          let v_zone = Zone.bin_read_t buf ~pos_ref in
+          { ofday = v_ofday; zone = v_zone }
+        ;;
+
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+        let zone _r__ = _r__.zone
+        let _ = zone
+        let ofday _r__ = _r__.ofday
+        let _ = ofday
+
+        let compare =
+          (fun a__001_ b__002_ ->
+             if Stdlib.( == ) a__001_ b__002_
+             then 0
+             else (
+               match Time.Ofday.compare a__001_.ofday b__002_.ofday with
+               | 0 -> Zone.compare a__001_.zone b__002_.zone
+               | n -> n)
+           : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let equal =
+          (fun a__003_ b__004_ ->
+             if Stdlib.( == ) a__003_ b__004_
+             then true
+             else
+               Stdlib.( && )
+                 (Time.Ofday.equal a__003_.ofday b__004_.ofday)
+                 (Zone.equal a__003_.zone b__004_.zone)
+           : t -> (t[@merlin.hide]) -> bool)
+        ;;
+
+        let _ = equal
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg ->
+          let hsv =
+            let hsv = hsv in
+            Time.Ofday.hash_fold_t hsv arg.ofday
+          in
+          Zone.hash_fold_t hsv arg.zone
+        ;;
+
+        let _ = hash_fold_t
+
+        let hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func arg =
+            Ppx_hash_lib.Std.Hash.get_hash_value
+              (let hsv = Ppx_hash_lib.Std.Hash.create () in
+               hash_fold_t hsv arg)
+          in
+          fun x -> func x
+        ;;
+
+        let _ = hash
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
       type sexp_repr = Time.Ofday.t * Zone.t [@@deriving sexp]
 
-      let sexp_of_t t = [%sexp_of: sexp_repr] (t.ofday, t.zone)
+      include struct
+        let _ = fun (_ : sexp_repr) -> ()
+
+        let sexp_repr_of_sexp =
+          (let error_source__011_ =
+             "time_functor.ml.before-ppx.Make.Ofday.Zoned.sexp_repr"
+           in
+           function
+           | Sexplib0.Sexp.List [ arg0__006_; arg1__007_ ] ->
+             let res0__008_ = Time.Ofday.t_of_sexp arg0__006_
+             and res1__009_ = Zone.t_of_sexp arg1__007_ in
+             res0__008_, res1__009_
+           | sexp__010_ ->
+             Sexplib0.Sexp_conv_error.tuple_of_size_n_expected
+               error_source__011_
+               2
+               sexp__010_
+           : Sexplib0.Sexp.t -> sexp_repr)
+        ;;
+
+        let _ = sexp_repr_of_sexp
+
+        let sexp_of_sexp_repr =
+          (fun (arg0__012_, arg1__013_) ->
+             let res0__014_ = Time.Ofday.sexp_of_t arg0__012_
+             and res1__015_ = Zone.sexp_of_t arg1__013_ in
+             Sexplib0.Sexp.List [ res0__014_; res1__015_ ]
+           : sexp_repr -> Sexplib0.Sexp.t)
+        ;;
+
+        let _ = sexp_of_sexp_repr
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      let sexp_of_t t = (sexp_of_sexp_repr [@merlin.hide]) (t.ofday, t.zone)
 
       let t_of_sexp sexp =
-        let ofday, zone = [%of_sexp: sexp_repr] sexp in
+        let ofday, zone = (sexp_repr_of_sexp [@merlin.hide]) sexp in
         { ofday; zone }
       ;;
 
@@ -107,27 +271,99 @@ struct
 
       module With_nonchronological_compare = struct
         type nonrec t = t [@@deriving bin_io, compare, equal, sexp, hash]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "time_functor.ml.before-ppx:109:8")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+
+          let compare =
+            (fun a__016_ b__017_ -> compare a__016_ b__017_
+             : t -> (t[@merlin.hide]) -> int)
+          ;;
+
+          let _ = compare
+
+          let equal =
+            (fun a__018_ b__019_ -> equal a__018_ b__019_
+             : t -> (t[@merlin.hide]) -> bool)
+          ;;
+
+          let _ = equal
+          let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+          let _ = t_of_sexp
+          let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+          let _ = sexp_of_t
+
+          let hash_fold_t
+            : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state
+            =
+            fun hsv arg -> hash_fold_t hsv arg
+
+          and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+            let func = hash in
+            fun x -> func x
+          ;;
+
+          let _ = hash_fold_t
+          and _ = hash
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
       end
 
       include Pretty_printer.Register (struct
-        type nonrec t = t
+          type nonrec t = t
 
-        let to_string = to_string
-        let module_name = "Time_float_unix.Ofday.Zoned"
-      end)
+          let to_string = to_string
+          let module_name = "Time_float_unix.Ofday.Zoned"
+        end)
     end
   end
 
   include (
     Time :
       module type of Time
-        with module Zone := Time.Zone
-         and module Ofday := Time.Ofday
-         and module Span := Time.Span)
+      with module Zone := Time.Zone
+       and module Ofday := Time.Ofday
+       and module Span := Time.Span)
 
   let of_tm tm ~zone =
-    (* Explicitly ignoring isdst, wday, yday (they are redundant with the other fields
-       and the [zone] argument) *)
     let { Unix.tm_year
         ; tm_mon
         ; tm_mday
@@ -163,7 +399,6 @@ struct
   let of_string_fix_proto utc str =
     try
       let expect_length = 21 in
-      (* = 8 + 1 + 12 *)
       let expect_dash = 8 in
       if Char.( <> ) str.[expect_dash] '-'
       then failwithf "no dash in position %d" expect_dash ();
@@ -193,23 +428,19 @@ struct
 
   let format t s ~zone =
     let epoch_time =
-      Zone.date_and_ofday_of_absolute_time zone t
-      |> Date_and_ofday.to_synthetic_span_since_epoch
-      |> Span.to_sec
+      Span.to_sec
+        (Date_and_ofday.to_synthetic_span_since_epoch
+           (Zone.date_and_ofday_of_absolute_time zone t))
     in
     Unix.strftime (Unix.gmtime epoch_time) s
   ;;
 
   let parse ?allow_trailing_input s ~fmt ~zone =
-    Unix.strptime ?allow_trailing_input ~fmt s |> of_tm ~zone
+    of_tm ~zone (Unix.strptime ?allow_trailing_input ~fmt s)
   ;;
 
   let pause_for span =
     let time_remaining =
-      (* If too large a float is passed in (Span.max_value for instance) then
-         nanosleep will return immediately, leading to an infinite and expensive
-         select loop.  This is handled by pausing for no longer than 100 days.
-      *)
       let span = Span.min span (Span.scale Span.day 100.) in
       Unix.nanosleep (Span.to_sec span)
     in
@@ -218,15 +449,16 @@ struct
     else `Ok
   ;;
 
-  (** Pause and don't allow events to interrupt. *)
   let rec pause span =
     match pause_for span with
     | `Remaining span -> pause span
     | `Ok -> ()
+  [@@ocaml.doc " Pause and don't allow events to interrupt. "]
   ;;
 
-  (** Pause but allow events to interrupt. *)
   let interruptible_pause = pause_for
+  [@@ocaml.doc " Pause but allow events to interrupt. "]
+  ;;
 
   let rec pause_forever () =
     pause (Span.of_day 1.0);
@@ -252,6 +484,22 @@ struct
 
   exception Time_string_not_absolute of string [@@deriving sexp]
 
+  include struct
+    let () =
+      Sexplib0.Sexp_conv.Exn_converter.add
+        [%extension_constructor Time_string_not_absolute]
+        (function
+        | Time_string_not_absolute arg0__021_ ->
+          let res0__022_ = sexp_of_string arg0__021_ in
+          Sexplib0.Sexp.List
+            [ Sexplib0.Sexp.Atom
+                "time_functor.ml.before-ppx.Make.Time_string_not_absolute"
+            ; res0__022_
+            ]
+        | _ -> assert false)
+    ;;
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let of_string_gen ~if_no_timezone s =
     let default_zone () =
       match if_no_timezone with
@@ -267,11 +515,11 @@ struct
   let arg_type = Core.Command.Arg_type.create of_string_abs
 
   include Pretty_printer.Register (struct
-    type nonrec t = t
+      type nonrec t = t
 
-    let to_string = to_string
-    let module_name = "Time_float_unix"
-  end)
+      let to_string = to_string
+      let module_name = "Time_float_unix"
+    end)
 
   let sexp_zone = ref Zone.local
   let get_sexp_zone () = Lazy.force !sexp_zone
@@ -285,8 +533,6 @@ struct
           ~zone:(Zone.find_exn tz)
           (Date.of_string date)
           (Ofday.of_string ofday)
-      (* This is actually where the output of [sexp_of_t] is handled, since that's e.g.
-         (2015-07-06 09:09:44.787988+01:00). *)
       | Sexp.List [ Sexp.Atom date; Sexp.Atom ofday_and_possibly_zone ] ->
         of_string_gen ~if_no_timezone (date ^ " " ^ ofday_and_possibly_zone)
       | Sexp.Atom datetime -> of_string_gen ~if_no_timezone datetime
@@ -320,13 +566,57 @@ struct
 
   module type C =
     Comparable.Map_and_set_binable
-      with type t := t
-       and type comparator_witness := comparator_witness
+    with type t := t
+     and type comparator_witness := comparator_witness
 
   let make_comparable ?(sexp_of_t = sexp_of_t) ?(t_of_sexp = t_of_sexp) () : (module C) =
     (module struct
       module C = struct
         type nonrec t = t [@@deriving bin_io]
+
+        include struct
+          let _ = fun (_ : t) -> ()
+
+          let bin_shape_t =
+            let _group =
+              Bin_prot.Shape.group
+                (Bin_prot.Shape.Location.of_string "time_functor.ml.before-ppx:329:8")
+                [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+            in
+            (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+          ;;
+
+          let _ = bin_shape_t
+          let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+          let _ = bin_size_t
+          let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+          let _ = bin_write_t
+
+          let bin_writer_t =
+            ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+          ;;
+
+          let _ = bin_writer_t
+          let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+          let _ = __bin_read_t__
+          let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+          let _ = bin_read_t
+
+          let bin_reader_t =
+            ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+             : _ Bin_prot.Type_class.reader)
+          ;;
+
+          let _ = bin_reader_t
+
+          let bin_t =
+            ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+             : _ Bin_prot.Type_class.t)
+          ;;
+
+          let _ = bin_t
+        end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
         type nonrec comparator_witness = comparator_witness
 
         let comparator = comparator
@@ -340,12 +630,6 @@ struct
     end)
   ;;
 
-  (* In 108.06a and earlier, times in sexps of Maps and Sets were raw floats.  From
-     108.07 through 109.13, the output format remained raw as before, but both the raw
-     and pretty format were accepted as input.  From 109.14 on, the output format was
-     changed from raw to pretty, while continuing to accept both formats.  Once we
-     believe most programs are beyond 109.14, we will switch the input format to no
-     longer accept raw. *)
   include
     (val make_comparable () ~t_of_sexp:(fun sexp ->
            match
@@ -355,18 +639,96 @@ struct
            | Some t -> t
            | None -> t_of_sexp sexp))
 
-  let%test _ =
-    Set.equal
-      (Set.of_list [ epoch ])
-      (Set.t_of_sexp
-         (Sexp.List [ Float.sexp_of_t (Span.to_sec (to_span_since_epoch epoch)) ]))
+  let () =
+    Ppx_inline_test_lib.test
+      ~config:(module Inline_test_config)
+      ~descr:(lazy "<<Set.equal (Set.of_list [epoch])   (Set.t_of_s[...]>>")
+      ~tags:[]
+      ~filename:"time_functor.ml.before-ppx"
+      ~line_number:358
+      ~start_pos:2
+      ~end_pos:163
+      (fun () ->
+         Set.equal
+           (Set.of_list [ epoch ])
+           (Set.t_of_sexp
+              (Sexp.List [ Float.sexp_of_t (Span.to_sec (to_span_since_epoch epoch)) ])))
   ;;
 
   include Hashable.Make_binable (struct
-    type nonrec t = t [@@deriving bin_io, compare, hash, sexp]
-  end)
+      type nonrec t = t [@@deriving bin_io, compare, hash, sexp]
+
+      include struct
+        let _ = fun (_ : t) -> ()
+
+        let bin_shape_t =
+          let _group =
+            Bin_prot.Shape.group
+              (Bin_prot.Shape.Location.of_string "time_functor.ml.before-ppx:366:4")
+              [ Bin_prot.Shape.Tid.of_string "t", [], bin_shape_t ]
+          in
+          (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "t")) []
+        ;;
+
+        let _ = bin_shape_t
+        let bin_size_t : t Bin_prot.Size.sizer = bin_size_t
+        let _ = bin_size_t
+        let bin_write_t : t Bin_prot.Write.writer = bin_write_t
+        let _ = bin_write_t
+
+        let bin_writer_t =
+          ({ size = bin_size_t; write = bin_write_t } : _ Bin_prot.Type_class.writer)
+        ;;
+
+        let _ = bin_writer_t
+        let __bin_read_t__ : (int -> t) Bin_prot.Read.reader = __bin_read_t__
+        let _ = __bin_read_t__
+        let bin_read_t : t Bin_prot.Read.reader = bin_read_t
+        let _ = bin_read_t
+
+        let bin_reader_t =
+          ({ read = bin_read_t; vtag_read = __bin_read_t__ }
+           : _ Bin_prot.Type_class.reader)
+        ;;
+
+        let _ = bin_reader_t
+
+        let bin_t =
+          ({ writer = bin_writer_t; reader = bin_reader_t; shape = bin_shape_t }
+           : _ Bin_prot.Type_class.t)
+        ;;
+
+        let _ = bin_t
+
+        let compare =
+          (fun a__023_ b__024_ -> compare a__023_ b__024_ : t -> (t[@merlin.hide]) -> int)
+        ;;
+
+        let _ = compare
+
+        let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+          fun hsv arg -> hash_fold_t hsv arg
+
+        and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+          let func = hash in
+          fun x -> func x
+        ;;
+
+        let _ = hash_fold_t
+        and _ = hash
+
+        let t_of_sexp = (t_of_sexp : Sexplib0.Sexp.t -> t)
+        let _ = t_of_sexp
+        let sexp_of_t = (sexp_of_t : t -> Sexplib0.Sexp.t)
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+    end)
 
   module Exposed_for_tests = struct
     let ensure_colon_in_offset = ensure_colon_in_offset
   end
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

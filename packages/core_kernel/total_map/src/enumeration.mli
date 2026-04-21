@@ -1,1 +1,1 @@
-include Enumeration_intf.Enumeration (** @inline *)
+include Enumeration_intf.Enumeration [@@ocaml.doc " @inline "]

@@ -1,23 +1,31 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"int_set.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "int_set.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
 module Range : sig
-  (* A range represents a closed interval of integers *)
-
   type t = private
     { lo : int
     ; hi : int
     }
 
-  (* Invariant: lo <= hi *)
-
-  (** Create [t] from a range *)
-  val make : int -> int -> t
+  val make : int -> int -> t [@@ocaml.doc " Create [t] from a range "]
 
   val to_string : t -> string
 
-  (** [merge s t] merges mergeable ranges *)
   val merge : t -> t -> [ `Ok of t | `Lt_and_not_adjacent | `Gt_and_not_adjacent ]
+  [@@ocaml.doc " [merge s t] merges mergeable ranges "]
 
   val contains : int -> t -> bool
 end = struct
@@ -29,8 +37,6 @@ end = struct
   let make x y = if x <= y then { lo = x; hi = y } else { lo = y; hi = x }
   let to_string t = if t.lo = t.hi then Int.to_string t.lo else sprintf "%d-%d" t.lo t.hi
 
-  (* on the number line, r1 is either on the left, on the right, or
-     intersected with r2 *)
   let compare r1 r2 =
     if r1.hi < r2.lo - 1
     then `Lt_and_not_adjacent
@@ -51,18 +57,13 @@ end
 
 type t = Range.t list
 
-(* invariant : the elements of [t] must be pairwise discrete (not mergeable) and sorted
-   in DECREASING order. *)
-
 let empty = []
 let to_string t = String.concat ~sep:"," (List.rev_map t ~f:Range.to_string)
 
 let add_range t x y =
-  (* note: not tail recursive *)
   let rec loop ranges to_add =
     match ranges with
     | r :: rest ->
-      (* the following keeps the invariant: discrete + sorted *)
       (match Range.merge to_add r with
        | `Lt_and_not_adjacent -> r :: loop rest to_add
        | `Gt_and_not_adjacent -> to_add :: r :: rest
@@ -87,3 +88,7 @@ let min t =
   | None -> None
   | Some { Range.lo; hi = _ } -> Some lo
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

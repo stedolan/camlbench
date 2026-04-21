@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"file_descr.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "file_descr.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
@@ -15,18 +28,16 @@ module M = struct
   let t_of_sexp sexp = of_int (Int.t_of_sexp sexp)
 
   let sexp_of_t t =
-    (* File descriptors 0, 1, 2 (stdin, stdout, stderr) are stable, so we show them even
-       in test. *)
     match am_running_test && Int.( > ) (to_int t) 2 with
-    | false -> [%sexp (to_int t : int)]
-    | true -> [%sexp "_"]
+    | false -> (sexp_of_int [@merlin.hide]) (to_int t)
+    | true -> Ppx_sexp_conv_lib.Conv.sexp_of_string "_"
   ;;
 end
 
 include M
 include Hashable.Make_plain_and_derive_hash_fold_t (M)
 
-(* Given that [to_int] and [of_int] are set to "%identity", this is considerably more
-   direct.  It's unfortunate, but despite [Caml_unix] using [type t = int] in the
-   implementation, [Unix.file_descr] is abstract and cannot be tagged [@@immediate]. *)
 let equal (t1 : t) t2 = phys_equal t1 t2
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

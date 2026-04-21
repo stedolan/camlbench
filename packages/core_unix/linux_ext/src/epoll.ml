@@ -1,57 +1,72 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"epoll.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "epoll.ml.before-ppx"
+;;
+
 open! Base
 open! Core
 include Epoll_intf
 
 module Epoll_flags (Flag_values : sig
-  (* We use [Int63] rather than [Int] because these flags use 32 bits. *)
-  val in_ : Int63.t
-  val out : Int63.t
-
-  (* val rdhup   : Int63.t *)
-  val pri : Int63.t
-  val err : Int63.t
-  val hup : Int63.t
-  val et : Int63.t
-  val oneshot : Int63.t
-end) =
+    val in_ : Int63.t
+    val out : Int63.t
+    val pri : Int63.t
+    val err : Int63.t
+    val hup : Int63.t
+    val et : Int63.t
+    val oneshot : Int63.t
+  end) =
 struct
   let none = Int63.zero
 
   include Flag_values
 
   include Flags.Make (struct
-    let allow_intersecting = false
-    let should_print_error = true
-    let remove_zero_flags = false
+      let allow_intersecting = false
+      let should_print_error = true
+      let remove_zero_flags = false
 
-    let known =
-      [ in_, "in"
-      ; out, "out"
-      ; (* rdhup, "rdhup"; *)
-        pri, "pri"
-      ; err, "err"
-      ; hup, "hup"
-      ; et, "et"
-      ; oneshot, "oneshot"
-      ]
-    ;;
-  end)
+      let known =
+        [ in_, "in"
+        ; out, "out"
+        ; pri, "pri"
+        ; err, "err"
+        ; hup, "hup"
+        ; et, "et"
+        ; oneshot, "oneshot"
+        ]
+      ;;
+    end)
 end
 
 module Null_impl : S = struct
   module Flags = Epoll_flags (struct
-    let in_ = Int63.of_int (1 lsl 0)
-    let out = Int63.of_int (1 lsl 1)
-
-    (* let rdhup   = Int63.of_int (1 lsl 2) *)
-    let pri = Int63.of_int (1 lsl 3)
-    let err = Int63.of_int (1 lsl 4)
-    let hup = Int63.of_int (1 lsl 5)
-    let et = Int63.of_int (1 lsl 6)
-    let oneshot = Int63.of_int (1 lsl 7)
-  end)
+      let in_ = Int63.of_int (1 lsl 0)
+      let out = Int63.of_int (1 lsl 1)
+      let pri = Int63.of_int (1 lsl 3)
+      let err = Int63.of_int (1 lsl 4)
+      let hup = Int63.of_int (1 lsl 5)
+      let et = Int63.of_int (1 lsl 6)
+      let oneshot = Int63.of_int (1 lsl 7)
+    end)
 
   type t = [ `Epoll_is_not_implemented ] [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let sexp_of_t =
+      (fun `Epoll_is_not_implemented -> Sexplib0.Sexp.Atom "Epoll_is_not_implemented"
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let create = Or_error.unimplemented "Linux_ext.Epoll.create"
   let close _ = assert false
@@ -70,8 +85,6 @@ module Null_impl : S = struct
   module Expert = struct
     let clear_ready _ = assert false
   end
-
-  (* let pwait _ ~timeout:_ _      = assert false *)
 end
 
 module _ = Null_impl
@@ -85,8 +98,6 @@ module Impl = struct
 
   external flag_epollin : unit -> Int63.t = "core_linux_epoll_EPOLLIN_flag"
   external flag_epollout : unit -> Int63.t = "core_linux_epoll_EPOLLOUT_flag"
-
-  (* external flag_epollrdhup   : unit -> Int63.t  = "core_linux_epoll_EPOLLRDHUP_flag" *)
   external flag_epollpri : unit -> Int63.t = "core_linux_epoll_EPOLLPRI_flag"
   external flag_epollerr : unit -> Int63.t = "core_linux_epoll_EPOLLERR_flag"
   external flag_epollhup : unit -> Int63.t = "core_linux_epoll_EPOLLHUP_flag"
@@ -94,41 +105,30 @@ module Impl = struct
   external flag_epolloneshot : unit -> Int63.t = "core_linux_epoll_EPOLLONESHOT_flag"
 
   module Flags = Epoll_flags (struct
-    let in_ = flag_epollin ()
-    let out = flag_epollout ()
-
-    (* let rdhup   = flag_epollrdhup () *)
-    let pri = flag_epollpri ()
-    let err = flag_epollerr ()
-    let hup = flag_epollhup ()
-    let et = flag_epollet ()
-    let oneshot = flag_epolloneshot ()
-  end)
+      let in_ = flag_epollin ()
+      let out = flag_epollout ()
+      let pri = flag_epollpri ()
+      let err = flag_epollerr ()
+      let hup = flag_epollhup ()
+      let et = flag_epollet ()
+      let oneshot = flag_epolloneshot ()
+    end)
 
   external epoll_create : unit -> File_descr.t = "core_linux_epoll_create"
 
-  (* Some justification for the below interface: Unlike select() and poll(), epoll() fills
-     in an array of ready events, analogous to a read() call where you pass in a buffer to
-     be filled.
-
-     Since this is at the core of the I/O loop, we'd like to avoid reallocating that
-     buffer on every call to poll.  We're allocating the array on the ocaml side (as a
-     Bigstring), then iterating through it in-place, reducing allocation, copies, and any
-     intermediate lists.  For very high message rates and many fds this could be a very
-     beneficial. *)
   type ready_events = Bigstring.t
 
   external epoll_sizeof_epoll_event : unit -> int = "core_linux_epoll_sizeof_epoll_event"
-    [@@noalloc]
+  [@@noalloc]
 
   external epoll_offsetof_readyfd : unit -> int = "core_linux_epoll_offsetof_readyfd"
-    [@@noalloc]
+  [@@noalloc]
 
   external epoll_offsetof_readyflags
     :  unit
     -> int
     = "core_linux_epoll_offsetof_readyflags"
-    [@@noalloc]
+  [@@noalloc]
 
   let sizeof_epoll_event = epoll_sizeof_epoll_event ()
   let offsetof_readyfd = epoll_offsetof_readyfd ()
@@ -159,33 +159,180 @@ module Impl = struct
   module T = struct
     type 'a t =
       { epollfd : File_descr.t
-      ; (* [flags_by_fd] has one entry for each file-descr in the epoll set, and stores
-           the epoll flags that the kernel's epoll set currently has for that
-           file-descr.  Keeping our own representation of the kernel data structure is
-           useful for debugging, since the information appears in a human-readable way
-           in [sexp_of_t]'s output.  It also allows us to hide the distinction between
-           [epoll_ctl_add] and [epoll_ctl_mod], since we know which to use based on
-           whether the file descriptor is already being watched. *)
-        flags_by_fd : (File_descr.t, Flags.t) Table.t
+      ; flags_by_fd : (File_descr.t, Flags.t) Table.t
       ; max_ready_events : int
-      ; (* [num_ready_events] holds the number of ready events in [ready_events], as
-           determined by the last call to [wait]. *)
-        mutable num_ready_events : int
+      ; mutable num_ready_events : int
       ; ready_events : 'a
       }
     [@@deriving fields ~iterators:iter, sexp_of]
+
+    include struct
+      [@@@ocaml.warning "-60"]
+
+      let _ = fun (_ : 'a t) -> ()
+      let ready_events _r__ = _r__.ready_events
+      let _ = ready_events
+      let num_ready_events _r__ = _r__.num_ready_events
+      let _ = num_ready_events
+      let set_num_ready_events _r__ v__ = _r__.num_ready_events <- v__
+      let _ = set_num_ready_events
+      let max_ready_events _r__ = _r__.max_ready_events
+      let _ = max_ready_events
+      let flags_by_fd _r__ = _r__.flags_by_fd
+      let _ = flags_by_fd
+      let epollfd _r__ = _r__.epollfd
+      let _ = epollfd
+
+      module Fields = struct
+        let ready_events =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "ready_events"
+             ; getter = ready_events
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with ready_events = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, 'a) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = ready_events
+
+        let num_ready_events =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "num_ready_events"
+             ; getter = num_ready_events
+             ; setter = Some set_num_ready_events
+             ; fset = (fun _r__ v__ -> { _r__ with num_ready_events = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = num_ready_events
+
+        let max_ready_events =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "max_ready_events"
+             ; getter = max_ready_events
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with max_ready_events = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, int) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = max_ready_events
+
+        let flags_by_fd =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "flags_by_fd"
+             ; getter = flags_by_fd
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with flags_by_fd = v__ })
+             }
+           : ( [< `Read | `Set_and_create ]
+               , _
+               , (File_descr.t, Flags.t) Table.t )
+               Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = flags_by_fd
+
+        let epollfd =
+          (Fieldslib.Field.Field
+             { Fieldslib.Field.For_generated_code.force_variance =
+                 (fun (_ : [< `Read | `Set_and_create ]) -> ())
+             ; name = "epollfd"
+             ; getter = epollfd
+             ; setter = None
+             ; fset = (fun _r__ v__ -> { _r__ with epollfd = v__ })
+             }
+           : ([< `Read | `Set_and_create ], _, File_descr.t) Fieldslib.Field.t_with_perm)
+        ;;
+
+        let _ = epollfd
+
+        let iter
+              ~epollfd:epollfd_fun__
+              ~flags_by_fd:flags_by_fd_fun__
+              ~max_ready_events:max_ready_events_fun__
+              ~num_ready_events:num_ready_events_fun__
+              ~ready_events:ready_events_fun__
+          =
+          (epollfd_fun__ epollfd : unit);
+          (flags_by_fd_fun__ flags_by_fd : unit);
+          (max_ready_events_fun__ max_ready_events : unit);
+          (num_ready_events_fun__ num_ready_events : unit);
+          (ready_events_fun__ ready_events : unit)
+        ;;
+
+        let _ = iter
+      end
+
+      let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+        fun _of_a__001_
+          { epollfd = epollfd__003_
+          ; flags_by_fd = flags_by_fd__005_
+          ; max_ready_events = max_ready_events__007_
+          ; num_ready_events = num_ready_events__009_
+          ; ready_events = ready_events__011_
+          } ->
+        let bnds__002_ = ([] : _ Stdlib.List.t) in
+        let bnds__002_ =
+          let arg__012_ = _of_a__001_ ready_events__011_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "ready_events"; arg__012_ ]
+           :: bnds__002_
+           : _ Stdlib.List.t)
+        in
+        let bnds__002_ =
+          let arg__010_ = sexp_of_int num_ready_events__009_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "num_ready_events"; arg__010_ ]
+           :: bnds__002_
+           : _ Stdlib.List.t)
+        in
+        let bnds__002_ =
+          let arg__008_ = sexp_of_int max_ready_events__007_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "max_ready_events"; arg__008_ ]
+           :: bnds__002_
+           : _ Stdlib.List.t)
+        in
+        let bnds__002_ =
+          let arg__006_ =
+            Table.sexp_of_t File_descr.sexp_of_t Flags.sexp_of_t flags_by_fd__005_
+          in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "flags_by_fd"; arg__006_ ]
+           :: bnds__002_
+           : _ Stdlib.List.t)
+        in
+        let bnds__002_ =
+          let arg__004_ = File_descr.sexp_of_t epollfd__003_ in
+          (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "epollfd"; arg__004_ ] :: bnds__002_
+           : _ Stdlib.List.t)
+        in
+        Sexplib0.Sexp.List bnds__002_
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   open T
 
   let epoll_readyfd t i =
-    Bigstring.unsafe_get_int32_le t ~pos:((i * sizeof_epoll_event) + offsetof_readyfd)
-    |> File_descr.of_int
+    File_descr.of_int
+      (Bigstring.unsafe_get_int32_le t ~pos:((i * sizeof_epoll_event) + offsetof_readyfd))
   ;;
 
   let epoll_readyflags t i =
-    Bigstring.unsafe_get_int32_le t ~pos:((i * sizeof_epoll_event) + offsetof_readyflags)
-    |> Flags.of_int
+    Flags.of_int
+      (Bigstring.unsafe_get_int32_le
+         t
+         ~pos:((i * sizeof_epoll_event) + offsetof_readyflags))
   ;;
 
   type in_use = ready_events T.t
@@ -197,8 +344,54 @@ module Impl = struct
       }
     [@@deriving sexp_of]
 
+    include struct
+      let _ = fun (_ : ready_event) -> ()
+
+      let sexp_of_ready_event =
+        (fun { file_descr = file_descr__014_; flags = flags__016_ } ->
+           let bnds__013_ = ([] : _ Stdlib.List.t) in
+           let bnds__013_ =
+             let arg__017_ = Flags.sexp_of_t flags__016_ in
+             (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "flags"; arg__017_ ] :: bnds__013_
+              : _ Stdlib.List.t)
+           in
+           let bnds__013_ =
+             let arg__015_ = File_descr.sexp_of_t file_descr__014_ in
+             (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "file_descr"; arg__015_ ]
+              :: bnds__013_
+              : _ Stdlib.List.t)
+           in
+           Sexplib0.Sexp.List bnds__013_
+         : ready_event -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_ready_event
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     type ready_events = ready_event array [@@deriving sexp_of]
+
+    include struct
+      let _ = fun (_ : ready_events) -> ()
+
+      let sexp_of_ready_events =
+        (fun x__018_ -> sexp_of_array sexp_of_ready_event x__018_
+         : ready_events -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_ready_events
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
     type t = ready_events T.t [@@deriving sexp_of]
+
+    include struct
+      let _ = fun (_ : t) -> ()
+
+      let sexp_of_t =
+        (fun x__019_ -> T.sexp_of_t sexp_of_ready_events x__019_ : t -> Sexplib0.Sexp.t)
+      ;;
+
+      let _ = sexp_of_t
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 
   let to_pretty t =
@@ -214,6 +407,23 @@ module Impl = struct
   let sexp_of_in_use t = Pretty.sexp_of_t (to_pretty t)
 
   type t = [ `Closed | `In_use of in_use ] ref [@@deriving sexp_of]
+
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let sexp_of_t =
+      (fun x__021_ ->
+         sexp_of_ref
+           (function
+             | `Closed -> Sexplib0.Sexp.Atom "Closed"
+             | `In_use v__020_ ->
+               Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "In_use"; sexp_of_in_use v__020_ ])
+           x__021_
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   let close t =
     match !t with
@@ -239,33 +449,46 @@ module Impl = struct
        with
        | exn ->
          failwiths
-           ~here:[%here]
+           ~here:
+             { Ppx_here_lib.pos_fname = "epoll.ml.before-ppx"
+             ; pos_lnum = 242
+             ; pos_cnum = 7114
+             ; pos_bol = 7097
+             }
            "Epoll.invariant failed"
            (exn, t)
-           [%sexp_of: exn * in_use])
+           ((fun (arg0__022_, arg1__023_) ->
+              let res0__024_ = sexp_of_exn arg0__022_
+              and res1__025_ = sexp_of_in_use arg1__023_ in
+              Sexplib0.Sexp.List [ res0__024_; res1__025_ ]) [@merlin.hide]))
   ;;
 
   let create ~num_file_descrs ~max_ready_events =
     if max_ready_events < 0
     then
       failwiths
-        ~here:[%here]
+        ~here:
+          { Ppx_here_lib.pos_fname = "epoll.ml.before-ppx"
+          ; pos_lnum = 252
+          ; pos_cnum = 7338
+          ; pos_bol = 7324
+          }
         "Epoll.create got nonpositive max_ready_events"
         max_ready_events
-        [%sexp_of: int];
+        (sexp_of_int [@merlin.hide]);
     ref
       (`In_use
-        { epollfd = epoll_create ()
-        ; flags_by_fd =
-            Table.create
-              ~num_keys:num_file_descrs
-              ~key_to_int:File_descr.to_int
-              ~sexp_of_key:File_descr.sexp_of_t
-              ()
-        ; max_ready_events
-        ; num_ready_events = 0
-        ; ready_events = Bigstring.create (sizeof_epoll_event * max_ready_events)
-        })
+          { epollfd = epoll_create ()
+          ; flags_by_fd =
+              Table.create
+                ~num_keys:num_file_descrs
+                ~key_to_int:File_descr.to_int
+                ~sexp_of_key:File_descr.sexp_of_t
+                ()
+          ; max_ready_events
+          ; num_ready_events = 0
+          ; ready_events = Bigstring.create (sizeof_epoll_event * max_ready_events)
+          })
   ;;
 
   let in_use_exn t =
@@ -297,9 +520,6 @@ module Impl = struct
   let set t fd flags =
     let t = in_use_exn t in
     let already_present = Table.mem t.flags_by_fd fd in
-    (* Both [epoll_ctl_add] and [epoll_ctl_mod] may raise if the file descriptor does not
-       support polling. Perform these operations first and let them raise before modifying
-       the table to reflect the change in epoll state. *)
     let () =
       if already_present
       then epoll_ctl_mod t.epollfd fd flags
@@ -325,8 +545,6 @@ module Impl = struct
 
   let wait_internal t ~timeout_ms =
     let t = in_use_exn t in
-    (* We clear [num_ready_events] because [epoll_wait] will invalidate [ready_events],
-       and we don't want another thread to observe [t] and see junk. *)
     t.num_ready_events <- 0;
     t.num_ready_events <- epoll_wait t.epollfd t.ready_events timeout_ms;
     if t.num_ready_events = 0 then `Timeout else `Ok
@@ -337,29 +555,18 @@ module Impl = struct
       if Time_ns.Span.( <= ) span Time_ns.Span.zero
       then 0
       else (
-        (* For positive timeouts, we use a minimum timeout of one millisecond, to ensure
-           that we are guaranteed that the timeout has passed when we wake up.  If we
-           allowed a positive sub-millisecond timeout, we would round down and end up
-           using a timeout of zero, causing [wait_internal] to return immediately.  Such
-           behaviour has been seen to cause Async to spin, repeatedly requesting slightly
-           smaller timeouts. *)
         let span = Time_ns.Span.max span Time_ns.Span.millisecond in
         Int63.to_int_exn
-          Time_ns.Span.(
-            div
-              (span + of_int63_ns (Int63.of_int 500_000))
-              (of_int63_ns (Int63.of_int 1_000_000))))
+          (let open Time_ns.Span in
+           div
+             (span + of_int63_ns (Int63.of_int 500_000))
+             (of_int63_ns (Int63.of_int 1_000_000))))
     in
     assert (timeout_ms >= 0);
     wait_internal t ~timeout_ms
   ;;
 
   let wait t ~timeout =
-    (* From the epoll man page:
-
-       | Specifying a timeout of -1 makes epoll_wait() wait indefinitely, while
-       | specifying a timeout equal to zero makes epoll_wait() to return immediately
-       | even if no events are available (return code equal to zero). *)
     match timeout with
     | `Never -> wait_internal t ~timeout_ms:(-1)
     | `Immediately -> wait_internal t ~timeout_ms:0
@@ -389,17 +596,6 @@ module Impl = struct
     ;;
   end
 
-  (* external epoll_pwait
-   *   : File_descr.t -> Events_buffer.raw -> int -> int list -> int
-   *   = "core_linux_epoll_pwait"
-   *
-   * let pwait t ~timeout sigs =
-   *   let millis = Float.iround_exn ~dir:`Zero ( Span.to_ms timeout ) in
-   *   let num_ready = epoll_pwait t.epollfd t.events millis sigs in
-   *   if num_ready = 0 then `Timeout
-   *   else `Ok { Ready_fds.num_ready ; events = t.events }
-   * ;; *)
-
   let create = Ok create
 end
 
@@ -408,3 +604,7 @@ end
 module Impl = Null_impl
 
 [%%endif]
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

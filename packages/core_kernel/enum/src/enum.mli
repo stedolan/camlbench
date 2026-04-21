@@ -1,1 +1,1 @@
-include Enum_intf.Enum (** @inline *)
+include Enum_intf.Enum [@@ocaml.doc " @inline "]

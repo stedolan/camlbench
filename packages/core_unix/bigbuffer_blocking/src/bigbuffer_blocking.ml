@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"bigbuffer_blocking.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "bigbuffer_blocking.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 open! Core.Bigbuffer
@@ -21,3 +34,7 @@ let md5 t =
   let t = __internal t in
   Md5.digest_subbigstring t.bstr ~pos:0 ~len:t.pos
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"iobuf_unix.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "iobuf_unix.ml.before-ppx"
+;;
+
 [%%import "config.h"]
 
 open! Core
@@ -10,6 +23,26 @@ type ok_or_eof =
   | Ok
   | Eof
 [@@deriving compare, sexp_of]
+
+include struct
+  let _ = fun (_ : ok_or_eof) -> ()
+
+  let compare_ok_or_eof =
+    (fun a__001_ b__002_ -> Stdlib.compare a__001_ b__002_
+     : ok_or_eof -> (ok_or_eof[@merlin.hide]) -> int)
+  ;;
+
+  let _ = compare_ok_or_eof
+
+  let sexp_of_ok_or_eof =
+    (function
+     | Ok -> Sexplib0.Sexp.Atom "Ok"
+     | Eof -> Sexplib0.Sexp.Atom "Eof"
+     : ok_or_eof -> Sexplib0.Sexp.t)
+  ;;
+
+  let _ = sexp_of_ok_or_eof
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
 let input t ch =
   match Bigstring_unix.input ch (Expert.buf t) ~pos:(Expert.lo t) ~len:(length t) with
@@ -70,9 +103,6 @@ let recvfrom_assume_fd_is_nonblocking t fd =
 
 [%%ifdef JSC_RECVMMSG]
 
-(* Allocate and pre-populate the [struct mmsghdr]s and associated [struct iovec]s. Reusing
-   this context reduces the cost of calls to [recvmmsg] considerably if the iobuf array is
-   large. *)
 module Recvmmsg_context = struct
   type ctx
 
@@ -83,15 +113,19 @@ module Recvmmsg_context = struct
     then unsafe_ctx ts
     else
       raise_s
-        [%sexp
-          "Recvmmsg_context.create: all buffers must be reset"
-          , (ts : (_, _) t_with_shallow_sexp array)]
+        (Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+               "Recvmmsg_context.create: all buffers must be reset"
+           ; ((fun x__003_ ->
+                sexp_of_array
+                  (sexp_of_t_with_shallow_sexp
+                     (fun _ -> Sexplib0.Sexp.Atom "_")
+                     (fun _ -> Sexplib0.Sexp.Atom "_"))
+                  x__003_) [@merlin.hide])
+               ts
+           ])
   ;;
 
-  (* we retain a reference to the underlying bigstrings, in the event that callers
-     mistakenly use set_bounds_and_buffer. Since we've cached the underlying memory
-     referenced by the bigstring, we want to prevent it from being garbage collected and
-     released. *)
   type nonrec t =
     { iobufs : (read_write, seek) t array
     ; bstrs : Bigstring.t array
@@ -109,16 +143,13 @@ external unsafe_recvmmsg_assume_fd_is_nonblocking
   -> Recvmmsg_context.ctx
   -> Unix.Syscall_result.Int.t
   = "iobuf_recvmmsg_assume_fd_is_nonblocking_stub"
-  [@@noalloc]
+[@@noalloc]
 
 let recvmmsg_assume_fd_is_nonblocking fd { Recvmmsg_context.iobufs; ctx; _ } =
   unsafe_recvmmsg_assume_fd_is_nonblocking fd iobufs ctx
 ;;
 
 let recvmmsg_assume_fd_is_nonblocking =
-  (* We link with [--wrap recvmmsg].  If we have compiled on a machine with recvmmsg
-     (e.g., CentOS 6) but then run on a machine without (e.g., CentOS 5), our wrapped
-     [recvmmsg] always returns -1 and sets errno to ENOSYS. *)
   match
     Unix.Syscall_result.Int.to_result
       (let fd = File_descr.of_int (-1) in
@@ -129,8 +160,6 @@ let recvmmsg_assume_fd_is_nonblocking =
 ;;
 
 [%%else]
-
-(* not JSC_RECVMMSG *)
 
 module Recvmmsg_context = struct
   type t = unit
@@ -144,8 +173,6 @@ let recvmmsg_assume_fd_is_nonblocking =
 
 [%%endif]
 
-(* JSC_RECVMMSG *)
-
 let unsafe_sent t result =
   if Syscall_result.Int.is_ok result
   then (
@@ -154,8 +181,6 @@ let unsafe_sent t result =
   else Syscall_result.Int.reinterpret_error_exn result
 ;;
 
-(* Don't use [Or_error.map].  The natural usage results in a partially applied function,
-   which is slower to call. *)
 let send_nonblocking_no_sigpipe () =
   match Bigstring_unix.send_nonblocking_no_sigpipe with
   | Error _ as e -> e
@@ -184,8 +209,6 @@ module Peek = struct
   ;;
 
   let write_assume_fd_is_nonblocking t fd =
-    (* This is safe because of the invariant of [t] that the window is within the buffer
-       (unless the user has violated the invariant with an unsafe operation). *)
     Bigstring_unix.unsafe_write_assume_fd_is_nonblocking
       fd
       (Expert.buf t)
@@ -229,7 +252,7 @@ module Expert = struct
     -> (float[@unboxed])
     -> int
     = "iobuf_unsafe_pokef_double_bytecode" "iobuf_unsafe_pokef_double"
-    [@@noalloc]
+  [@@noalloc]
 
   let fillf_float t ~c_format value =
     let limit = length t in
@@ -259,9 +282,10 @@ module In_channel_optimized = struct
 
   let present_line ~fix_win_eol ~acc ~f buf ~len =
     let len_of_line =
-      if fix_win_eol
-         && len > 0
-         && Char.equal '\r' (Iobuf.Unsafe.Peek.char ~pos:(len - 1) buf)
+      if
+        fix_win_eol
+        && len > 0
+        && Char.equal '\r' (Iobuf.Unsafe.Peek.char ~pos:(len - 1) buf)
       then len - 1
       else len
     in
@@ -276,7 +300,6 @@ module In_channel_optimized = struct
       let hi = Iobuf.Expert.hi buf in
       let lo = Iobuf.Expert.lo buf in
       let next_line_starts_at = lo + len + 1 in
-      (* [present_line] modifies [hi] and [lo], so we must cache and restore them. *)
       let acc = present_line ~acc ~f ~fix_win_eol buf ~len in
       Iobuf.Expert.set_lo buf next_line_starts_at;
       Iobuf.Expert.set_hi buf hi;
@@ -316,7 +339,7 @@ module In_channel_optimized = struct
 
   let fold_lines ?fix_win_eol ?buf ch ~init ~f =
     fold_lines_raw ?fix_win_eol ?buf ch ~init ~f:(fun acc buf ->
-      Iobuf.Unsafe.Peek.stringo buf ~pos:0 |> f acc)
+      f acc (Iobuf.Unsafe.Peek.stringo buf ~pos:0))
   ;;
 
   let iter_lines ?fix_win_eol ?buf ch ~f =
@@ -324,9 +347,12 @@ module In_channel_optimized = struct
   ;;
 
   let input_lines ?fix_win_eol ?buf ch =
-    (* Vec is not usable as a dependency. *)
     let v = Queue.create () in
     iter_lines ?fix_win_eol ?buf ch ~f:(fun str -> Queue.enqueue v str);
     Queue.to_array v
   ;;
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

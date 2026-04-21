@@ -1,7 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set ~filename_rel_to_project_root:"vec.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition "ppx_inline_test_lib_1" "vec.ml.before-ppx"
+;;
+
 open! Core
 
 module With_integer_index = struct
-  (* Kernel hides away Obj-handling. *)
   module Kernel : sig
     type 'a t
 
@@ -36,16 +45,41 @@ module With_integer_index = struct
 
     module With_structure_details : sig
       type nonrec 'a t = 'a t [@@deriving sexp_of]
+
+      include sig
+        [@@@ocaml.warning "-32"]
+
+        val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+      end
+      [@@ocaml.doc "@inline"] [@@merlin.hide]
     end
   end = struct
     type 'a t =
       { mutable arr : Obj.t Uniform_array.t
       ; mutable length : int
       ; mutable capacity : int
-          (** Invariant: [capacity = Uniform_array.length arr].
-          We maintain it here to eliminate an indirection when accessing long arrays. *)
+            [@ocaml.doc
+              " Invariant: [capacity = Uniform_array.length arr].\n\
+              \          We maintain it here to eliminate an indirection when accessing \
+               long arrays. "]
       }
     [@@deriving fields ~getters ~setters]
+
+    include struct
+      let _ = fun (_ : 'a t) -> ()
+      let capacity _r__ = _r__.capacity
+      let _ = capacity
+      let set_capacity _r__ v__ = _r__.capacity <- v__
+      let _ = set_capacity
+      let length _r__ = _r__.length
+      let _ = length
+      let set_length _r__ v__ = _r__.length <- v__
+      let _ = set_length
+      let arr _r__ = _r__.arr
+      let _ = arr
+      let set_arr _r__ v__ = _r__.arr <- v__
+      let _ = set_arr
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     let length t = t.length
 
@@ -53,9 +87,6 @@ module With_integer_index = struct
       if capacity < 0 then invalid_argf "Vec: negative capacity %d" capacity ()
     ;;
 
-    (* [initial_capacity] is mostly arbitrary, but it does make our array take one header
-       word + 7 data words = 8 words * 8 bytes = 64 bytes = one cacheline by default. (Of
-       course, there's no alignment guarantee.) *)
     let create ?(initial_capacity = 7) () =
       check_capacity initial_capacity;
       { arr = Uniform_array.unsafe_create_uninitialized ~len:initial_capacity
@@ -71,7 +102,7 @@ module With_integer_index = struct
 
     let init n ~f =
       check_capacity n;
-      { arr = Uniform_array.init n ~f:(fun i -> f i |> Obj.magic)
+      { arr = Uniform_array.init n ~f:(fun i -> Obj.magic (f i))
       ; length = n
       ; capacity = n
       }
@@ -81,16 +112,18 @@ module With_integer_index = struct
       { arr = Uniform_array.copy t.arr; length = t.length; capacity = t.capacity }
     ;;
 
-    let[@inline always] unsafe_get (type a) (t : a t) i : a =
-      Uniform_array.unsafe_get t.arr i |> Obj.magic
+    let unsafe_get (type a) (t : a t) i : a = Obj.magic (Uniform_array.unsafe_get t.arr i)
+    [@@inline always]
     ;;
 
-    let[@inline always] unsafe_set (type a) (t : a t) i (element : a) =
+    let unsafe_set (type a) (t : a t) i (element : a) =
       Uniform_array.unsafe_set t.arr i (Obj.repr element)
+    [@@inline always]
     ;;
 
-    let[@inline always] unsafe_blit ~src ~src_pos ~dst ~dst_pos ~len =
+    let unsafe_blit ~src ~src_pos ~dst ~dst_pos ~len =
       Uniform_array.unsafe_blit ~src:src.arr ~src_pos ~dst:dst.arr ~dst_pos ~len
+    [@@inline always]
     ;;
 
     module With_structure_details = struct
@@ -101,42 +134,111 @@ module With_integer_index = struct
         let elements =
           Uniform_array.init (Uniform_array.length arr) ~f:(fun i ->
             let element = Uniform_array.get arr i in
-            (* Only the first [length] elements can safely be given to [sexp_of_a]. *)
             if i < length
-            then element |> Obj.magic |> sexp_of_a
+            then sexp_of_a (Obj.magic element)
             else (
               let imm : int = Obj.magic element in
               Sexp.Atom (sprintf "_%d" imm)))
         in
-        [%sexp { elements : Sexp.t Uniform_array.t; length : int; capacity : int }]
+        Ppx_sexp_conv_lib.Sexp.List
+          [ Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "elements"
+              ; ((fun x__001_ -> Uniform_array.sexp_of_t Sexp.sexp_of_t x__001_)
+                   [@merlin.hide])
+                  elements
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "length"
+              ; (sexp_of_int [@merlin.hide]) length
+              ]
+          ; Ppx_sexp_conv_lib.Sexp.List
+              [ Ppx_sexp_conv_lib.Sexp.Atom "capacity"
+              ; (sexp_of_int [@merlin.hide]) capacity
+              ]
+          ]
       ;;
     end
 
     let invariant (type a) (a_inv : a Invariant.t) (t : a t) =
-      Invariant.invariant [%here] t [%sexp_of: _ With_structure_details.t] (fun () ->
-        let { capacity; length; arr } = t in
-        if capacity <> Uniform_array.length t.arr
-        then
-          raise_s
-            [%message
-              "capacity should equal Option_array length"
-                (capacity : int)
-                (Uniform_array.length t.arr : int)];
-        if capacity < 0 then raise_s [%message "negative capacity" (capacity : int)];
-        if length > capacity
-        then
-          raise_s
-            [%message
-              "length shouldn't be more than capacity" (length : int) (capacity : int)];
-        for pos = 0 to length - 1 do
-          a_inv (Uniform_array.get arr pos |> Obj.magic)
-        done;
-        for pos = length to capacity - 1 do
-          assert (Uniform_array.get arr pos |> Obj.is_int)
-        done)
+      Invariant.invariant
+        { Ppx_here_lib.pos_fname = "vec.ml.before-ppx"
+        ; pos_lnum = 116
+        ; pos_cnum = 3760
+        ; pos_bol = 3734
+        }
+        t
+        ((fun x__002_ ->
+           With_structure_details.sexp_of_t (fun _ -> Sexplib0.Sexp.Atom "_") x__002_)
+           [@merlin.hide])
+        (fun () ->
+           let { capacity; length; arr } = t in
+           if capacity <> Uniform_array.length t.arr
+           then
+             raise_s
+               (let ppx_sexp_message () =
+                  Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                        "capacity should equal Option_array length"
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "capacity"
+                        ; (sexp_of_int [@merlin.hide]) capacity
+                        ]
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "Uniform_array.length t.arr"
+                        ; (sexp_of_int [@merlin.hide]) (Uniform_array.length t.arr)
+                        ]
+                    ]
+                    [@@ocaml.inline never]
+                    [@@ocaml.local never]
+                    [@@ocaml.specialise never]
+                in
+                (ppx_sexp_message () [@nontail]));
+           if capacity < 0
+           then
+             raise_s
+               (let ppx_sexp_message () =
+                  Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Conv.sexp_of_string "negative capacity"
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "capacity"
+                        ; (sexp_of_int [@merlin.hide]) capacity
+                        ]
+                    ]
+                    [@@ocaml.inline never]
+                    [@@ocaml.local never]
+                    [@@ocaml.specialise never]
+                in
+                (ppx_sexp_message () [@nontail]));
+           if length > capacity
+           then
+             raise_s
+               (let ppx_sexp_message () =
+                  Ppx_sexp_conv_lib.Sexp.List
+                    [ Ppx_sexp_conv_lib.Conv.sexp_of_string
+                        "length shouldn't be more than capacity"
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "length"
+                        ; (sexp_of_int [@merlin.hide]) length
+                        ]
+                    ; Ppx_sexp_conv_lib.Sexp.List
+                        [ Ppx_sexp_conv_lib.Sexp.Atom "capacity"
+                        ; (sexp_of_int [@merlin.hide]) capacity
+                        ]
+                    ]
+                    [@@ocaml.inline never]
+                    [@@ocaml.local never]
+                    [@@ocaml.specialise never]
+                in
+                (ppx_sexp_message () [@nontail]));
+           for pos = 0 to length - 1 do
+             a_inv (Obj.magic (Uniform_array.get arr pos))
+           done;
+           for pos = length to capacity - 1 do
+             assert (Obj.is_int (Uniform_array.get arr pos))
+           done)
     ;;
 
-    let[@inline always] max_index t = t.length - 1
+    let max_index t = t.length - 1 [@@inline always]
 
     let grow_capacity_to_exactly t ~capacity =
       let arr = Uniform_array.unsafe_create_uninitialized ~len:capacity in
@@ -160,13 +262,12 @@ module With_integer_index = struct
         grow_capacity_to_exactly t ~capacity:(Int.ceil_pow2 (Int.max 1 target_capacity))
     ;;
 
-    let[@inline always] unsafe_clear_pointer_at t pos =
-      Uniform_array.unsafe_clear_if_pointer t.arr pos
+    let unsafe_clear_pointer_at t pos = Uniform_array.unsafe_clear_if_pointer t.arr pos
+    [@@inline always]
     ;;
 
     let sort (type a) ?pos ?len t ~(compare : a -> a -> int) =
       let compare : Obj.t -> Obj.t -> int = Obj.magic compare in
-      (* [Uniform_array] checks this but has an overestimate of our length. *)
       let pos, len =
         Ordered_collection_common.get_pos_len_exn () ?pos ?len ~total_length:(length t)
       in
@@ -174,14 +275,13 @@ module With_integer_index = struct
     ;;
 
     module Expert = struct
-      let[@inline always] unsafe_inner t = t.arr
+      let unsafe_inner t = t.arr [@@inline always]
     end
   end
 
   include Kernel
 
   let is_sorted t ~compare =
-    (* This is a copy-paste from [Array.is_sorted]. *)
     let i = ref (length t - 1) in
     let result = ref true in
     while !i > 0 && !result do
@@ -195,17 +295,32 @@ module With_integer_index = struct
 
   let next_free_index = length
 
-  let[@cold] raise__bad_index t i ~op =
+  let raise__bad_index t i ~op =
     raise_s
-      [%message
-        "tried to access vec out of bounds"
-          (t : _ With_structure_details.t)
-          (i : int)
-          (op : string)]
+      (let ppx_sexp_message () =
+         Ppx_sexp_conv_lib.Sexp.List
+           [ Ppx_sexp_conv_lib.Conv.sexp_of_string "tried to access vec out of bounds"
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "t"
+               ; ((fun x__003_ ->
+                    With_structure_details.sexp_of_t
+                      (fun _ -> Sexplib0.Sexp.Atom "_")
+                      x__003_) [@merlin.hide])
+                   t
+               ]
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "i"; (sexp_of_int [@merlin.hide]) i ]
+           ; Ppx_sexp_conv_lib.Sexp.List
+               [ Ppx_sexp_conv_lib.Sexp.Atom "op"; (sexp_of_string [@merlin.hide]) op ]
+           ]
+           [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+       in
+       (ppx_sexp_message () [@nontail]))
+  [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
   ;;
 
-  let[@inline always] check_index t i ~op =
-    if i < 0 || i >= length t then raise__bad_index t i ~op
+  let check_index t i ~op = if i < 0 || i >= length t then raise__bad_index t i ~op
+  [@@inline always]
   ;;
 
   let get t i =
@@ -224,10 +339,11 @@ module With_integer_index = struct
     unsafe_set t i element
   ;;
 
-  let[@inline always] push_back__we_know_we_have_space t element =
+  let push_back__we_know_we_have_space t element =
     let length = length t in
     unsafe_set t length element;
     set_length t (length + 1)
+  [@@inline always]
   ;;
 
   let push_back_index t element =
@@ -237,23 +353,20 @@ module With_integer_index = struct
     length
   ;;
 
-  let[@inline always] push_back t element =
+  let push_back t element =
     let (_ : int) = push_back_index t element in
     ()
+  [@@inline always]
   ;;
 
   let remove_exn t i =
     if i < 0 || i >= length t then raise__bad_index t i ~op:"remove_exn";
     let new_length = length t - 1 in
-    (* As per the ocaml stdlib documentation, blitting with src and dst
-       overlapping is safe.
-       https://github.com/ocaml-flambda/flambda-backend/blob/main/ocaml/stdlib/array.mli#L143
-    *)
     unsafe_blit ~src:t ~src_pos:(i + 1) ~dst:t ~dst_pos:i ~len:(length t - i - 1);
     set_length t new_length
   ;;
 
-  let[@inline always] unsafe_peek_back_exn t = unsafe_get t (max_index t)
+  let unsafe_peek_back_exn t = unsafe_get t (max_index t) [@@inline always]
 
   let peek_back_exn t =
     let length = length t in
@@ -263,11 +376,11 @@ module With_integer_index = struct
 
   let peek_back t = if length t <= 0 then None else Some (unsafe_peek_back_exn t)
 
-  let[@inline always] pop_back_unit_exn t =
+  let pop_back_unit_exn t =
     let pos = max_index t in
-    (* Don't leak the value. *)
     unsafe_clear_pointer_at t pos;
     set_length t pos
+  [@@inline always]
   ;;
 
   let pop_back_exn t =
@@ -276,16 +389,17 @@ module With_integer_index = struct
     e
   ;;
 
-  let[@inline never] grow_to_unchecked t ~len ~default =
+  let grow_to_unchecked t ~len ~default =
     grow_capacity_to_at_least t ~capacity:len;
     for i = length t to len - 1 do
       unsafe_set t i default
     done;
     set_length t len
+  [@@inline never]
   ;;
 
-  let[@inline always] grow_to t ~len ~default =
-    if len > length t then grow_to_unchecked t ~len ~default
+  let grow_to t ~len ~default = if len > length t then grow_to_unchecked t ~len ~default
+  [@@inline always]
   ;;
 
   let grow_to_include t idx ~default = grow_to t ~len:(idx + 1) ~default
@@ -353,8 +467,6 @@ module With_integer_index = struct
     !result
   ;;
 
-  (* Convert to a sequence but does not attempt to protect against modification
-     in the vec. *)
   let to_sequence_mutable t =
     Sequence.unfold_step ~init:0 ~f:(fun i ->
       if i >= length t then Done else Yield { value = unsafe_get t i; state = i + 1 })
@@ -368,10 +480,9 @@ module With_integer_index = struct
     t
   ;;
 
-  let of_array arr = init (Array.length arr) ~f:(fun i -> Array.get arr i)
+  let of_array arr = init (Array.length arr) ~f:(fun i -> arr.(i))
 
   let of_sequence seq =
-    (* We don't know the length of seq, so we can't set an initial capacity *)
     let t = create () in
     Sequence.iter seq ~f:(push_back t);
     t
@@ -405,24 +516,19 @@ module With_integer_index = struct
   ;;
 
   include Blit.Make1 (struct
-    type nonrec 'a t = 'a t
+      type nonrec 'a t = 'a t
 
-    let create_like ~len _t =
-      (* Note that even though we [unsafe_create_uninitialized], every time this function
-           is called, the [Vec] is immediately blitted with valid values. *)
-      Kernel.unsafe_create_uninitialized ~len
-    ;;
+      let create_like ~len _t = Kernel.unsafe_create_uninitialized ~len
+      let length = length
+      let unsafe_blit = unsafe_blit
+    end)
 
-    let length = length
-    let unsafe_blit = unsafe_blit
-  end)
-
-  (** Returns the length of the longest prefix for which [f] is true. *)
   let take_while_len t ~f =
     let rec loop i =
       if i >= length t || not (f (get t i)) then i else (loop [@tailcall]) (i + 1)
     in
-    loop 0 [@nontail]
+    (loop 0 [@nontail])
+  [@@ocaml.doc " Returns the length of the longest prefix for which [f] is true. "]
   ;;
 
   let take_while t ~f =
@@ -490,7 +596,7 @@ module With_integer_index = struct
 
   let sexp_of_t (type a) (sexp_of_a : a -> Sexp.t) t =
     let t = to_list t in
-    [%sexp (t : a list)]
+    ((fun x__004_ -> sexp_of_list sexp_of_a x__004_) [@merlin.hide]) t
   ;;
 
   let is_empty t = length t = 0
@@ -519,10 +625,6 @@ module With_integer_index = struct
   let count t ~f = Container.count ~fold t ~f
   let sum module_ t ~f = Container.sum ~fold module_ t ~f
 
-  (* The code for [find] and [find_exn] would be simpler (wouldn't involve threading
-     through [max_index]) if we iterated backward, but we iterate forward to be consistent
-     with other containers. *)
-
   let rec find' t ~f ~max_index i =
     if i > max_index
     then None
@@ -531,8 +633,15 @@ module With_integer_index = struct
       if f x then Some x else find' t ~f ~max_index (i + 1))
   ;;
 
-  let[@cold] raise__not_found () =
-    raise (Base.Not_found_s [%message "Vec.find_exn: not found"])
+  let raise__not_found () =
+    raise
+      (Base.Not_found_s
+         (let ppx_sexp_message () =
+            Ppx_sexp_conv_lib.Conv.sexp_of_string "Vec.find_exn: not found"
+              [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
+          in
+          (ppx_sexp_message () [@nontail])))
+  [@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
   ;;
 
   let rec find_exn' t ~f ~max_index i =
@@ -626,7 +735,10 @@ module With_integer_index = struct
   ;;
 
   let to_array t = Array.init (length t) ~f:(unsafe_get t)
-  let t_of_sexp a_of_sexp t = of_list ([%of_sexp: a list] t)
+
+  let t_of_sexp a_of_sexp t =
+    of_list (((fun x__005_ -> list_of_sexp a_of_sexp x__005_) [@merlin.hide]) t)
+  ;;
 
   let compare cmp t1 t2 =
     let len1 = length t1 in
@@ -663,19 +775,134 @@ module With_integer_index = struct
     module V1 = struct
       type nonrec 'a t = 'a t [@@deriving compare, sexp]
 
-      include Bin_prot.Utils.Make_iterable_binable1 (struct
-        type nonrec 'a t = 'a t
-        type 'a el = 'a [@@deriving bin_io]
+      include struct
+        let _ = fun (_ : 'a t) -> ()
 
-        let caller_identity =
-          Bin_prot.Shape.Uuid.of_string "2ec1d047-7cf8-49bc-991b-0badd17d8359"
+        let compare
+          : 'a. ('a -> ('a[@merlin.hide]) -> int) -> 'a t -> ('a t[@merlin.hide]) -> int
+          =
+          fun _cmp__a a__006_ b__007_ ->
+          compare
+            (fun a__008_ (b__009_ [@merlin.hide]) ->
+               (_cmp__a a__008_ b__009_ [@merlin.hide]))
+            a__006_
+            b__007_
         ;;
 
-        let module_name = Some "Vec"
-        let init ~len ~next = init len ~f:(fun _ -> next ())
-        let iter = iter
-        let length = length
-      end)
+        let _ = compare
+
+        let t_of_sexp : 'a. (Sexplib0.Sexp.t -> 'a) -> Sexplib0.Sexp.t -> 'a t =
+          fun _of_a__010_ x__012_ -> t_of_sexp _of_a__010_ x__012_
+        ;;
+
+        let _ = t_of_sexp
+
+        let sexp_of_t : 'a. ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t =
+          fun _of_a__013_ x__014_ -> sexp_of_t _of_a__013_ x__014_
+        ;;
+
+        let _ = sexp_of_t
+      end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+      include Bin_prot.Utils.Make_iterable_binable1 (struct
+          type nonrec 'a t = 'a t
+          type 'a el = 'a [@@deriving bin_io]
+
+          include struct
+            let _ = fun (_ : 'a el) -> ()
+
+            let bin_shape_el =
+              let _group =
+                Bin_prot.Shape.group
+                  (Bin_prot.Shape.Location.of_string "vec.ml.before-ppx:668:8")
+                  [ ( Bin_prot.Shape.Tid.of_string "el"
+                    , [ Bin_prot.Shape.Vid.of_string "a" ]
+                    , Bin_prot.Shape.var
+                        (Bin_prot.Shape.Location.of_string "vec.ml.before-ppx:668:21")
+                        (Bin_prot.Shape.Vid.of_string "a") )
+                  ]
+              in
+              fun a ->
+                (Bin_prot.Shape.top_app _group (Bin_prot.Shape.Tid.of_string "el")) [ a ]
+            ;;
+
+            let _ = bin_shape_el
+
+            let bin_size_el : 'a. 'a Bin_prot.Size.sizer -> 'a el Bin_prot.Size.sizer =
+              fun _size_of_a -> _size_of_a
+            ;;
+
+            let _ = bin_size_el
+
+            let bin_write_el : 'a. 'a Bin_prot.Write.writer -> 'a el Bin_prot.Write.writer
+              =
+              fun _write_a -> _write_a
+            ;;
+
+            let _ = bin_write_el
+
+            let bin_writer_el =
+              (fun bin_writer_a ->
+                 { size = (fun v -> bin_size_el bin_writer_a.size v)
+                 ; write = (fun v -> bin_write_el bin_writer_a.write v)
+                 }
+               : _ Bin_prot.Type_class.writer -> _ Bin_prot.Type_class.writer)
+            ;;
+
+            let _ = bin_writer_el
+
+            let __bin_read_el__
+              : 'a. 'a Bin_prot.Read.reader -> (int -> 'a el) Bin_prot.Read.reader
+              =
+              fun _of__a _buf ~pos_ref _vint ->
+              Bin_prot.Common.raise_read_error
+                (Bin_prot.Common.ReadError.Silly_type
+                   "vec.ml.before-ppx.With_integer_index.Stable.V1.el")
+                !pos_ref
+            ;;
+
+            let _ = __bin_read_el__
+
+            let bin_read_el : 'a. 'a Bin_prot.Read.reader -> 'a el Bin_prot.Read.reader =
+              fun _of__a -> _of__a
+            ;;
+
+            let _ = bin_read_el
+
+            let bin_reader_el =
+              (fun bin_reader_a ->
+                 { read =
+                     (fun buf ~pos_ref -> (bin_read_el bin_reader_a.read) buf ~pos_ref)
+                 ; vtag_read =
+                     (fun buf ~pos_ref vtag ->
+                       (__bin_read_el__ bin_reader_a.read) buf ~pos_ref vtag)
+                 }
+               : _ Bin_prot.Type_class.reader -> _ Bin_prot.Type_class.reader)
+            ;;
+
+            let _ = bin_reader_el
+
+            let bin_el =
+              (fun bin_a ->
+                 { writer = bin_writer_el bin_a.writer
+                 ; reader = bin_reader_el bin_a.reader
+                 ; shape = bin_shape_el bin_a.shape
+                 }
+               : _ Bin_prot.Type_class.t -> _ Bin_prot.Type_class.t)
+            ;;
+
+            let _ = bin_el
+          end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+          let caller_identity =
+            Bin_prot.Shape.Uuid.of_string "2ec1d047-7cf8-49bc-991b-0badd17d8359"
+          ;;
+
+          let module_name = Some "Vec"
+          let init ~len ~next = init len ~f:(fun _ -> next ())
+          let iter = iter
+          let length = length
+        end)
     end
   end
 end
@@ -687,39 +914,34 @@ module type S = Vec_intf.S
 module Make (M : Intable.S) = struct
   include With_integer_index
 
-  let[@inline always] unsafe_get t index = unsafe_get t (M.to_int_exn index)
+  let unsafe_get t index = unsafe_get t (M.to_int_exn index) [@@inline always]
   let get t index = get t (M.to_int_exn index)
   let maybe_get t index = maybe_get t (M.to_int_exn index)
   let maybe_get_local t index = maybe_get_local t (M.to_int_exn index)
-  let[@inline always] unsafe_set t index = unsafe_set t (M.to_int_exn index)
+  let unsafe_set t index = unsafe_set t (M.to_int_exn index) [@@inline always]
   let set t index = set t (M.to_int_exn index)
-  let next_free_index t = next_free_index t |> M.of_int_exn
+  let next_free_index t = M.of_int_exn (next_free_index t)
 
   let foldi t ~init ~f =
-    (foldi [@inlined hint]) t ~init ~f:(fun [@inline] int accum x ->
-      f (M.of_int_exn int) accum x) [@nontail]
+    (foldi [@inlined hint]) t ~init ~f:((fun int accum x -> f (M.of_int_exn int) accum x)
+      [@inline])
+    [@nontail]
   ;;
 
   let foldi_local_accum t ~init ~f =
-    (foldi_local_accum [@inlined hint]) t ~init ~f:(fun [@inline] int accum x ->
-      f (M.of_int_exn int) accum x) [@nontail]
+    (foldi_local_accum [@inlined hint]) t ~init ~f:((fun int accum x ->
+      f (M.of_int_exn int) accum x) [@inline])
+    [@nontail]
   ;;
 
   let iteri t ~f =
-    (iteri [@inlined hint]) t ~f:(fun [@inline] int x -> f (M.of_int_exn int) x) [@nontail]
+    (iteri [@inlined hint]) t ~f:((fun int x -> f (M.of_int_exn int) x) [@inline])
+    [@nontail]
   ;;
 
-  let push_back_index t element = push_back_index t element |> M.of_int_exn
+  let push_back_index t element = M.of_int_exn (push_back_index t element)
 
   let to_alist t =
-    (* We could do:
-       {[
-         to_alist t |> List.map ~f:(fun (i, x) -> M.of_int_exn i, x)
-       ]}
-
-       at the expense of an extra allocation. This is a bit more copy-pasty,
-       but avoids that.
-    *)
     let result = ref [] in
     for i = max_index t downto 0 do
       let m = M.of_int_exn i in
@@ -731,21 +953,25 @@ module Make (M : Intable.S) = struct
   let grow_to_include t idx ~default = grow_to_include t (M.to_int_exn idx) ~default
 
   let grow_to' t ~len ~default =
-    grow_to' t ~len ~default:(fun [@inline] idx -> default (M.of_int_exn idx))
+    grow_to' t ~len ~default:((fun idx -> default (M.of_int_exn idx)) [@inline])
   ;;
 
   let grow_to_include' t idx ~default =
-    grow_to_include' t (M.to_int_exn idx) ~default:(fun [@inline] idx ->
-      default (M.of_int_exn idx))
+    grow_to_include' t (M.to_int_exn idx) ~default:((fun idx ->
+      default (M.of_int_exn idx)) [@inline])
   ;;
 
   module Inplace = struct
     include Inplace
 
     let sub t ~pos ~len = sub t ~pos:(M.to_int_exn pos) ~len
-    let mapi t ~f = mapi t ~f:(fun [@inline] int x -> f (M.of_int_exn int) x) [@nontail]
+    let mapi t ~f = mapi t ~f:((fun int x -> f (M.of_int_exn int) x) [@inline]) [@nontail]
   end
 
   let swap t index1 index2 = swap t (M.to_int_exn index1) (M.to_int_exn index2)
   let swap_to_last_and_pop t index = swap_to_last_and_pop t (M.to_int_exn index)
 end
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

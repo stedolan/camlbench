@@ -2,5 +2,4 @@
  (name sexp_hidden_in_test)
  (public_name core_kernel.sexp_hidden_in_test)
  (libraries core)
- (preprocess
-  (pps ppx_jane)))
+)

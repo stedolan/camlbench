@@ -5,9 +5,9 @@
  (name iobuf_unix)
  (public_name core_unix.iobuf_unix)
  (libraries bigstring_unix core core_kernel.iobuf)
- (preprocessor_deps config.h)
- (preprocess
-  (pps ppx_jane ppx_optcomp)))
+;; (preprocessor_deps config.h)
+;; (preprocess (pps ppx_jane ppx_optcomp))
+)
 
 (rule
  (targets config.h)

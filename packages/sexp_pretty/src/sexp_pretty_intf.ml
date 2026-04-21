@@ -4,9 +4,10 @@ module type S = sig
   type sexp
   type 'a writer = Config.t -> 'a -> sexp -> unit
 
-  (** [pp_formatter conf fmt sexp] will mutate the fmt with functions such as
-      [set_formatter_tag_functions] *)
   val pp_formatter : Stdlib.Format.formatter writer
+  [@@ocaml.doc
+    " [pp_formatter conf fmt sexp] will mutate the fmt with functions such as\n\
+    \      [set_formatter_tag_functions] "]
 
   val pp_formatter'
     :  next:(unit -> sexp option)
@@ -18,14 +19,14 @@ module type S = sig
   val pp_out_channel : Stdlib.out_channel writer
   val pp_blit : (string, unit) Blit.sub writer
 
-  (** [pretty_string] needs to allocate. If you care about performance, using one of the
-      [pp_*] functions above is advised. *)
   val pretty_string : Config.t -> sexp -> string
+  [@@ocaml.doc
+    " [pretty_string] needs to allocate. If you care about performance, using one of the\n\
+    \      [pp_*] functions above is advised. "]
 
   val sexp_to_string : sexp -> string
 end
 
-(** Pretty-printing of S-expressions *)
 module type Sexp_pretty = sig
   module Config = Config
 
@@ -36,13 +37,11 @@ module type Sexp_pretty = sig
 
   module Normalize : sig
     type t =
-      (* Contains a sexp with associated comments. *)
       | Sexp of sexp * string list
       | Comment of comment
 
     and comment =
       | Line_comment of string
-      (* Does not contain the "#|" "|#"; contains its indentation size. *)
       | Block_comment of int * string list
       | Sexp_comment of comment list * sexp
 
@@ -55,3 +54,4 @@ module type Sexp_pretty = sig
 
   val sexp_to_sexp_or_comment : Sexp.t -> Sexplib.Sexp.With_layout.t_or_comment
 end
+[@@ocaml.doc " Pretty-printing of S-expressions "]

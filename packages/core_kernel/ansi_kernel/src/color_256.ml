@@ -1,8 +1,54 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"color_256.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "color_256.ml.before-ppx"
+;;
+
 module Stable = struct
   open! Core.Core_stable
 
   module V1 = struct
     type t = int [@@deriving sexp, compare, hash, equal]
+
+    include struct
+      let _ = fun (_ : t) -> ()
+      let t_of_sexp = (int_of_sexp : Sexplib0.Sexp.t -> t)
+      let _ = t_of_sexp
+      let sexp_of_t = (sexp_of_int : t -> Sexplib0.Sexp.t)
+      let _ = sexp_of_t
+
+      let compare =
+        (fun a__002_ b__003_ -> compare_int a__002_ b__003_
+         : t -> (t[@merlin.hide]) -> int)
+      ;;
+
+      let _ = compare
+
+      let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+        fun hsv arg -> hash_fold_int hsv arg
+
+      and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+        let func = hash_int in
+        fun x -> func x
+      ;;
+
+      let _ = hash_fold_t
+      and _ = hash
+
+      let equal =
+        (fun a__004_ b__005_ -> equal_int a__004_ b__005_
+         : t -> (t[@merlin.hide]) -> bool)
+      ;;
+
+      let _ = equal
+    end [@@ocaml.doc "@inline"] [@@merlin.hide]
   end
 end
 
@@ -10,9 +56,37 @@ open Core
 
 type t = Stable.V1.t [@@deriving sexp_of, compare, hash, equal]
 
-(* Internal type for turning palette values into RGB levels -- typically
-   we want to convert these into 24-bit values (8-bits per channel) or into
-   0-1000 for internal [Jane_curses] use. *)
+include struct
+  let _ = fun (_ : t) -> ()
+  let sexp_of_t = (Stable.V1.sexp_of_t : t -> Sexplib0.Sexp.t)
+  let _ = sexp_of_t
+
+  let compare =
+    (fun a__006_ b__007_ -> Stable.V1.compare a__006_ b__007_
+     : t -> (t[@merlin.hide]) -> int)
+  ;;
+
+  let _ = compare
+
+  let hash_fold_t : Ppx_hash_lib.Std.Hash.state -> t -> Ppx_hash_lib.Std.Hash.state =
+    fun hsv arg -> Stable.V1.hash_fold_t hsv arg
+
+  and hash : t -> Ppx_hash_lib.Std.Hash.hash_value =
+    let func = Stable.V1.hash in
+    fun x -> func x
+  ;;
+
+  let _ = hash_fold_t
+  and _ = hash
+
+  let equal =
+    (fun a__008_ b__009_ -> Stable.V1.equal a__008_ b__009_
+     : t -> (t[@merlin.hide]) -> bool)
+  ;;
+
+  let _ = equal
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 type level_map_t =
   { zero_level : int
   ; half_level : int
@@ -25,11 +99,6 @@ type level_map_t =
   ; interpolated_map : float list
   }
 
-(* NOTE: these constant structures mirror the xterm palette colour scheme, as
-   per expected terminal interpretation.  The Jane_curses mapping of the
-   1000-per-channel palette into RGB levels is linear, with black and
-   bright-black both mapping to outright black (see
-   lib/jane_curses/backends/lambda-term/lib/curses_screen.ml). *)
 let level_map_8bit_per_channel =
   { zero_level = 0
   ; half_level = 128
@@ -56,9 +125,6 @@ let level_map_1000_per_channel =
   }
 ;;
 
-(* Given a value in some integer range (here, [0,255] or [0,1000]), find the
-   closest matching value in the interpolated color-cube map and return its
-   index, in [0,5]. *)
 let closest_cube_index v ~iterp_map =
   match
     List.findi iterp_map ~f:(fun _idx iterp_val -> Float.( < ) (Float.of_int v) iterp_val)
@@ -90,58 +156,35 @@ let of_int_exn i =
 let of_rgb6_exn (r, g, b) =
   let in_vals = [ r; g; b ] in
   let scalers = [ 36; 6; 1 ] in
-  List.fold2_exn in_vals scalers ~init:16 ~f:(fun acc v s ->
-    if v >= 0 && v <= 5
-    then acc + (v * s)
-    else
-      failwithf
-        "RGB value %d for 256-color palette is outside of the closed range [0-5]"
-        v
-        ())
-  |> of_int_exn
+  of_int_exn
+    (List.fold2_exn in_vals scalers ~init:16 ~f:(fun acc v s ->
+       if v >= 0 && v <= 5
+       then acc + (v * s)
+       else
+         failwithf
+           "RGB value %d for 256-color palette is outside of the closed range [0-5]"
+           v
+           ()))
 ;;
 
 let of_rgb rgb =
-  (* Map float values from [0. -> 1.] to int [0 -> 5], reducing non-finites to 0.
-
-     NOTE: Float.clamp_exn only throws an exception if something is wrong with
-     respect to the ~min and ~max values; however, we only pass finite values
-     regardless.
-
-     NOTE: The mapping here is linear in RGB terms (for the standard 256-color
-     palette used), mapped to the closest [rgb6] value.  I.e. a value of 0.1 will
-     result in an output of 0/5 (black level); a value of 0.9 will result in an
-     output of 4/5; and a value of 0.95 will result in an output of 5/5 (white
-     level).
-  *)
-  Tuple3.map rgb ~f:(fun f ->
-    (if Float.is_finite f then Float.clamp_exn ~min:0. ~max:1. f else 0.) *. 255.
-    |> Float.round_nearest
-    |> Float.to_int
-    |> closest_8bit_cube_index)
-  (* Assert: this cannot throw an exception, as the values are always in-range *)
-  |> of_rgb6_exn
+  of_rgb6_exn
+    (Tuple3.map rgb ~f:(fun f ->
+       closest_8bit_cube_index
+         (Float.to_int
+            (Float.round_nearest
+               ((if Float.is_finite f then Float.clamp_exn ~min:0. ~max:1. f else 0.)
+                *. 255.)))))
 ;;
 
-let of_rgb_8bit rgb =
-  (* Map integer values from [0 -> 255] to [0 -> 5]. *)
-  Tuple3.map rgb ~f:closest_8bit_cube_index
-  (* Assert: this cannot throw an exception, as the values are always in-range. *)
-  |> of_rgb6_exn
-;;
-
-let of_rgb_int1k rgb =
-  (* Map integer values from [0 -> 1000] to [0 -> 5]. *)
-  Tuple3.map rgb ~f:closest_int1k_cube_index
-  (* Assert: this cannot throw an exception, as the values are always in-range. *)
-  |> of_rgb6_exn
-;;
+let of_rgb_8bit rgb = of_rgb6_exn (Tuple3.map rgb ~f:closest_8bit_cube_index)
+let of_rgb_int1k rgb = of_rgb6_exn (Tuple3.map rgb ~f:closest_int1k_cube_index)
 
 let of_gray24_exn g =
-  (if g >= 0 && g <= 23
-   then g + 232
-   else failwithf "Grayscale value %d for 256-color palette out of range [0-23]" g ())
-  |> of_int_exn
+  of_int_exn
+    (if g >= 0 && g <= 23
+     then g + 232
+     else failwithf "Grayscale value %d for 256-color palette out of range [0-23]" g ())
 ;;
 
 let to_rgb_ints (c : t) ~(level_map : level_map_t) : int * int * int =
@@ -165,29 +208,25 @@ let to_rgb_ints (c : t) ~(level_map : level_map_t) : int * int * int =
   else if ival < 16
   then bit3_result (ival - 8) level_map.full_level
   else if ival > 255
-  then
-    (* This should not be possible, but we'll guard against it regardless *)
-    level_map.full_level, level_map.full_level, level_map.full_level
+  then level_map.full_level, level_map.full_level, level_map.full_level
   else if ival >= 232
   then (
     let gr_val = ival - 232 in
-    (* [232,255] -> [0,23] ;  generate RGB levels starting at 8 in increments of 10. *)
     let gr_part = level_map.gray_base + (gr_val * level_map.gray_stride) in
     gr_part, gr_part, gr_part)
   else (
     let rgb_val = ival - 16 in
-    (* [16,231] -> [0,215] *)
     let r = rgb_val / 36 in
     let g = rgb_val / 6 mod 6 in
     let b = rgb_val mod 6 in
     let r_part =
-      List.nth level_map.color_cube_map r |> Option.value ~default:level_map.full_level
+      Option.value ~default:level_map.full_level (List.nth level_map.color_cube_map r)
     in
     let g_part =
-      List.nth level_map.color_cube_map g |> Option.value ~default:level_map.full_level
+      Option.value ~default:level_map.full_level (List.nth level_map.color_cube_map g)
     in
     let b_part =
-      List.nth level_map.color_cube_map b |> Option.value ~default:level_map.full_level
+      Option.value ~default:level_map.full_level (List.nth level_map.color_cube_map b)
     in
     r_part, g_part, b_part)
 ;;
@@ -198,7 +237,7 @@ let to_rgb c =
   let i = to_int c in
   if i < 16
   then `Primary i
-  else `RGB (to_rgb_bytes c |> Tuple3.map ~f:(fun rgb -> rgb // 255))
+  else `RGB (Tuple3.map ~f:(fun rgb -> rgb // 255) (to_rgb_bytes c))
 ;;
 
 let to_rgb_hex24 c =
@@ -207,23 +246,24 @@ let to_rgb_hex24 c =
 ;;
 
 let tuple3_fold_two
-  (t1 : ('a, 'a, 'a) Tuple3.t)
-  (t2 : ('b, 'b, 'b) Tuple3.t)
-  ~(init : 'c)
-  ~(f : 'a -> 'b -> 'c -> 'c)
+      (t1 : ('a, 'a, 'a) Tuple3.t)
+      (t2 : ('b, 'b, 'b) Tuple3.t)
+      ~(init : 'c)
+      ~(f : 'a -> 'b -> 'c -> 'c)
   : 'c
   =
-  f (fst3 t1) (fst3 t2) init |> f (snd3 t1) (snd3 t2) |> f (trd3 t1) (trd3 t2)
+  f (trd3 t1) (trd3 t2) (f (snd3 t1) (snd3 t2) (f (fst3 t1) (fst3 t2) init))
 ;;
 
 let to_luma c =
   let rgb_bytes = to_rgb_bytes c in
-  (* ITU BT.601 *)
   let weights = 0.299, 0.587, 0.114 in
-  tuple3_fold_two rgb_bytes weights ~init:0. ~f:(fun byte_c weight acc ->
-    acc +. (Float.of_int byte_c *. weight))
-  /. 255.0
-  |> Float.clamp_exn ~min:0. ~max:1.
+  Float.clamp_exn
+    ~min:0.
+    ~max:1.
+    (tuple3_fold_two rgb_bytes weights ~init:0. ~f:(fun byte_c weight acc ->
+       acc +. (Float.of_int byte_c *. weight))
+     /. 255.0)
 ;;
 
 let to_rgb_8bit = to_rgb_bytes
@@ -232,12 +272,14 @@ let to_rgb_int1k c = to_rgb_ints ~level_map:level_map_1000_per_channel c
 let to_rgb6 c =
   let offset_ival = to_int c - 16 in
   if offset_ival < 0 || offset_ival > 215
-  then
-    (* Closest approximation in the color-cube *)
-    to_rgb_bytes c |> Tuple3.map ~f:closest_8bit_cube_index
+  then Tuple3.map ~f:closest_8bit_cube_index (to_rgb_bytes c)
   else (
     let r = offset_ival / 36 in
     let g = offset_ival / 6 mod 6 in
     let b = offset_ival mod 6 in
     r, g, b)
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

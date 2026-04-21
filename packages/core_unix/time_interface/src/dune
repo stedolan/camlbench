@@ -2,5 +2,4 @@
  (name time_interface)
  (public_name core_unix.time_interface)
  (libraries core)
- (preprocess
-  (pps ppx_jane)))
+)

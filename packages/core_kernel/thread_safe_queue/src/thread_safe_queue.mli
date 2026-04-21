@@ -1,57 +1,67 @@
-(** A thread-safe non-blocking queue of unbounded size.
-
-    The implementation does not use mutexes, and so is safe to use in situations when one
-    doesn't want to block, e.g., a finalizer or an async job.
-*)
+[@@@ocaml.text
+  " A thread-safe non-blocking queue of unbounded size.\n\n\
+  \    The implementation does not use mutexes, and so is safe to use in situations when \
+   one\n\
+  \    doesn't want to block, e.g., a finalizer or an async job.\n"]
 
 open! Core
 open! Import
 
 type 'a t [@@deriving sexp_of]
 
+include sig
+  [@@@ocaml.warning "-32"]
+
+  val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+end
+[@@ocaml.doc "@inline"] [@@merlin.hide]
+
 include Invariant.S1 with type 'a t := 'a t
 
-(** [create ()] returns an empty queue. *)
-val create : unit -> 'a t
+val create : unit -> 'a t [@@ocaml.doc " [create ()] returns an empty queue. "]
 
 val length : _ t -> int
 val enqueue : 'a t -> 'a -> unit
 
-(** [dequeue_exn t] raises if [length t = 0].  The idiom for dequeueing a single element
-    is:
-
-    {[
-      if length t > 0 then dequeue_exn t else ...
-    ]}
-
-    The idiom for dequeueing until empty is:
-
-    {[
-      while length t > 0 do
-        let a = dequeue_exn t in
-        ...
-      done
-    ]}
-
-    These idioms work in the presence of threads because OCaml will not context switch
-    between the [length t > 0] test and the call to [dequeue_exn].  Also, if one has only
-    a single thread calling [dequeue_exn], then the idiom is obviously OK even in the
-    presence of a context switch. *)
 val dequeue_exn : 'a t -> 'a
+[@@ocaml.doc
+  " [dequeue_exn t] raises if [length t = 0].  The idiom for dequeueing a single element\n\
+  \    is:\n\n\
+  \    {[\n\
+  \      if length t > 0 then dequeue_exn t else ...\n\
+  \    ]}\n\n\
+  \    The idiom for dequeueing until empty is:\n\n\
+  \    {[\n\
+  \      while length t > 0 do\n\
+  \        let a = dequeue_exn t in\n\
+  \        ...\n\
+  \      done\n\
+  \    ]}\n\n\
+  \    These idioms work in the presence of threads because OCaml will not context switch\n\
+  \    between the [length t > 0] test and the call to [dequeue_exn].  Also, if one has \
+   only\n\
+  \    a single thread calling [dequeue_exn], then the idiom is obviously OK even in the\n\
+  \    presence of a context switch. "]
 
-(** The queue maintains an internal pool of unused elements, which are used by [enqueue]
-    and returned to the pool by [dequeue_exn].  [enqueue] creates a new element if the
-    pool is empty.  Nothing shrinks the pool automatically.  One can call
-    [clear_internal_pool] to clear the pool, so that all unused elements will be reclaimed
-    by the garbage collector. *)
 val clear_internal_pool : _ t -> unit
+[@@ocaml.doc
+  " The queue maintains an internal pool of unused elements, which are used by [enqueue]\n\
+  \    and returned to the pool by [dequeue_exn].  [enqueue] creates a new element if the\n\
+  \    pool is empty.  Nothing shrinks the pool automatically.  One can call\n\
+  \    [clear_internal_pool] to clear the pool, so that all unused elements will be \
+   reclaimed\n\
+  \    by the garbage collector. "]
 
-(*_ See the Jane Street Style Guide for an explanation of [Private] submodules:
-
-  https://opensource.janestreet.com/standards/#private-submodules *)
 module Private : sig
   module Uopt : sig
     type 'a t [@@deriving sexp_of]
+
+    include sig
+      [@@@ocaml.warning "-32"]
+
+      val sexp_of_t : ('a -> Sexplib0.Sexp.t) -> 'a t -> Sexplib0.Sexp.t
+    end
+    [@@ocaml.doc "@inline"] [@@merlin.hide]
 
     val none : _ t
     val some : 'a -> 'a t

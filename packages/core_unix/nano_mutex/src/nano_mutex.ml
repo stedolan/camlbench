@@ -1,12 +1,30 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"nano_mutex.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "nano_mutex.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 
 let ok_exn = Or_error.ok_exn
 
-(* A [Blocker.t] is an ordinary mutex and conditional variable used to implement blocking
-   when there is lock contention. *)
 module Blocker : sig
   type t [@@deriving sexp_of]
+
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
 
   val create : unit -> t
   val critical_section : t -> f:(unit -> 'a) -> 'a
@@ -14,9 +32,6 @@ module Blocker : sig
   val signal : t -> unit
   val save_unused : t -> unit
 end = struct
-  (* Our use of mutexes is always via [Mutex.critical_section], so that we always lock
-     them and unlock them from a single thread.  So, we use [Core.Mutex], which is
-     error-checking mutexes, which will catch any use that is not what we expect. *)
   module Condition = Condition
   module Mutex = Error_checking_mutex
 
@@ -26,14 +41,30 @@ end = struct
     }
   [@@deriving sexp_of]
 
-  (* We keep a cache of unused blockers, since they are relatively costly to create, and
-     we should never need very many simultaneously.  We should never need more blockers
-     than the number of nano mutexes being simultaneously blocked on, which of course is
-     no more than the total number of simultaneous threads. *)
-  let unused : t Thread_safe_queue.t = Thread_safe_queue.create ()
+  include struct
+    let _ = fun (_ : t) -> ()
 
-  (* [save_unused t] should be called when [t] is no longer in use, so it can be returned
-     by a future call of [create]. *)
+    let sexp_of_t =
+      (fun { mutex = mutex__002_; condition = condition__004_ } ->
+         let bnds__001_ = ([] : _ Stdlib.List.t) in
+         let bnds__001_ =
+           let arg__005_ = Sexplib0.Sexp_conv.sexp_of_opaque condition__004_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "condition"; arg__005_ ] :: bnds__001_
+            : _ Stdlib.List.t)
+         in
+         let bnds__001_ =
+           let arg__003_ = Sexplib0.Sexp_conv.sexp_of_opaque mutex__002_ in
+           (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "mutex"; arg__003_ ] :: bnds__001_
+            : _ Stdlib.List.t)
+         in
+         Sexplib0.Sexp.List bnds__001_
+       : t -> Sexplib0.Sexp.t)
+    ;;
+
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+  let unused : t Thread_safe_queue.t = Thread_safe_queue.create ()
   let save_unused t = Thread_safe_queue.enqueue unused t
 
   let create () =
@@ -50,6 +81,15 @@ end
 module Thread_id_option : sig
   type t [@@deriving equal, sexp_of] [@@immediate]
 
+  include sig
+    [@@@ocaml.warning "-32"]
+
+    include Ppx_compare_lib.Equal.S with type t := t
+
+    val sexp_of_t : t -> Sexplib0.Sexp.t
+  end
+  [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   val none : t
   val some : int -> t
   val is_none : t -> bool
@@ -57,35 +97,30 @@ module Thread_id_option : sig
 end = struct
   type t = int [@@deriving equal, sexp_of]
 
+  include struct
+    let _ = fun (_ : t) -> ()
+
+    let equal =
+      (fun a__006_ b__007_ -> equal_int a__006_ b__007_ : t -> (t[@merlin.hide]) -> bool)
+    ;;
+
+    let _ = equal
+    let sexp_of_t = (sexp_of_int : t -> Sexplib0.Sexp.t)
+    let _ = sexp_of_t
+  end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
   let none = -1
-  let[@inline always] is_none t = t = none
-  let[@inline always] is_some t = t <> none
-  let[@inline always] some int = int
-  let sexp_of_t t = if t = none then [%sexp "None"] else [%sexp (t : t)]
+  let is_none t = t = none [@@inline always]
+  let is_some t = t <> none [@@inline always]
+  let some int = int [@@inline always]
+
+  let sexp_of_t t =
+    if t = none
+    then Ppx_sexp_conv_lib.Conv.sexp_of_string "None"
+    else (sexp_of_t [@merlin.hide]) t
+  ;;
 end
 
-(* We represent a nano mutex using an OCaml record.  The [id_of_thread_holding_lock] field
-   represents whether the mutex is locked or not, and if it is locked, which thread holds
-   the lock.  We use [Thread_id_option] instead of [int option] for performance reasons
-   (using [int option] slows down lock+unlock by a factor of almost two).
-
-   The mutex record has an optional [blocker] field for use when the mutex is contended.
-   We use the OS-level condition variable in [blocker] to [wait] in a thread that desires
-   the lock and to [signal] from a thread that is releasing it.
-
-   When thinking about the implementation, it is helpful to remember the following
-   desiderata:
-
- * Safety -- only one thread can acquire the lock at a time.  This is accomplished
-   usng a test-and-set to set [id_of_thread_holding_lock].
-
- * Liveness -- if the mutex is unlocked and some threads are waiting on it, then one of
-   those threads will be woken up and given a chance to acquire it.  This is accomplished
-   by only waiting when we can ensure that there will be a [signal] of the condition
-   variable in the future.  See the more detailed comment in [lock].
-
- * Performance -- do not spin trying to acquire the lock.  This is accomplished by
-   waiting on a condition variable if a lock is contended. *)
 type t =
   { mutable id_of_thread_holding_lock : Thread_id_option.t
   ; mutable num_using_blocker : int
@@ -93,18 +128,58 @@ type t =
   }
 [@@deriving sexp_of]
 
+include struct
+  let _ = fun (_ : t) -> ()
+
+  let sexp_of_t =
+    (fun { id_of_thread_holding_lock = id_of_thread_holding_lock__009_
+         ; num_using_blocker = num_using_blocker__011_
+         ; blocker = blocker__013_
+         } ->
+       let bnds__008_ = ([] : _ Stdlib.List.t) in
+       let bnds__008_ =
+         let arg__014_ = Uopt.sexp_of_t Blocker.sexp_of_t blocker__013_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "blocker"; arg__014_ ] :: bnds__008_
+          : _ Stdlib.List.t)
+       in
+       let bnds__008_ =
+         let arg__012_ = sexp_of_int num_using_blocker__011_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "num_using_blocker"; arg__012_ ]
+          :: bnds__008_
+          : _ Stdlib.List.t)
+       in
+       let bnds__008_ =
+         let arg__010_ = Thread_id_option.sexp_of_t id_of_thread_holding_lock__009_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "id_of_thread_holding_lock"; arg__010_ ]
+          :: bnds__008_
+          : _ Stdlib.List.t)
+       in
+       Sexplib0.Sexp.List bnds__008_
+     : t -> Sexplib0.Sexp.t)
+  ;;
+
+  let _ = sexp_of_t
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 let invariant t =
   try
     assert (t.num_using_blocker >= 0);
-    (* It is the case that if [t.num_using_blocker = 0] then [Option.is_none t.blocker],
-       however the converse does not necessarily hold.  The code in [with_blocker] doesn't
-       take care to atomically increment [t.num_using_blocker] and set [t.blocker] to
-       [Some].  It could, but doing so is not necessary for the correctness of of
-       [with_blocker], which only relies on test-and-set of [t.blocker] to make sure
-       there is an agreed-upon winner in the race to create a blocker. *)
     if t.num_using_blocker = 0 then assert (Uopt.is_none t.blocker)
   with
-  | exn -> failwiths ~here:[%here] "invariant failed" (exn, t) [%sexp_of: exn * t]
+  | exn ->
+    failwiths
+      ~here:
+        { Ppx_here_lib.pos_fname = "nano_mutex.ml.before-ppx"
+        ; pos_lnum = 107
+        ; pos_cnum = 4377
+        ; pos_bol = 4350
+        }
+      "invariant failed"
+      (exn, t)
+      ((fun (arg0__015_, arg1__016_) ->
+         let res0__017_ = sexp_of_exn arg0__015_
+         and res1__018_ = sexp_of_t arg1__016_ in
+         Sexplib0.Sexp.List [ res0__017_; res1__018_ ]) [@merlin.hide])
 ;;
 
 let equal (t : t) t' = phys_equal t t'
@@ -122,27 +197,26 @@ let current_thread_id () = Thread.id (Thread.self ())
 let current_thread_has_lock t =
   Thread_id_option.equal
     t.id_of_thread_holding_lock
-    (current_thread_id () |> Thread_id_option.some)
+    (Thread_id_option.some (current_thread_id ()))
 ;;
 
-let[@cold] error_recursive_lock t =
+let error_recursive_lock t =
   Error
     (Error.create
        "attempt to lock mutex by thread already holding it"
        (current_thread_id (), t)
-       [%sexp_of: int * t])
+       ((fun (arg0__019_, arg1__020_) ->
+          let res0__021_ = sexp_of_int arg0__019_
+          and res1__022_ = sexp_of_t arg1__020_ in
+          Sexplib0.Sexp.List [ res0__021_; res1__022_ ]) [@merlin.hide]))
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
 let try_lock t =
-  (* The following code relies on an atomic test-and-set of [id_of_thread_holding_lock],
-     so that there is a definitive winner in a race between multiple lockers and everybody
-     agrees who acquired the lock. *)
-  let current_thread_id = current_thread_id () |> Thread_id_option.some in
-  (* BEGIN ATOMIC *)
+  let current_thread_id = Thread_id_option.some (current_thread_id ()) in
   if Thread_id_option.is_none t.id_of_thread_holding_lock
   then (
     t.id_of_thread_holding_lock <- current_thread_id;
-    (* END ATOMIC *)
     Ok `Acquired)
   else if Thread_id_option.equal current_thread_id t.id_of_thread_holding_lock
   then error_recursive_lock t
@@ -151,87 +225,62 @@ let try_lock t =
 
 let try_lock_exn t = ok_exn (try_lock t)
 
-(* Marked with attributes so the allocation of [new_blocker] at the call site cannot be
-   sunk down into the atomic section (there exists no barrier in OCaml right now to
-   prevent this) *)
-
-let[@inline never] [@specialise never] [@local never] with_blocker0 t ~new_blocker =
-  (* BEGIN ATOMIC *)
+let with_blocker0 t ~new_blocker =
   if Uopt.is_some t.blocker
   then Uopt.unsafe_value t.blocker
   else (
     t.blocker <- Uopt.some new_blocker;
     new_blocker)
+[@@inline never] [@@specialise never] [@@local never]
 ;;
 
-(* END ATOMIC *)
-
-(* [with_blocker t f] runs [f blocker] in a critical section.  It allocates a blocker for
-   [t] if [t] doesn't already have one. *)
 let with_blocker t f =
   t.num_using_blocker <- t.num_using_blocker + 1;
   let blocker =
-    match%optional.Uopt t.blocker with
-    | Some blocker -> blocker
-    | None ->
-      (* We allocate [new_blocker] here because one cannot allocate inside an atomic
-         region. *)
-      let new_blocker = Blocker.create () in
-      let blocker =
-        (* We need the following test-and-set to be atomic so that there is a definitive
-           winner in a race between multiple calls to [with_blocker], so that everybody
-           agrees what the underlying [blocker] is. *)
-        with_blocker0 t ~new_blocker
-      in
-      if not (phys_equal blocker new_blocker) then Blocker.save_unused new_blocker;
-      blocker
+    let __ppx_optional_e_0 = t.blocker in
+    if false
+    then (
+      (match
+         if Uopt.Optional_syntax.Optional_syntax.is_none __ppx_optional_e_0
+         then None
+         else Some (Uopt.Optional_syntax.Optional_syntax.unsafe_value __ppx_optional_e_0)
+       with
+       | Some blocker -> blocker
+       | None ->
+         let new_blocker = Blocker.create () in
+         let blocker = with_blocker0 t ~new_blocker in
+         if not (phys_equal blocker new_blocker) then Blocker.save_unused new_blocker;
+         blocker)
+      [@merlin.focus])
+    else (
+      (match Uopt.Optional_syntax.Optional_syntax.is_none __ppx_optional_e_0 with
+       | (false [@merlin.hide]) ->
+         let blocker : _ =
+           Uopt.Optional_syntax.Optional_syntax.unsafe_value __ppx_optional_e_0
+         in
+         blocker
+       | (true [@merlin.hide]) ->
+         let new_blocker = Blocker.create () in
+         let blocker = with_blocker0 t ~new_blocker in
+         if not (phys_equal blocker new_blocker) then Blocker.save_unused new_blocker;
+         blocker)
+      [@merlin.hide] [@ocaml.warning "-a"])
   in
-  protect
-    ~f:(fun () -> Blocker.critical_section blocker ~f:(fun () -> f blocker) [@nontail])
-    ~finally:(fun () ->
-      (* We need the following decrement-test-and-set to be atomic so that we're sure that
-         the last user of blocker clears it. *)
-      (* BEGIN ATOMIC *)
-      t.num_using_blocker <- t.num_using_blocker - 1;
-      if t.num_using_blocker = 0
-      then (
-        t.blocker <- Uopt.none;
-        (* END ATOMIC *)
-        Blocker.save_unused blocker)) [@nontail]
+  (protect
+     ~f:(fun () -> (Blocker.critical_section blocker ~f:(fun () -> f blocker) [@nontail]))
+     ~finally:(fun () ->
+       t.num_using_blocker <- t.num_using_blocker - 1;
+       if t.num_using_blocker = 0
+       then (
+         t.blocker <- Uopt.none;
+         Blocker.save_unused blocker)) [@nontail])
 ;;
 
 let rec lock t =
-  (* The following code relies on an atomic test-and-set of [id_of_thread_holding_lock],
-     so that there is a definitive winner in a race between multiple [lock]ers, and
-     everybody agrees who acquired the lock.
-
-     If [is_locked t], we block the locking thread using [Blocker.wait], until some
-     unlocking thread [Blocker.signal]s us.  There is a race between the [wait] and the
-     [signal].  If the unlocking thread signals in between our test of
-     [t.id_of_thread_holding_lock] and our [wait], then our [wait] could miss the signal
-     and block forever.  We avoid this race by committing to waiting inside a
-     [with_blocker], which increments [t.num_using_blocker].  If the [signal] occurs
-     before the [with_blocker], then it will have cleared [t.id_of_thread_holding_lock],
-     which we will notice as [not (is_locked t)], and then not [wait], and loop trying to
-     [lock] again.  Otherwise, when an [unlock] occurs, it will see that [is_some
-     t.blocker], and will enter a critical section on [blocker].  But then it must wait
-     until our critical section on [blocker] finishes, and hence until our call to [wait]
-     finishes.  Hence, the [signal] will occur after the [wait].
-
-     The recursive call to [lock] will not spin.  It happens either because we just lost
-     the race with an unlocker, in which case the subsequent [lock] will succeed, or
-     we actually had to block because someone is holding the lock.  The latter is the
-     overwhelmingly common case.
-
-     Other threads can change [t.id_of_thread_holding_lock] concurrently with this code.
-     However, no other thread can set it to our [current_thread_id], since threads only
-     ever set [t.id_of_thread_holding_lock] to their current thread id, or clear it. *)
-  let current_thread_id = current_thread_id () |> Thread_id_option.some in
-  (* BEGIN ATOMIC *)
+  let current_thread_id = Thread_id_option.some (current_thread_id ()) in
   if Thread_id_option.is_none t.id_of_thread_holding_lock
   then (
     t.id_of_thread_holding_lock <- current_thread_id;
-    (* END ATOMIC *)
     Ok ())
   else if Thread_id_option.equal current_thread_id t.id_of_thread_holding_lock
   then error_recursive_lock t
@@ -248,36 +297,58 @@ type message =
   }
 [@@deriving sexp_of]
 
-let[@cold] error_attempt_to_unlock_mutex_held_by_another_thread t =
+include struct
+  let _ = fun (_ : message) -> ()
+
+  let sexp_of_message =
+    (fun { current_thread_id = current_thread_id__024_; mutex = mutex__026_ } ->
+       let bnds__023_ = ([] : _ Stdlib.List.t) in
+       let bnds__023_ =
+         let arg__027_ = sexp_of_t mutex__026_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "mutex"; arg__027_ ] :: bnds__023_
+          : _ Stdlib.List.t)
+       in
+       let bnds__023_ =
+         let arg__025_ = sexp_of_int current_thread_id__024_ in
+         (Sexplib0.Sexp.List [ Sexplib0.Sexp.Atom "current_thread_id"; arg__025_ ]
+          :: bnds__023_
+          : _ Stdlib.List.t)
+       in
+       Sexplib0.Sexp.List bnds__023_
+     : message -> Sexplib0.Sexp.t)
+  ;;
+
+  let _ = sexp_of_message
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
+let error_attempt_to_unlock_mutex_held_by_another_thread t =
   Error
     (Error.create
        "attempt to unlock mutex held by another thread"
        { current_thread_id = current_thread_id (); mutex = t }
-       [%sexp_of: message])
+       (sexp_of_message [@merlin.hide]))
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
-let[@cold] error_attempt_to_unlock_an_unlocked_mutex t =
+let error_attempt_to_unlock_an_unlocked_mutex t =
   Error
     (Error.create
        "attempt to unlock an unlocked mutex"
        { current_thread_id = current_thread_id (); mutex = t }
-       [%sexp_of: message])
+       (sexp_of_message [@merlin.hide]))
+[@@ocaml.inline never] [@@ocaml.local never] [@@ocaml.specialise never]
 ;;
 
 let unlock t =
   let current_thread_id = current_thread_id () in
-  (* We need the following test-and-set to be atomic so that there is a definitive
-     winner in a race between multiple unlockers, so that one unlock succeeds and the
-     rest fail. *)
-  (* BEGIN ATOMIC *)
   if Thread_id_option.is_some t.id_of_thread_holding_lock
   then
-    if Thread_id_option.equal
-         t.id_of_thread_holding_lock
-         (current_thread_id |> Thread_id_option.some)
+    if
+      Thread_id_option.equal
+        t.id_of_thread_holding_lock
+        (Thread_id_option.some current_thread_id)
     then (
       t.id_of_thread_holding_lock <- Thread_id_option.none;
-      (* END ATOMIC *)
       if Uopt.is_some t.blocker then with_blocker t Blocker.signal;
       Ok ())
     else error_attempt_to_unlock_mutex_held_by_another_thread t
@@ -290,3 +361,7 @@ let critical_section t ~f =
   lock_exn t;
   protect ~f ~finally:(fun () -> unlock_exn t)
 ;;
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()

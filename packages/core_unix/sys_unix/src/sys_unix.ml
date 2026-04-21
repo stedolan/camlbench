@@ -1,3 +1,16 @@
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.set "ppx_inline_test_lib_1"
+
+let () =
+  Ppx_expect_runtime.Current_file.set
+    ~filename_rel_to_project_root:"sys_unix.ml.before-ppx"
+;;
+
+let () =
+  Ppx_inline_test_lib.set_lib_and_partition
+    "ppx_inline_test_lib_1"
+    "sys_unix.ml.before-ppx"
+;;
+
 open! Core
 open! Import
 open Core.Sys
@@ -74,6 +87,23 @@ end
 
 exception Command_failed_with_status of Int.t * String.t [@@deriving sexp]
 
+include struct
+  let () =
+    Sexplib0.Sexp_conv.Exn_converter.add
+      [%extension_constructor Command_failed_with_status]
+      (function
+      | Command_failed_with_status (arg0__001_, arg1__002_) ->
+        let res0__003_ = Int.sexp_of_t arg0__001_
+        and res1__004_ = String.sexp_of_t arg1__002_ in
+        Sexplib0.Sexp.List
+          [ Sexplib0.Sexp.Atom "sys_unix.ml.before-ppx.Command_failed_with_status"
+          ; res0__003_
+          ; res1__004_
+          ]
+      | _ -> assert false)
+  ;;
+end [@@ocaml.doc "@inline"] [@@merlin.hide]
+
 let command_exn string =
   let status = command string in
   if status <> 0 then raise (Command_failed_with_status (status, string))
@@ -82,10 +112,6 @@ let command_exn string =
 let fold_dir ~init ~f directory = Array.fold (readdir directory) ~f ~init
 let ls_dir directory = Array.to_list (readdir directory)
 
-(* This function takes six units to cause ocaml to call a different
-   function when executing bytecode:
-   http://caml.inria.fr/pub/docs/manual-ocaml/intfc.html#ss:c-prim-impl
-*)
 external executing_bytecode
   :  unit
   -> unit
@@ -95,13 +121,12 @@ external executing_bytecode
   -> unit
   -> bool
   = "executing_bytecode" "not_executing_bytecode"
-  [@@noalloc]
+[@@noalloc]
 
 let execution_mode () =
   if executing_bytecode () () () () () () then `Bytecode else `Native
 ;;
 
-(* returns size, in bits, of an [int] type in C *)
 external c_int_size : unit -> int = "c_int_size" [@@noalloc]
 
 let home_directory () =
@@ -130,3 +155,7 @@ let override_argv new_argv =
 ;;
 
 [%%endif]
+
+let () = Ppx_inline_test_lib.unset_lib "ppx_inline_test_lib_1"
+let () = Ppx_expect_runtime.Current_file.unset ()
+let () = Ppx_bench_lib.Benchmark_accumulator.Current_libname.unset ()
