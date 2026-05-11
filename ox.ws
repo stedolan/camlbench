@@ -4,4 +4,4 @@
  (profile release)
  (env (_
    (flags (:standard -warn-error -A -w -67-69-55-215 -alert=-unsafe_multidomain))
-   (ocamlopt_flags (:standard -zero-alloc-check none -O3 -flambda2-join-algorithm=n-way))))))
+   (ocamlopt_flags (:standard -zero-alloc-check none -O3))))))
