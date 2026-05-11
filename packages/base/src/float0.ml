@@ -202,8 +202,8 @@ let lower_bound_for_int num_bits =
    These intrinsics were copied from [Ocaml_intrinsics] to avoid build deps we don't want
 *)
 module Intrinsics_with_weird_nan_behavior = struct
-  let[@inline always] min a b = Ocaml_intrinsics_kernel.Float.min a b
-  let[@inline always] max a b = Ocaml_intrinsics_kernel.Float.max a b
+  let[@inline always] min a b = Stdlib.Float.min a b
+  let[@inline always] max a b = Stdlib.Float.max a b
 end
 
 let clamp_unchecked
