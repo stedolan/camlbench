@@ -17,7 +17,7 @@ module Stubs = struct
     :  (nativeint[@unboxed])
     -> (int[@untagged])
     = "caml_nativeint_clz" "caml_nativeint_clz_nonzero_unboxed_to_untagged"
-    [@@noalloc] [@@builtin] [@@no_effects] [@@no_coeffects]
+    [@@noalloc] [@@no_effects] [@@no_coeffects]
 
   (** [count_trailing_zeros n] returns the number of least-significant
       zero bits before the least significant set bit in [n].
@@ -35,7 +35,7 @@ module Stubs = struct
     :  (nativeint[@unboxed])
     -> (int[@untagged])
     = "caml_nativeint_ctz" "caml_nativeint_ctz_nonzero_unboxed_to_untagged"
-    [@@noalloc] [@@builtin] [@@no_effects] [@@no_coeffects]
+    [@@noalloc] [@@no_effects] [@@no_coeffects]
 
   (** [count_set_bits n] returns the number of bits that are 1 in [n]. *)
   external count_set_bits
